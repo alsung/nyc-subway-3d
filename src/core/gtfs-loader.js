@@ -14,11 +14,16 @@ export async function loadGTFS() {
         GTFS_FILES.map(f => fetch(`${GTFS_BASE}/${f}`))
     );
 
-    // if any fetch fails or returns a non-ok status, log a warning and return null
+    // if any fetch fails, returns non-ok, or returns HTML (Vite SPA fallback), use embedded data
     for (let i = 0; i < results.length; i++) {
         const r = results[i];
         if (r.status === 'rejected' || !r.value.ok) {
             console.warn(`[gtfs-loader] failed to load ${GTFS_FILES[i]} — using embedded data`);
+            return null;
+        }
+        const ct = r.value.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) {
+            console.warn(`[gtfs-loader] ${GTFS_FILES[i]} returned HTML — using embedded data`);
             return null;
         }
     }
