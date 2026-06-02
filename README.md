@@ -651,7 +651,7 @@ Take the A to Jay St → walk 0.3mi → CitiBike to destination
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
-| GTFS Static (subway) | `https://rrgtfsfeeds.s3.amazonaws.com/gtfssubway.zip` | ZIP (CSV files) | A few times per year | None |
+| GTFS Static (subway) | `http://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip` | ZIP (CSV files) | A few times per year | None |
 | GTFS-RT 1/2/3/4/5/6/7/S | `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs` | Protobuf | ~30s | None |
 | GTFS-RT A/C/E | `.../nyct%2Fgtfs-ace` | Protobuf | ~30s | None |
 | GTFS-RT B/D/F/M | `.../nyct%2Fgtfs-bdfm` | Protobuf | ~30s | None |

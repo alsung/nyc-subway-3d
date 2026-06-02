@@ -3,7 +3,7 @@
 # into public/gtfs/. Run once before npm run dev to use real route data.
 set -euo pipefail
 
-GTFS_URL="https://rrgtfsfeeds.s3.amazonaws.com/gtfssubway.zip"
+GTFS_URL="http://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip"
 OUT_DIR="$(dirname "$0")/../public/gtfs"
 TMP_ZIP="/tmp/gtfs-subway.zip"
 
