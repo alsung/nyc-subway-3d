@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { createRenderer, createScene, createCamera, onWindowResize } from './scene/renderer.js';
-import { buildLineMeshes, setLineVisibility } from './scene/lines.js';
+import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildStationMeshes, getHitStation } from './scene/stations.js';
 import { buildSimulatedTrains, tickTrains } from './scene/trains.js';
 import { initOrbitControls, tweenTo, setView } from './ui/camera.js';
@@ -35,9 +35,9 @@ async function init() {
 
     const { stations, routeMap, lineRoutes } = await loadAndParseGTFS();
 
-    const lineMeshes    = buildLineMeshes(lineRoutes, routeMap, scene);
+    const { lineMeshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, scene);
     const stationMeshes = buildStationMeshes(stations, scene);
-    const trainMeshes   = buildSimulatedTrains(lineRoutes, routeMap, scene);
+    const trainMeshes   = buildSimulatedTrains(lineCurves, routeMap, scene);
 
     const chipBar = document.getElementById('chip-bar');
     buildFilterChips(routeMap, chipBar, (routeId, active) => {
@@ -45,7 +45,11 @@ async function init() {
     });
 
     const popup = buildPopup(document.getElementById('ui'));
-    popup.querySelector('.popup-close').addEventListener('click', () => hidePopup(popup));
+    popup.querySelector('.popup-close').addEventListener('click', () => {
+        hidePopup(popup);
+        clearLineHighlight(lineMeshes);
+        lastStation = null;
+    });
 
     // RT state — shared between the refresh loop and click/search handlers.
     let arrivalIndex = {};
@@ -78,7 +82,8 @@ async function init() {
             document.getElementById('staleness-label').textContent = isStale ? 'Stale' : 'Live';
 
             if (lastStation && !popup.classList.contains('hidden')) {
-                showPopup(popup, lastStation, routeMap, getArrivals(lastStation));
+                showPopup(popup, lastStation, routeMap, getArrivals(lastStation),
+                    (routeId) => highlightLine(lineMeshes, routeId));
             }
         } catch {
             staleEl.classList.remove('hidden');
@@ -94,7 +99,8 @@ async function init() {
         lastStation = station;
         const { x, z } = geoToXZ(station.lat, station.lng);
         tweenTo(camera, controls, [x, 15, z + 10], [x, 0, z]);
-        showPopup(popup, station, routeMap, getArrivals(station));
+        showPopup(popup, station, routeMap, getArrivals(station),
+            (routeId) => highlightLine(lineMeshes, routeId));
     });
 
     // Clicking a station disc flies the camera to that station and opens the popup.
@@ -110,7 +116,8 @@ async function init() {
             lastStation = station;
             const { x, z } = geoToXZ(station.lat, station.lng);
             tweenTo(camera, controls, [x, 15, z + 10], [x, 0, z]);
-            showPopup(popup, station, routeMap, getArrivals(station));
+            showPopup(popup, station, routeMap, getArrivals(station),
+                (routeId) => highlightLine(lineMeshes, routeId));
         }
     });
 
