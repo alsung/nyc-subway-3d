@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { geoToXZ, downsample } from '../core/geo.js';
+import { geoToLocalMeters, downsample } from '../core/geo.js';
+
+const TUBE_RADIUS_M = 6;
 
 export function buildLineMeshes(lineRoutes, routeMap, scene) {
     const lineMeshes = new Map();
@@ -9,13 +11,13 @@ export function buildLineMeshes(lineRoutes, routeMap, scene) {
         if (coords.length < 2) continue;
 
         const raw = coords.map(([lat, lng]) => {
-            const { x, z } = geoToXZ(lat, lng);
-            return new THREE.Vector3(x, 0, z);
+            const { x, y } = geoToLocalMeters(lat, lng);
+            return new THREE.Vector3(x, y, 0);
         });
         const sampled = downsample(raw, 300);
 
         const curve    = new THREE.CatmullRomCurve3(sampled);
-        const geometry = new THREE.TubeGeometry(curve, 200, 0.11, 5, false);
+        const geometry = new THREE.TubeGeometry(curve, 200, TUBE_RADIUS_M, 5, false);
         const color    = routeMap[routeId]?.color ?? '#808183';
         const material = new THREE.MeshStandardMaterial({
             color,
