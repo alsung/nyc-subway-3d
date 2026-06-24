@@ -45,6 +45,32 @@ export function xzToGeo(x, z) {
     return { lat, lng };
 }
 
+// Meters per degree of latitude (WGS-84 approximation, accurate enough at NYC's latitude).
+const METERS_PER_DEGREE_LAT = 111320;
+
+/**
+ * Project a WGS-84 coordinate to local meters relative to MAP_CENTER, using the
+ * same equirectangular approximation as geoToXZ but in real-world units instead
+ * of app-specific scale units.
+ *
+ * Used as the Three.js model-space coordinate for the Maplibre custom layer:
+ * the layer's model matrix converts these local meters into Mercator world
+ * space, so geometry built from this function lines up with the map underneath.
+ *
+ * x increases eastward, y increases southward (matching Mercator's Y axis,
+ * which also increases southward) so the model matrix can be a plain
+ * translate + uniform scale with no axis permutation.
+ *
+ * @param {number} lat Decimal degrees latitude
+ * @param {number} lng Decimal degrees longitude
+ * @returns {{x: number, y: number}}
+ */
+export function geoToLocalMeters(lat, lng) {
+    const x = (lng - MAP_CENTER.lng) * METERS_PER_DEGREE_LAT * Math.cos(MAP_CENTER.lat * Math.PI / 180);
+    const y = -((lat - MAP_CENTER.lat) * METERS_PER_DEGREE_LAT);
+    return { x, y };
+}
+
 /**
  * Haversine great-circle distance between two points, in kilometers.
  * 

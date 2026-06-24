@@ -1,50 +1,24 @@
 // src/ui/camera.js
-// Camera controls, smooth tweening, and 2D/3D view presets.
-// OrbitControls handles mouse/touch input; tweenTo drives all programmatic movement.
+// Camera navigation via Maplibre's built-in pan/zoom/pitch/bearing.
+// Maplibre owns the camera now (see scene/renderer.js), so this module is
+// just named presets and a fly-to helper — no OrbitControls, no manual tween.
 
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const VIEW_3D = { pitch: 56, bearing: -17 };
+const VIEW_2D = { pitch: 0, bearing: 0 };
 
-// Attaches OrbitControls to the camera with damping and distance limits.
-// Call controls.update() each frame in the animation loop.
-export function initOrbitControls(camera, domElement) {
-    const controls = new OrbitControls(camera, domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.minDistance = 5;
-    controls.maxDistance = 300;
-    return controls;
+// Flies the map to center on a station at a closer zoom, keeping the
+// current pitch so the 2D/3D toggle state isn't disturbed by navigation.
+export function flyToStation(map, station, zoom = 16) {
+    map.flyTo({
+        center: [station.lng, station.lat],
+        zoom,
+        pitch: map.getPitch(),
+        duration: 1200,
+    });
 }
 
-// Smoothly animates the camera position and look target over durationMs
-// using an ease-in-out quadratic curve. Used by setView and station fly-to.
-export function tweenTo(camera, controls, targetPos, targetLook, durationMs = 900) {
-    const startPos = camera.position.clone();
-    const startLook = controls.target.clone();
-    const endPos = new THREE.Vector3(...targetPos);
-    const endLook = new THREE.Vector3(...targetLook);
-    const start = performance.now();
-
-    function animate() {
-        const raw = Math.min((performance.now() - start) / durationMs, 1);
-        const t = raw < 0.5 ? 2 * raw * raw : -1 + (4 - 2 * raw) * raw;
-
-        camera.position.lerpVectors(startPos, endPos, t);
-        controls.target.lerpVectors(startLook, endLook, t);
-        controls.update();
-
-        if (raw < 1) requestAnimationFrame(animate);
-    }
-
-    requestAnimationFrame(animate);
-}
-
-// Tweens the camera to the 2D top-down preset or the 3D perspective preset.
-// Positions and targets match the README spec.
-export function setView(camera, controls, mode) {
-    if (mode === '2d') {
-        tweenTo(camera, controls, [0, 75, 0.01], [0, 0, 0]);
-    } else {
-        tweenTo(camera, controls, [-28, 38, 44], [0, 0, 0]);
-    }
+// Eases the map to the 2D top-down preset or the 3D tilted preset.
+export function setView(map, mode) {
+    const target = mode === '2d' ? VIEW_2D : VIEW_3D;
+    map.easeTo({ ...target, duration: 800 });
 }
