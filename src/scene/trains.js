@@ -86,7 +86,7 @@ export function tickTrains(trainMeshes, delta) {
 // at scene-build time so live vehicle positions can be resolved by stopId
 // without per-frame geometry search.
 export function buildStationTByRoute(lineCurves, stations) {
-    const SAMPLE_COUNT = 300;
+    const SAMPLE_COUNT = 2000;
     const stationTByRoute = new Map();
 
     for (const [routeId, curve] of lineCurves) {
