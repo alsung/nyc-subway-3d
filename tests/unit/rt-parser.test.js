@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStopId, buildArrivalIndex } from '../../src/core/rt-parser.js';
+import { normalizeStopId, buildArrivalIndex, parseVehiclePositions, VEHICLE_STATUS } from '../../src/core/rt-parser.js';
 
 // Fixed reference time — all arrival times are expressed relative to this.
 const NOW_MS = 1_000_000_000_000;
@@ -20,6 +20,16 @@ function makeEntity(routeId, tripId, stopTimeUpdates) {
 
 function makeStu(stopId, arrivalSeconds) {
     return { stopId, arrival: { time: arrivalSeconds } };
+}
+
+function makeVehicleEntity(routeId, tripId, stopId, currentStatus) {
+    return {
+        vehicle: {
+            trip: { routeId, tripId },
+            stopId,
+            currentStatus,
+        },
+    };
 }
 
 // ── normalizeStopId ───────────────────────────────────────────────────────────
@@ -151,5 +161,78 @@ describe('buildArrivalIndex', () => {
         ])]);
         const index = buildArrivalIndex([feed], NOW_MS);
         expect(index['127N']).toBeDefined();
+    });
+});
+
+// ── VEHICLE_STATUS ────────────────────────────────────────────────────────────
+
+describe('VEHICLE_STATUS', () => {
+    it('matches the GTFS-RT VehicleStopStatus enum ordering', () => {
+        expect(VEHICLE_STATUS.INCOMING_AT).toBe(0);
+        expect(VEHICLE_STATUS.STOPPED_AT).toBe(1);
+        expect(VEHICLE_STATUS.IN_TRANSIT_TO).toBe(2);
+    });
+});
+
+// ── parseVehiclePositions ─────────────────────────────────────────────────────
+
+describe('parseVehiclePositions', () => {
+    it('extracts routeId, tripId, stopId, and currentStatus from a vehicle entity', () => {
+        const feed = makeFeed([makeVehicleEntity('4', 'trip1', '127N', VEHICLE_STATUS.STOPPED_AT)]);
+        const vehicles = parseVehiclePositions([feed]);
+        expect(vehicles).toEqual([{
+            routeId: '4',
+            tripId: 'trip1',
+            stopId: '127N',
+            currentStatus: VEHICLE_STATUS.STOPPED_AT,
+            stopTimeUpdate: [],
+        }]);
+    });
+
+    it('attaches the matching tripUpdate stopTimeUpdate array by tripId', () => {
+        const stus = [makeStu('127N', NOW_S + 60), makeStu('631N', NOW_S + 180)];
+        const feed = makeFeed([
+            makeEntity('4', 'trip1', stus),
+            makeVehicleEntity('4', 'trip1', '127N', VEHICLE_STATUS.IN_TRANSIT_TO),
+        ]);
+        const [vehicle] = parseVehiclePositions([feed]);
+        expect(vehicle.stopTimeUpdate).toBe(stus);
+    });
+
+    it('defaults stopTimeUpdate to an empty array when no matching tripUpdate exists', () => {
+        const feed = makeFeed([makeVehicleEntity('4', 'trip1', '127N', VEHICLE_STATUS.STOPPED_AT)]);
+        const [vehicle] = parseVehiclePositions([feed]);
+        expect(vehicle.stopTimeUpdate).toEqual([]);
+    });
+
+    it('skips vehicle entities missing stopId', () => {
+        const feed = makeFeed([{ vehicle: { trip: { routeId: '4', tripId: 'trip1' } } }]);
+        expect(parseVehiclePositions([feed])).toEqual([]);
+    });
+
+    it('skips vehicle entities missing trip', () => {
+        const feed = makeFeed([{ vehicle: { stopId: '127N' } }]);
+        expect(parseVehiclePositions([feed])).toEqual([]);
+    });
+
+    it('skips entities without a vehicle field', () => {
+        const feed = makeFeed([makeEntity('4', 'trip1', [makeStu('127N', NOW_S + 60)])]);
+        expect(parseVehiclePositions([feed])).toEqual([]);
+    });
+
+    it('merges vehicles from multiple feeds', () => {
+        const feed1 = makeFeed([makeVehicleEntity('4', 'trip1', '127N', VEHICLE_STATUS.STOPPED_AT)]);
+        const feed2 = makeFeed([makeVehicleEntity('6', 'trip2', '631N', VEHICLE_STATUS.IN_TRANSIT_TO)]);
+        expect(parseVehiclePositions([feed1, feed2]).length).toBe(2);
+    });
+
+    it('skips null and undefined feed entries without throwing', () => {
+        expect(() => parseVehiclePositions([null, undefined])).not.toThrow();
+    });
+
+    it('defaults currentStatus to STOPPED_AT when missing', () => {
+        const feed = makeFeed([{ vehicle: { trip: { routeId: '4', tripId: 'trip1' }, stopId: '127N' } }]);
+        const [vehicle] = parseVehiclePositions([feed]);
+        expect(vehicle.currentStatus).toBe(VEHICLE_STATUS.STOPPED_AT);
     });
 });

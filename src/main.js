@@ -4,20 +4,25 @@
 // No business logic lives here — only coordination.
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { createMap, createThreeLayer } from './scene/renderer.js';
+import { createMap, createThreeLayer, addStationLabels } from './scene/renderer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildStationMeshes, getStationAt } from './scene/stations.js';
-import { buildSimulatedTrains, tickTrains } from './scene/trains.js';
+import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { loadAndParseGTFS } from './core/gtfs-loader.js';
 import { loadRT } from './core/rt-loader.js';
-import { buildArrivalIndex } from './core/rt-parser.js';
+import { buildArrivalIndex, parseVehiclePositions } from './core/rt-parser.js';
 
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
+
+// Stations served by fewer than this many routes are hidden below LOD_ZOOM,
+// keeping borough-wide views from looking cluttered with minor stops.
+const MAJOR_ROUTE_THRESHOLD = 3;
+const LOD_ZOOM = 13;
 
 // Bootstraps the entire application. Async because GTFS loading is async;
 // the rest of the setup runs once the map's style has finished loading.
@@ -30,11 +35,26 @@ async function init() {
     map.on('load', () => {
         map.addLayer(threeLayer);
 
+        addStationLabels(map, stations);
+
         const { lineMeshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, threeLayer.scene);
-        buildStationMeshes(stations, threeLayer.scene);
+        const stationTByRoute = buildStationTByRoute(lineCurves, stations);
+        const routeCounts = countRoutesPerStation(stationTByRoute);
+        const stationMeshes = buildStationMeshes(stations, threeLayer.scene, routeCounts);
         const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
 
         threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
+
+        // Hides minor stations (fewer than MAJOR_ROUTE_THRESHOLD routes) until
+        // zoomed in past LOD_ZOOM, so borough-wide views aren't cluttered.
+        function applyStationLOD() {
+            const showAll = map.getZoom() >= LOD_ZOOM;
+            for (const mesh of stationMeshes) {
+                mesh.visible = showAll || mesh.userData.routeCount >= MAJOR_ROUTE_THRESHOLD;
+            }
+        }
+        map.on('zoom', applyStationLOD);
+        applyStationLOD();
 
         const chipBar = document.getElementById('chip-bar');
         buildFilterChips(routeMap, chipBar, (routeId, active) => {
@@ -72,6 +92,7 @@ async function init() {
                 }
 
                 arrivalIndex = buildArrivalIndex(feeds, Date.now());
+                syncRealTrains(trainMeshes, parseVehiclePositions(feeds), lineCurves, stationTByRoute, routeMap, threeLayer.scene);
 
                 const isStale = Date.now() - fetchedAt > RT_STALE_MS;
                 staleEl.classList.remove('hidden', 'stale');

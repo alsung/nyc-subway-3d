@@ -64,3 +64,46 @@ export function buildArrivalIndex(feeds, now) {
 
     return index;
 }
+
+// VehicleStopStatus enum from the GTFS-RT spec. protobufjs decodes this field
+// as a plain number on the message object — it only renders as a string name
+// when passed through JSON.stringify — so callers must compare against these.
+export const VEHICLE_STATUS = {
+    INCOMING_AT: 0,
+    STOPPED_AT: 1,
+    IN_TRANSIT_TO: 2,
+};
+
+// Builds a flat list of live vehicle positions from decoded FeedMessage objects.
+// MTA's subway feed publishes no GPS coordinates — only currentStatus + stopId
+// relative to the route — so each vehicle carries its trip's full
+// stopTimeUpdate sequence too, letting callers derive an approximate position
+// along the route geometry (see scene/trains.js).
+export function parseVehiclePositions(feeds) {
+    const vehicles = [];
+
+    for (const feed of feeds) {
+        if (!feed?.entity) continue;
+
+        const stopTimeUpdateByTripId = new Map();
+        for (const entity of feed.entity) {
+            const tripId = entity.tripUpdate?.trip?.tripId;
+            if (tripId) stopTimeUpdateByTripId.set(tripId, entity.tripUpdate.stopTimeUpdate ?? []);
+        }
+
+        for (const entity of feed.entity) {
+            const vehicle = entity.vehicle;
+            if (!vehicle?.stopId || !vehicle.trip?.tripId) continue;
+
+            vehicles.push({
+                routeId: vehicle.trip.routeId ?? '',
+                tripId: vehicle.trip.tripId,
+                stopId: vehicle.stopId,
+                currentStatus: vehicle.currentStatus ?? VEHICLE_STATUS.STOPPED_AT,
+                stopTimeUpdate: stopTimeUpdateByTripId.get(vehicle.trip.tripId) ?? [],
+            });
+        }
+    }
+
+    return vehicles;
+}
