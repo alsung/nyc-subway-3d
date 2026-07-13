@@ -17,7 +17,9 @@ const CLICK_RADIUS_KM  = 0.05;
 // Creates a flat disc for every station and adds each to the scene.
 // Rotated 90° about X so the cylinder's axis points along world Z (up),
 // matching the local coordinate convention used by geoToLocalMeters.
-export function buildStationMeshes(stations, scene) {
+// routeCounts (stationId -> number of routes serving it) is stamped onto
+// each mesh's userData so main.js can drive zoom-based LOD visibility.
+export function buildStationMeshes(stations, scene, routeCounts = new Map()) {
     const geometry = new THREE.CylinderGeometry(STATION_RADIUS_M, STATION_RADIUS_M, STATION_HEIGHT_M, 16);
     const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
     const meshes = [];
@@ -28,6 +30,7 @@ export function buildStationMeshes(stations, scene) {
         mesh.rotation.x = Math.PI / 2;
         mesh.position.set(x, y, STATION_HEIGHT_M / 2);
         mesh.userData.station = station;
+        mesh.userData.routeCount = routeCounts.get(station.id) ?? 1;
         scene.add(mesh);
         meshes.push(mesh);
     }

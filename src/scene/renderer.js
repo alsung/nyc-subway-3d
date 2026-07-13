@@ -7,7 +7,10 @@ import * as THREE from 'three';
 import maplibregl from 'maplibre-gl';
 import { MAP_CENTER } from '../core/geo.js';
 
-const STYLE_URL = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
+const STADIA_KEY = import.meta.env.VITE_STADIA_API_KEY;
+const STYLE_URL = STADIA_KEY
+    ? `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${STADIA_KEY}`
+    : 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
 
 // Creates the Maplibre map centered on NYC with a dark street style.
 // Drag, zoom, and pitch are all handled natively by Maplibre.
@@ -20,6 +23,43 @@ export function createMap(container) {
         pitch: 56,
         bearing: -17,
         antialias: true,
+    });
+}
+
+// Adds a native Maplibre symbol layer with station name labels. Kept as a
+// real map layer (not Three.js/CSS2DRenderer) so Maplibre's built-in label
+// collision avoidance and text rendering apply for free. Only visible past
+// minzoom to avoid clutter at borough-wide zoom levels.
+export function addStationLabels(map, stations) {
+    map.addSource('stations', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: stations.map(s => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+                properties: { name: s.name },
+            })),
+        },
+    });
+
+    map.addLayer({
+        id: 'station-labels',
+        type: 'symbol',
+        source: 'stations',
+        minzoom: 13,
+        layout: {
+            'text-field': ['get', 'name'],
+            'text-font': ['Stadia Regular'],
+            'text-size': 11,
+            'text-offset': [0, 1.1],
+            'text-anchor': 'top',
+        },
+        paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': '#0a0a1a',
+            'text-halo-width': 1.2,
+        },
     });
 }
 
