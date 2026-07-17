@@ -90,24 +90,31 @@ export function buildStationTByRoute(lineCurves, stations) {
     const stationTByRoute = new Map();
 
     for (const [routeId, curve] of lineCurves) {
-        const points = [];
-        for (let i = 0; i <= SAMPLE_COUNT; i++) points.push(curve.getPoint(i / SAMPLE_COUNT));
+        // Arc-length-uniform sampling so long tunnel sections (few GPS points,
+        // large t-span) get the same sample density as dense surface sections.
+        curve.arcLengthDivisions = SAMPLE_COUNT;
+        const points = curve.getSpacedPoints(SAMPLE_COUNT);
 
         const stationT = new Map();
         for (const station of stations) {
             const { x, y } = geoToLocalMeters(station.lat, station.lng);
             let bestDist = Infinity;
-            let bestT = 0;
+            let bestI = 0;
 
             for (let i = 0; i < points.length; i++) {
                 const dist = Math.hypot(points[i].x - x, points[i].y - y);
                 if (dist < bestDist) {
                     bestDist = dist;
-                    bestT = i / SAMPLE_COUNT;
+                    bestI = i;
                 }
             }
 
-            if (bestDist <= STATION_MATCH_RADIUS_M) stationT.set(station.id, bestT);
+            if (bestDist <= STATION_MATCH_RADIUS_M) {
+                // Convert arc-length index back to curve t via the precomputed
+                // length table so deriveVehicleT gets an accurate t-value.
+                const t = curve.getUtoTmapping(bestI / SAMPLE_COUNT);
+                stationT.set(station.id, t);
+            }
         }
 
         stationTByRoute.set(routeId, stationT);
