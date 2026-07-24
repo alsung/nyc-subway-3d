@@ -12,7 +12,7 @@ import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { loadAndParseGTFS } from './core/gtfs-loader.js';
-import { groupStationsByName } from './core/gtfs-parser.js';
+import { buildStationComplexes } from './core/gtfs-parser.js';
 import { loadRT } from './core/rt-loader.js';
 import { buildArrivalIndex, parseVehiclePositions } from './core/rt-parser.js';
 
@@ -23,7 +23,13 @@ const RT_STALE_MS   = 90_000;
 // the rest of the setup runs once the map's style has finished loading.
 async function init() {
     const { stations, routeMap, lineRoutes } = await loadAndParseGTFS();
-    const stationGroups = groupStationsByName(stations);
+
+    const complexes = buildStationComplexes(stations);
+    // Fast stationId → sibling IDs lookup derived from complexes
+    const stationGroups = new Map();
+    for (const c of complexes) {
+        for (const id of c.stationIds) stationGroups.set(id, c.stationIds);
+    }
 
     const map = createMap(document.getElementById('map'));
     const threeLayer = createThreeLayer('subway-3d');
@@ -36,7 +42,14 @@ async function init() {
         const routeCounts = countRoutesPerStation(stationTByRoute);
         const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
 
-        addStationLayer(map, stations, routeCounts);
+        // Sum constituent station route counts for each complex to determine LOD
+        const complexRouteCounts = new Map();
+        for (const c of complexes) {
+            const total = c.stationIds.reduce((sum, id) => sum + (routeCounts.get(id) ?? 1), 0);
+            complexRouteCounts.set(c.stationIds[0], total);
+        }
+
+        addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts);
 
         threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
 
@@ -56,11 +69,13 @@ async function init() {
         let arrivalIndex = {};
         let lastStation  = null;
 
+        // station may be a raw GTFS station (from search) or an enriched click object
+        // with stationIds already resolved; fall back to the group map either way.
         function getArrivals(station) {
-            const siblingIds = stationGroups.get(station.id) ?? [station.id];
+            const ids = station.stationIds ?? stationGroups.get(station.id) ?? [station.id];
             const seen = new Set();
             const merged = [];
-            for (const id of siblingIds) {
+            for (const id of ids) {
                 for (const a of arrivalIndex[id] ?? []) {
                     if (!seen.has(a.tripId)) { seen.add(a.tripId); merged.push(a); }
                 }
@@ -113,19 +128,29 @@ async function init() {
                 (routeId) => highlightLine(lineMeshes, routeId));
         });
 
-        // Clicking a station circle uses Maplibre's queryRenderedFeatures so
-        // hit detection is exact regardless of camera pitch or zoom.
-        const STATION_LAYERS = ['station-circles-major', 'station-circles-minor'];
+        // All four circle layers — complexes (low zoom) and individuals (high zoom).
+        // Both store stationIds as a pipe-separated string so this handler is uniform.
+        const STATION_LAYERS = [
+            'station-complexes-major', 'station-complexes-minor',
+            'station-circles-major',   'station-circles-minor',
+        ];
+
         map.on('click', (e) => {
             const features = map.queryRenderedFeatures(e.point, { layers: STATION_LAYERS });
             if (!features.length) return;
-            const station = stations.find(s => s.id === features[0].properties.id);
-            if (station) {
-                lastStation = station;
-                flyToStation(map, station);
-                showPopup(popup, station, routeMap, getArrivals(station),
-                    (routeId) => highlightLine(lineMeshes, routeId));
-            }
+            const feat = features[0];
+            const ids = feat.properties.stationIds.split('|');
+            if (!stations.find(s => s.id === ids[0])) return;
+            lastStation = {
+                id: ids[0],
+                name: feat.properties.name,
+                lat: feat.geometry.coordinates[1],
+                lng: feat.geometry.coordinates[0],
+                stationIds: ids,
+            };
+            flyToStation(map, lastStation);
+            showPopup(popup, lastStation, routeMap, getArrivals(lastStation),
+                (routeId) => highlightLine(lineMeshes, routeId));
         });
 
         for (const layer of STATION_LAYERS) {

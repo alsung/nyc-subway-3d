@@ -26,11 +26,27 @@ export function createMap(container) {
     });
 }
 
-// Adds Maplibre native circle layers with LOD: major stations (served by 3+
-// routes) are visible from zoom 10; minor stations appear at zoom 12+. The
-// major flag is stored as an integer (1/0) to avoid Maplibre filter type
-// coercion issues with numeric comparisons. Labels appear at zoom 13+.
-export function addStationLayer(map, stations, routeCounts) {
+// Two-tier station rendering: below zoom 13 shows one merged dot per named
+// complex (centroid of same-name stations); at zoom 13+ individual station
+// circles replace them. Both sources store stationIds as a pipe-separated
+// string so the click handler works uniformly across all four layers.
+export function addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts) {
+    map.addSource('station-complexes', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: complexes.map(c => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                properties: {
+                    name: c.name,
+                    stationIds: c.stationIds.join('|'),
+                    major: (complexRouteCounts.get(c.stationIds[0]) ?? 1) >= 3 ? 1 : 0,
+                },
+            })),
+        },
+    });
+
     map.addSource('stations', {
         type: 'geojson',
         data: {
@@ -39,24 +55,56 @@ export function addStationLayer(map, stations, routeCounts) {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
                 properties: {
-                    id: s.id,
                     name: s.name,
+                    stationIds: s.id,
                     major: (routeCounts.get(s.id) ?? 1) >= 3 ? 1 : 0,
                 },
             })),
         },
     });
 
+    // Complex dots — visible below zoom 13
+    map.addLayer({
+        id: 'station-complexes-major',
+        type: 'circle',
+        source: 'station-complexes',
+        minzoom: 10,
+        maxzoom: 13,
+        filter: ['==', ['get', 'major'], 1],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 12, 7],
+            'circle-color': '#ffffff',
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 12, 2],
+            'circle-stroke-color': '#222222',
+        },
+    });
+
+    map.addLayer({
+        id: 'station-complexes-minor',
+        type: 'circle',
+        source: 'station-complexes',
+        minzoom: 11,
+        maxzoom: 13,
+        filter: ['==', ['get', 'major'], 0],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 12, 4],
+            'circle-color': '#cccccc',
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 12, 1.5],
+            'circle-stroke-color': '#222222',
+        },
+    });
+
+    // Individual circles + labels — visible from zoom 13
     map.addLayer({
         id: 'station-circles-major',
         type: 'circle',
         source: 'stations',
-        minzoom: 10,
+        minzoom: 13,
         filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 6, 16, 9],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 5, 16, 9],
             'circle-color': '#ffffff',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 16, 2],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 1.5, 16, 2],
             'circle-stroke-color': '#222222',
         },
     });
@@ -65,12 +113,12 @@ export function addStationLayer(map, stations, routeCounts) {
         id: 'station-circles-minor',
         type: 'circle',
         source: 'stations',
-        minzoom: 12,
+        minzoom: 13,
         filter: ['==', ['get', 'major'], 0],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 4, 16, 7],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 7],
             'circle-color': '#cccccc',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 1.5],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 16, 1.5],
             'circle-stroke-color': '#222222',
         },
     });

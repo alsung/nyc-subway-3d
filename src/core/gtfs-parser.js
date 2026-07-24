@@ -175,21 +175,22 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
     return lineRoutes;
 }
 
-// Groups stations by name. Returns a Map<stationId, stationId[]> where the
-// value is all station IDs that share the same stop_name — lets the popup
-// merge arrivals across physically separate GTFS parent stations that belong
-// to the same fare complex (e.g. the two "Times Sq-42 St" parent entries).
-export function groupStationsByName(stations) {
-    const nameToIds = new Map();
+// Merges same-name parent stations into complexes. Returns an array of
+// { name, lat, lng, stationIds } where lat/lng is the centroid of the group.
+// Separate GTFS parent entries for the same physical complex (e.g. the two
+// "Times Sq-42 St" entries) collapse into one dot on the map.
+export function buildStationComplexes(stations) {
+    const byName = new Map();
     for (const s of stations) {
-        if (!nameToIds.has(s.name)) nameToIds.set(s.name, []);
-        nameToIds.get(s.name).push(s.id);
+        if (!byName.has(s.name)) byName.set(s.name, []);
+        byName.get(s.name).push(s);
     }
-    const groups = new Map();
-    for (const ids of nameToIds.values()) {
-        for (const id of ids) groups.set(id, ids);
-    }
-    return groups;
+    return [...byName.values()].map(group => ({
+        name: group[0].name,
+        lat: group.reduce((sum, s) => sum + s.lat, 0) / group.length,
+        lng: group.reduce((sum, s) => sum + s.lng, 0) / group.length,
+        stationIds: group.map(s => s.id),
+    }));
 }
 
 export function parseGTFS(stopsText, routesText, shapesText, tripsText) {
