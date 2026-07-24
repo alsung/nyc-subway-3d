@@ -26,12 +26,11 @@ export function createMap(container) {
     });
 }
 
-// Adds Maplibre native circle layers for station markers and a symbol layer
-// for labels. Two circle layers implement LOD: major stations (3+ routes)
-// are always visible; minor stations appear only past zoom 13. Click
-// detection uses Maplibre's queryRenderedFeatures — no Three.js raycasting
-// or haversine proximity needed.
-export function addStationLayer(map, stations, routeCounts) {
+// Adds a Maplibre native circle layer for all station markers plus a symbol
+// layer for labels. All 496 stations appear from zoom 11 onwards — no
+// routeCount-based filtering, which was unreliable. Click detection uses
+// Maplibre's queryRenderedFeatures so hit areas match rendered circles exactly.
+export function addStationLayer(map, stations) {
     map.addSource('stations', {
         type: 'geojson',
         data: {
@@ -39,38 +38,20 @@ export function addStationLayer(map, stations, routeCounts) {
             features: stations.map(s => ({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-                properties: {
-                    id: s.id,
-                    name: s.name,
-                    routeCount: routeCounts.get(s.id) ?? 1,
-                },
+                properties: { id: s.id, name: s.name },
             })),
         },
     });
 
     map.addLayer({
-        id: 'station-circles-major',
+        id: 'station-circles',
         type: 'circle',
         source: 'stations',
-        filter: ['>=', ['get', 'routeCount'], 3],
+        minzoom: 11,
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 10],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 5, 16, 8],
             'circle-color': '#ffffff',
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#222222',
-        },
-    });
-
-    map.addLayer({
-        id: 'station-circles-minor',
-        type: 'circle',
-        source: 'stations',
-        minzoom: 13,
-        filter: ['<', ['get', 'routeCount'], 3],
-        paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 7],
-            'circle-color': '#cccccc',
-            'circle-stroke-width': 1,
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 2],
             'circle-stroke-color': '#222222',
         },
     });

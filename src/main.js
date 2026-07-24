@@ -6,7 +6,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, createThreeLayer, addStationLayer } from './scene/renderer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
-import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
+import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains } from './scene/trains.js';
 import { flyToStation, setView } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, hidePopup } from './ui/popup.js';
@@ -31,10 +31,9 @@ async function init() {
 
         const { lineMeshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, threeLayer.scene);
         const stationTByRoute = buildStationTByRoute(lineCurves, stations);
-        const routeCounts = countRoutesPerStation(stationTByRoute);
         const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
 
-        addStationLayer(map, stations, routeCounts);
+        addStationLayer(map, stations);
 
         threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
 
@@ -104,9 +103,8 @@ async function init() {
 
         // Clicking a station circle uses Maplibre's queryRenderedFeatures so
         // hit detection is exact regardless of camera pitch or zoom.
-        const STATION_LAYERS = ['station-circles-major', 'station-circles-minor'];
         map.on('click', (e) => {
-            const features = map.queryRenderedFeatures(e.point, { layers: STATION_LAYERS });
+            const features = map.queryRenderedFeatures(e.point, { layers: ['station-circles'] });
             if (!features.length) return;
             const station = stations.find(s => s.id === features[0].properties.id);
             if (station) {
@@ -117,10 +115,8 @@ async function init() {
             }
         });
 
-        for (const layer of STATION_LAYERS) {
-            map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-            map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
-        }
+        map.on('mouseenter', 'station-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'station-circles', () => { map.getCanvas().style.cursor = ''; });
 
         document.getElementById('btn-2d').addEventListener('click', () => setView(map, '2d'));
         document.getElementById('btn-3d').addEventListener('click', () => setView(map, '3d'));
