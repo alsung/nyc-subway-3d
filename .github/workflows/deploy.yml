@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [master, phase-4]
 
 jobs:
   test-js:
@@ -28,7 +28,7 @@ jobs:
       - run: cd proxy && go test ./... -race
 
   deploy-frontend:
-    name: Deploy frontend → Vercel
+    name: Deploy frontend → Vercel (${{ github.ref == 'refs/heads/master' && 'production' || 'preview' }})
     needs: [test-js]
     runs-on: ubuntu-latest
     steps:
@@ -40,7 +40,8 @@ jobs:
       - run: npm ci
       - run: npm run gtfs
       - run: npm run build
-      - name: Deploy to Vercel
+      - name: Deploy to Vercel (production)
+        if: github.ref == 'refs/heads/master'
         run: |
           npm install -g vercel
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
@@ -49,9 +50,20 @@ jobs:
         env:
           VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Deploy to Vercel (preview / staging)
+        if: github.ref != 'refs/heads/master'
+        run: |
+          npm install -g vercel
+          vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+          vercel build --token=${{ secrets.VERCEL_TOKEN }}
+          vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
   deploy-proxy:
     name: Deploy proxy → Fly.io
+    if: github.ref == 'refs/heads/master'
     needs: [test-go]
     runs-on: ubuntu-latest
     steps:
