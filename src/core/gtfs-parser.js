@@ -175,6 +175,23 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
     return lineRoutes;
 }
 
+// Groups stations by name. Returns a Map<stationId, stationId[]> where the
+// value is all station IDs that share the same stop_name — lets the popup
+// merge arrivals across physically separate GTFS parent stations that belong
+// to the same fare complex (e.g. the two "Times Sq-42 St" parent entries).
+export function groupStationsByName(stations) {
+    const nameToIds = new Map();
+    for (const s of stations) {
+        if (!nameToIds.has(s.name)) nameToIds.set(s.name, []);
+        nameToIds.get(s.name).push(s.id);
+    }
+    const groups = new Map();
+    for (const ids of nameToIds.values()) {
+        for (const id of ids) groups.set(id, ids);
+    }
+    return groups;
+}
+
 export function parseGTFS(stopsText, routesText, shapesText, tripsText) {
     // call all four parsers
     const { stations, childToParent } = parseStops(stopsText);
