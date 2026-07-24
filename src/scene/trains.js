@@ -15,7 +15,7 @@ const TRAIN_WIDTH_M  = 5;
 const TRAIN_HEIGHT_M = 4;
 const TRAIN_LENGTH_M = 18;
 
-const STATION_MATCH_RADIUS_M = 50;
+const STATION_MATCH_RADIUS_M = 150;
 const INCOMING_FRACTION      = 0.2;
 const IN_TRANSIT_FRACTION    = 0.6;
 const TWEEN_DURATION_MS      = 4000;
@@ -90,10 +90,13 @@ export function buildStationTByRoute(lineCurves, stations) {
     const stationTByRoute = new Map();
 
     for (const [routeId, curve] of lineCurves) {
-        // Arc-length-uniform sampling so long tunnel sections (few GPS points,
-        // large t-span) get the same sample density as dense surface sections.
+        // getPointAt(u) is arc-length-uniform (calls getUtoTmapping internally).
+        // getSpacedPoints is t-uniform and gives uneven coverage on long routes.
         curve.arcLengthDivisions = SAMPLE_COUNT;
-        const points = curve.getSpacedPoints(SAMPLE_COUNT);
+        const points = [];
+        for (let i = 0; i <= SAMPLE_COUNT; i++) {
+            points.push(curve.getPointAt(i / SAMPLE_COUNT));
+        }
 
         const stationT = new Map();
         for (const station of stations) {
@@ -110,8 +113,7 @@ export function buildStationTByRoute(lineCurves, stations) {
             }
 
             if (bestDist <= STATION_MATCH_RADIUS_M) {
-                // Convert arc-length index back to curve t via the precomputed
-                // length table so deriveVehicleT gets an accurate t-value.
+                // bestI/SAMPLE_COUNT is the arc-length fraction; getUtoTmapping maps it to t.
                 const t = curve.getUtoTmapping(bestI / SAMPLE_COUNT);
                 stationT.set(station.id, t);
             }
