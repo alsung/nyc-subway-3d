@@ -29,11 +29,19 @@ async function init() {
     map.on('load', () => {
         map.addLayer(threeLayer);
 
+        console.debug('[subway] stations loaded:', stations.length);
         const { lineMeshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, threeLayer.scene);
+        console.debug('[subway] line curves built:', lineCurves.size);
         const stationTByRoute = buildStationTByRoute(lineCurves, stations);
+        const matched = [...stationTByRoute.values()].reduce((s, m) => s + m.size, 0);
+        console.debug('[subway] station-route matches:', matched);
         const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
 
         addStationLayer(map, stations);
+        const src = map.getSource('stations');
+        console.debug('[subway] GeoJSON features in source:', src?._data?.features?.length ?? 'source missing');
+        console.debug('[subway] station-circles layer:', map.getLayer('station-circles'));
+        window._subway = { map, stations, stationTByRoute, lineCurves };
 
         threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
 
