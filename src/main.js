@@ -6,12 +6,13 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, createThreeLayer, addStationLayer } from './scene/renderer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
-import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains } from './scene/trains.js';
+import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { loadAndParseGTFS } from './core/gtfs-loader.js';
+import { groupStationsByName } from './core/gtfs-parser.js';
 import { loadRT } from './core/rt-loader.js';
 import { buildArrivalIndex, parseVehiclePositions } from './core/rt-parser.js';
 
@@ -22,6 +23,7 @@ const RT_STALE_MS   = 90_000;
 // the rest of the setup runs once the map's style has finished loading.
 async function init() {
     const { stations, routeMap, lineRoutes } = await loadAndParseGTFS();
+    const stationGroups = groupStationsByName(stations);
 
     const map = createMap(document.getElementById('map'));
     const threeLayer = createThreeLayer('subway-3d');
@@ -31,9 +33,10 @@ async function init() {
 
         const { lineMeshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, threeLayer.scene);
         const stationTByRoute = buildStationTByRoute(lineCurves, stations);
+        const routeCounts = countRoutesPerStation(stationTByRoute);
         const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
 
-        addStationLayer(map, stations);
+        addStationLayer(map, stations, routeCounts);
 
         threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
 
@@ -54,7 +57,16 @@ async function init() {
         let lastStation  = null;
 
         function getArrivals(station) {
-            return arrivalIndex[station.id] ?? null;
+            const siblingIds = stationGroups.get(station.id) ?? [station.id];
+            const seen = new Set();
+            const merged = [];
+            for (const id of siblingIds) {
+                for (const a of arrivalIndex[id] ?? []) {
+                    if (!seen.has(a.tripId)) { seen.add(a.tripId); merged.push(a); }
+                }
+            }
+            merged.sort((a, b) => a.minutes - b.minutes);
+            return merged.length ? merged : null;
         }
 
         // Fetches fresh RT data, rebuilds the arrival index, updates the staleness
@@ -103,8 +115,9 @@ async function init() {
 
         // Clicking a station circle uses Maplibre's queryRenderedFeatures so
         // hit detection is exact regardless of camera pitch or zoom.
+        const STATION_LAYERS = ['station-circles-major', 'station-circles-minor'];
         map.on('click', (e) => {
-            const features = map.queryRenderedFeatures(e.point, { layers: ['station-circles'] });
+            const features = map.queryRenderedFeatures(e.point, { layers: STATION_LAYERS });
             if (!features.length) return;
             const station = stations.find(s => s.id === features[0].properties.id);
             if (station) {
@@ -115,8 +128,10 @@ async function init() {
             }
         });
 
-        map.on('mouseenter', 'station-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', 'station-circles', () => { map.getCanvas().style.cursor = ''; });
+        for (const layer of STATION_LAYERS) {
+            map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+        }
 
         document.getElementById('btn-2d').addEventListener('click', () => setView(map, '2d'));
         document.getElementById('btn-3d').addEventListener('click', () => setView(map, '3d'));

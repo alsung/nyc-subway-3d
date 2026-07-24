@@ -26,11 +26,11 @@ export function createMap(container) {
     });
 }
 
-// Adds a Maplibre native circle layer for all station markers plus a symbol
-// layer for labels. All 496 stations appear from zoom 11 onwards — no
-// routeCount-based filtering, which was unreliable. Click detection uses
-// Maplibre's queryRenderedFeatures so hit areas match rendered circles exactly.
-export function addStationLayer(map, stations) {
+// Adds Maplibre native circle layers with LOD: major stations (served by 3+
+// routes) are visible from zoom 10; minor stations appear at zoom 12+. The
+// major flag is stored as an integer (1/0) to avoid Maplibre filter type
+// coercion issues with numeric comparisons. Labels appear at zoom 13+.
+export function addStationLayer(map, stations, routeCounts) {
     map.addSource('stations', {
         type: 'geojson',
         data: {
@@ -38,20 +38,39 @@ export function addStationLayer(map, stations) {
             features: stations.map(s => ({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-                properties: { id: s.id, name: s.name },
+                properties: {
+                    id: s.id,
+                    name: s.name,
+                    major: (routeCounts.get(s.id) ?? 1) >= 3 ? 1 : 0,
+                },
             })),
         },
     });
 
     map.addLayer({
-        id: 'station-circles',
+        id: 'station-circles-major',
         type: 'circle',
         source: 'stations',
-        minzoom: 11,
+        minzoom: 10,
+        filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 5, 16, 8],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 6, 16, 9],
             'circle-color': '#ffffff',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 2],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 16, 2],
+            'circle-stroke-color': '#222222',
+        },
+    });
+
+    map.addLayer({
+        id: 'station-circles-minor',
+        type: 'circle',
+        source: 'stations',
+        minzoom: 12,
+        filter: ['==', ['get', 'major'], 0],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 4, 16, 7],
+            'circle-color': '#cccccc',
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 1.5],
             'circle-stroke-color': '#222222',
         },
     });
