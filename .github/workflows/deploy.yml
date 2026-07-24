@@ -38,6 +38,7 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
+      - run: npm run gtfs
       - run: npm run build
       - name: Deploy to Vercel
         run: |
