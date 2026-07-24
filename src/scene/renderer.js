@@ -26,11 +26,12 @@ export function createMap(container) {
     });
 }
 
-// Adds a native Maplibre symbol layer with station name labels. Kept as a
-// real map layer (not Three.js/CSS2DRenderer) so Maplibre's built-in label
-// collision avoidance and text rendering apply for free. Only visible past
-// minzoom to avoid clutter at borough-wide zoom levels.
-export function addStationLabels(map, stations) {
+// Adds Maplibre native circle layers for station markers and a symbol layer
+// for labels. Two circle layers implement LOD: major stations (3+ routes)
+// are always visible; minor stations appear only past zoom 13. Click
+// detection uses Maplibre's queryRenderedFeatures — no Three.js raycasting
+// or haversine proximity needed.
+export function addStationLayer(map, stations, routeCounts) {
     map.addSource('stations', {
         type: 'geojson',
         data: {
@@ -38,8 +39,39 @@ export function addStationLabels(map, stations) {
             features: stations.map(s => ({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-                properties: { name: s.name },
+                properties: {
+                    id: s.id,
+                    name: s.name,
+                    routeCount: routeCounts.get(s.id) ?? 1,
+                },
             })),
+        },
+    });
+
+    map.addLayer({
+        id: 'station-circles-major',
+        type: 'circle',
+        source: 'stations',
+        filter: ['>=', ['get', 'routeCount'], 3],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 10],
+            'circle-color': '#ffffff',
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#222222',
+        },
+    });
+
+    map.addLayer({
+        id: 'station-circles-minor',
+        type: 'circle',
+        source: 'stations',
+        minzoom: 13,
+        filter: ['<', ['get', 'routeCount'], 3],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 7],
+            'circle-color': '#cccccc',
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#222222',
         },
     });
 
