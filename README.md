@@ -1,6 +1,6 @@
 # NYC Subway 3D — Product Design Document
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Author:** Alex Sung  
 **Status:** Active development  
 **Repository:** github.com/alsung/nyc-subway-3d
@@ -19,21 +19,24 @@
 8. [Phase 1 — Static 3D Map](#8-phase-1--static-3d-map)
 9. [Phase 2 — Live Arrivals](#9-phase-2--live-arrivals)
 10. [Phase 3 — Live Train Positions](#10-phase-3--live-train-positions)
-11. [Phase 4 — Trip Planner + Car Positioning](#11-phase-4--trip-planner--car-positioning)
-12. [Phase 5 — Commute Intelligence + Accessibility](#12-phase-5--commute-intelligence--accessibility)
-13. [Phase 6 — Delay Heat Map + Weekend Mode](#13-phase-6--delay-heat-map--weekend-mode)
-14. [Phase 7 — Crowd Avoidance + Cross-Modal Planning](#14-phase-7--crowd-avoidance--cross-modal-planning)
-15. [Data Sources](#15-data-sources)
-16. [API Reference](#16-api-reference)
-17. [Test Strategy](#17-test-strategy)
-18. [Deployment](#18-deployment)
-19. [Out of Scope](#19-out-of-scope)
+11. [Phase 4 — Real Trains + Station LOD](#11-phase-4--real-trains--station-lod)
+12. [Phase 5 — Go API Server (Cloud Run)](#12-phase-5--go-api-server-cloud-run)
+13. [Phase 6 — Mobile + UX Polish](#13-phase-6--mobile--ux-polish)
+14. [Phase 7 — Trip Planner + Car Positioning](#14-phase-7--trip-planner--car-positioning)
+15. [Phase 8 — User Accounts](#15-phase-8--user-accounts)
+16. [Phase 9 — Push Notifications](#16-phase-9--push-notifications)
+17. [Phase 10 — AI Agent Layer](#17-phase-10--ai-agent-layer)
+18. [Data Sources](#18-data-sources)
+19. [API Reference](#19-api-reference)
+20. [Test Strategy](#20-test-strategy)
+21. [Deployment](#21-deployment)
+22. [Out of Scope](#22-out-of-scope)
 
 ---
 
 ## 1. Product Summary
 
-NYC Subway 3D is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 472 stations, and active train positions on a geographically accurate 3D map built with Three.js. The map is the primary interface — not a supplementary view bolted onto a list-based app.
+NYC Subway 3D is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 472 stations, and active train positions on a geographically accurate 3D map built with Three.js and Maplibre GL JS. The map is the primary interface — not a supplementary view bolted onto a list-based app.
 
 The project solves real rider problems: planning trips, knowing when to leave, knowing which car to board for the fastest exit, understanding how service disruptions cascade through the system, and navigating accessibly. It does all of this on a spatial canvas that shows the full system simultaneously — something no existing app provides.
 
@@ -78,7 +81,7 @@ The NYC subway is used by ~3.6 million riders daily. Despite the existence of nu
 Alex opens the app. He types "Penn Station" → "Grand Central." The map highlights the route. Live arrival times show the next 4/5/6 train leaves in 3 minutes. The result tells him: board the **4th car from the front** to exit at the uptown stairs at Grand Central. He makes the train.
 
 ### UC-2: Tourist, first time on the subway
-A visitor from abroad opens the URL on their phone. They see the whole system in 3D and immediately understand the geographic relationship between Manhattan, Brooklyn, and Queens. They click Times Square. The popup shows 8 lines, next arrivals for each, and the exits at street level.
+A visitor from abroad opens the URL on their phone. They see the whole system in 3D and immediately understand the geographic relationship between Manhattan, Brooklyn, and Queens. They click Times Square. The popup shows 8 lines, next arrivals for each direction, and the exits at street level.
 
 ### UC-3: Rider encountering a service disruption
 A signal failure is issued on the A/C/E at Jay St. The user sees affected line segments pulse red on the 3D map. Their saved commute (Fulton St → 72nd St) shows a disrupted route and an alternate via the 2/3. They reroute before leaving the building.
@@ -90,7 +93,7 @@ A rider who uses a wheelchair needs elevator-only navigation. They enable access
 It's 1am on Saturday. The user looks at the map and immediately sees that F/G service has been rerouted, the A is running local instead of express, and the L is not running at all. Visual diffs on the map show exactly which stops are being skipped and where shuttle buses replace service.
 
 ### UC-6: Developer or engineer exploring the codebase
-A backend engineer looks at the GitHub repo to understand how the GTFS-RT protobuf pipeline is built, how the Go proxy handles concurrent feed fetches with TTL caching, how the geo projection math works, and how the test suite is structured. The code is their product showcase.
+A backend engineer looks at the GitHub repo to understand how the GTFS-RT protobuf pipeline is built, how the Go API server handles concurrent feed fetches with TTL caching, how the geo projection math works, and how the test suite is structured. The code is their product showcase.
 
 ---
 
@@ -98,42 +101,42 @@ A backend engineer looks at the GitHub repo to understand how the GTFS-RT protob
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Browser (Vite + Three.js + Vanilla JS ES Modules)                      │
+│  Browser (Vite + Three.js + Maplibre GL JS + Vanilla JS ES Modules)     │
 │                                                                          │
 │  src/core/          src/scene/         src/ui/                           │
 │  gtfs-parser.js     renderer.js        camera.js                         │
 │  gtfs-loader.js     lines.js           filter.js                         │
-│  geo.js             stations.js        popup.js                          │
-│  color.js           trains.js          search.js                         │
-│  router.js (P4)     trip-layer.js(P4)  trip-panel.js(P4)                 │
+│  geo.js             trains.js          popup.js                          │
+│  color.js                              search.js                         │
+│  rt-loader.js                                                            │
+│  rt-parser.js                                                            │
 └──────────────────────────────┬──────────────────────────────────────────┘
-                               │ fetch (CORS-proxied)
+                               │ fetch (CORS-proxied / Phase 5: JSON API)
                                ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Go Proxy  (Fly.io — ewr region)                                         │
+│  Go Proxy → Go API Server                                                 │
 │                                                                           │
-│  proxy/main.go                                                            │
-│  - Domain allowlist (api-endpoint.mta.info only)                         │
-│  - In-memory TTL cache (30s per feed)                                    │
-│  - sync.RWMutex for concurrent goroutine safety                          │
-│  - /health endpoint for Fly.io health checks                             │
-│  - Structured JSON logging via log/slog                                  │
-│  - Graceful shutdown on SIGTERM                                           │
+│  Phase 4:  Fly.io (ewr) — CORS passthrough + 30s TTL cache               │
+│  Phase 5+: Google Cloud Run — full API server, parses protobuf,          │
+│            serves /api/arrivals, /api/vehicles, /api/gtfs/*              │
+│            background goroutine refreshes all 8 feeds every 30s          │
 └──────────────────────────────┬───────────────────────────────────────────┘
-                               │ no API key required
+                               │
                                ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  MTA Public Feeds                                                         │
 │                                                                           │
 │  GTFS Static ZIP     → stops.txt, routes.txt, shapes.txt, trips.txt      │
 │  GTFS-RT (8 feeds)   → TripUpdate, VehiclePosition (protobuf binary)     │
-│  Elevator/Escalator  → live outage data (Phase 5)                        │
+│  Elevator/Escalator  → live outage data (Phase 7)                        │
 │  Service Alerts      → camsys/subway-alerts (protobuf binary)            │
 └──────────────────────────────────────────────────────────────────────────┘
 
 Static hosting: Vercel (CDN edge, Vite dist/)
-CI/CD:          GitHub Actions (test → build → deploy frontend + proxy)
+CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 ```
+
+> **Interactive architecture diagram** — current Phase 4 state vs. Phase 5 Cloud Run migration, with cost and setup time breakdown: [Phase 4 → Phase 5 Architecture](https://claude.ai/code/artifact/e7cddf84-f2a4-4b4d-925c-05fe26bef020)
 
 ---
 
@@ -141,20 +144,25 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + proxy)
 
 | Technology | Layer | Use case |
 |---|---|---|
-| Three.js r165 | Frontend / rendering | 3D scene graph, WebGL renderer, TubeGeometry for lines, raycasting for click detection |
-| CatmullRomCurve3 | Frontend / rendering | Smooth spline interpolation along GTFS shape waypoints; `getPoint(t)` for train position interpolation |
+| Three.js r165 | Frontend / rendering | 3D scene graph, WebGL renderer, TubeGeometry for subway lines, InstancedMesh for trains |
+| Maplibre GL JS v5 | Frontend / map | Map tiles, camera, station circle layers, symbol labels, queryRenderedFeatures for click |
+| CatmullRomCurve3 | Frontend / rendering | Arc-length-uniform spline sampling via `getPointAt(u)`; `getUtoTmapping` for fraction → t conversion |
 | Vite 5 | Build | Dev server with HMR, production bundler via Rollup, tree-shakes Three.js |
 | Vanilla JS (ES modules) | Frontend | All app logic as native ES modules; no framework overhead on a WebGL canvas |
 | Vitest | Testing | Unit test runner for all `src/core/` modules; runs in Node, no DOM or browser needed |
-| Go 1.22 | Backend / proxy | HTTP server for CORS proxy; net/http stdlib only, no frameworks |
-| log/slog | Backend | Structured JSON logging for each proxied request |
+| Go 1.22 | Backend | HTTP server: CORS proxy (Phase 4), full API server (Phase 5+) |
+| log/slog | Backend | Structured JSON logging for each proxied/API request |
 | sync.RWMutex | Backend | Thread-safe in-memory feed cache; concurrent reads, serialized writes |
-| net/http/httptest | Backend testing | In-memory request/response testing for proxy handlers without binding a port |
+| net/http/httptest | Backend testing | In-memory request/response testing without binding a port |
 | MTA GTFS static | Data | `stops.txt` → stations, `routes.txt` → colors, `shapes.txt` → route geometry, `trips.txt` → shape-to-route mapping |
 | MTA GTFS-RT | Data | 8 protobuf binary feeds updated every ~30s; `TripUpdate` for arrival times, `VehiclePosition` for train locations |
 | Vercel | Infrastructure | Static frontend hosting; global CDN, automatic deploys from GitHub Actions |
-| Fly.io | Infrastructure | Go proxy containerized app in `ewr` (Newark) region; scales to zero, health-checked |
-| GitHub Actions | CI/CD | 5-job pipeline: JS tests → build → deploy frontend → Go tests → deploy proxy |
+| Fly.io (Phase 1–4) | Infrastructure | Go proxy containerized app in `ewr` region; replaced by Cloud Run in Phase 5 |
+| Google Cloud Run (Phase 5+) | Infrastructure | Serverless Go container; free tier covers personal-scale traffic; GCP ecosystem (Firebase, FCM, Vertex) for Phases 8–10 |
+| Firebase Auth (Phase 8) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
+| Firebase Cloud Messaging (Phase 9) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
+| Claude API (Phase 10) | AI | Tool-use agent layer for natural language transit queries |
+| GitHub Actions | CI/CD | Pipeline: JS tests → build → deploy frontend → Go tests → deploy backend |
 
 ---
 
@@ -162,13 +170,16 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + proxy)
 
 | Phase | Name | Status | Key deliverable |
 |---|---|---|---|
-| 1 | Static 3D map | Complete | All lines + stations rendered from GTFS data, 2D/3D toggle, station search, line filter |
-| 2 | Live arrivals | In progress | Real protobuf decoding, next 5 arrivals per station from GTFS-RT |
-| 3 | Live train positions | Planned | Real vehicle positions from GTFS-RT, interpolated between stops |
-| 4 | Trip planner + car positioning | Planned | Origin → destination routing, highlighted route on map, optimal car recommendation |
-| 5 | Commute intelligence + accessibility | Planned | Saved commutes, elevator-only routing, live outage data |
-| 6 | Delay heat map + weekend mode | Planned | Per-line delay scoring, visual service change diff on weekends |
-| 7 | Crowd avoidance + cross-modal | Planned | Historical ridership by car, CitiBike + NYC Ferry integration |
+| 1 | Static 3D Map | Complete | All lines + stations rendered from GTFS data, 2D/3D toggle, station search, line filter |
+| 2 | Live Arrivals | Complete | Real protobuf decoding, next arrivals per station/direction from 8 GTFS-RT feeds |
+| 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
+| 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
+| 5 | Go API Server (Cloud Run) | Planned | Replace Fly.io proxy with full API server; server-side protobuf parsing and shared cache |
+| 6 | Mobile + UX Polish | Planned | Responsive layout, PWA manifest, touch gestures, performance optimization |
+| 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing, highlighted route on map, optimal car recommendation |
+| 8 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
+| 9 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
+| 10 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence |
 
 ---
 
@@ -198,14 +209,14 @@ nyc-subway-3d/
 ├── .gitignore
 ├── .github/workflows/
 │   ├── ci.yml           # test + build on every PR
-│   └── deploy.yml       # deploy to Vercel + Fly on main push
+│   └── deploy.yml       # deploy to Vercel + backend on main push
 ├── proxy/
 │   ├── main.go
 │   ├── main_test.go
 │   ├── go.mod
 │   └── fly.toml
 ├── public/
-│   └── gtfs/            # place MTA GTFS files here (gitignored)
+│   └── gtfs/            # MTA GTFS files (downloaded by npm run gtfs in CI)
 │       ├── stops.txt
 │       ├── routes.txt
 │       ├── shapes.txt
@@ -215,20 +226,21 @@ nyc-subway-3d/
 │   ├── main.js          # entry point, wires all modules together
 │   ├── core/            # pure logic — no DOM, no Three.js, fully testable
 │   │   ├── geo.js           # lat/lng ↔ XZ projection, haversine, downsample
-│   │   ├── gtfs-parser.js   # CSV parser + GTFS file parsers
+│   │   ├── gtfs-parser.js   # CSV parser + GTFS file parsers + station complexes
 │   │   ├── gtfs-loader.js   # fetch GTFS files or fall back to embedded
+│   │   ├── rt-loader.js     # fetch 8 GTFS-RT feeds via proxy
+│   │   ├── rt-parser.js     # decode protobuf, build arrival index
 │   │   └── color.js         # contrast color, hexToRGB
 │   ├── data/
 │   │   └── embedded.js      # fallback station/route constants
-│   ├── scene/           # Three.js only — no business logic
-│   │   ├── renderer.js      # scene, camera, renderer factory functions
+│   ├── scene/           # Three.js + Maplibre — no business logic
+│   │   ├── renderer.js      # Maplibre map, Three.js custom layer, station circles
 │   │   ├── lines.js         # TubeGeometry per route
-│   │   ├── stations.js      # CylinderGeometry per station
-│   │   └── trains.js        # simulated train meshes + tick()
+│   │   └── trains.js        # InstancedMesh trains + arc-length interpolation
 │   └── ui/              # DOM manipulation only
 │       ├── camera.js        # orbit controls, tween, setView()
 │       ├── filter.js        # line chip toggles
-│       ├── popup.js         # station info popup
+│       ├── popup.js         # two-column station arrival popup
 │       └── search.js        # search input + fly-to
 └── tests/
     └── unit/
@@ -264,7 +276,6 @@ sampled = downsample(points, 300)            // cap at 300 for GPU budget
 curve = CatmullRomCurve3(sampled)            // smooth spline
 tube = TubeGeometry(curve, segments, 0.11, 5) // rendered tube
 ```
-`TubeGeometry` arguments: curve, tubular segments, radius (0.11), radial segments (5), closed (false).
 
 #### Camera system (`src/ui/camera.js`)
 Orbit camera with spherical coordinates `(θ, φ, r)`. Mouse drag updates θ and φ, scroll wheel updates r. `tweenTo(pos, look)` animates between positions using ease-in-out quadratic over 900ms. `setView('2d')` positions camera at `(0, 75, 0.01)` for top-down; `setView('3d')` at `(-28, 38, 44)` for perspective.
@@ -398,23 +409,27 @@ Replace simulated trains with real vehicle positions from the GTFS-RT `VehiclePo
 ### Scope
 - Parse `VehiclePosition` entities from decoded feeds
 - Map `routeId` → `CatmullRomCurve3` for position interpolation
-- Interpolate position between GTFS-RT updates using scheduled stop times
+- Match vehicle stop ID to nearest point on route curve using arc-length sampling
 - Orient train mesh along track tangent
 - Switch from individual `BoxGeometry` meshes to `InstancedMesh` for performance
 - Display train count in stats bar
 
 ### Key Implementation Notes
 
-#### Position interpolation
-GTFS-RT `VehiclePosition` updates arrive every 30–60s. Between updates, position is interpolated using the `TripUpdate` stop time sequence:
+#### Arc-length-uniform position sampling
+GTFS-RT `VehiclePosition` gives a `currentStopSequence` and `stopId`. Trains are positioned on the route curve by finding the arc-length fraction that minimizes distance to the matched stop's geographic coordinates.
 
-```
-progress = (now - departureTime[lastStop]) / (arrivalTime[nextStop] - departureTime[lastStop])
-t = lerp(curveT[lastStop], curveT[nextStop], progress)
-position = curve.getPoint(clamp(t, 0, 1))
+```js
+// True arc-length sampling (NOT curve.getSpacedPoints which is t-uniform):
+for (let i = 0; i <= SAMPLE_COUNT; i++) {
+  const pt = curve.getPointAt(i / SAMPLE_COUNT)  // arc-length fraction
+  // find closest sample to station coordinates
+}
+// Convert best arc-length fraction → t parameter for tangent calculation:
+const t = curve.getUtoTmapping(bestI / SAMPLE_COUNT)
 ```
 
-Each stop in the GTFS static schedule corresponds to a `t` value along the route curve, pre-computed when the curve is built.
+`getSpacedPoints` is t-uniform, not arc-length uniform, and clusters samples near low-curvature segments. `getPointAt` is the correct method.
 
 #### InstancedMesh for performance
 ~400–600 trains run simultaneously. Individual meshes = 400–600 draw calls per frame. `InstancedMesh` = 1 draw call for all trains of the same line color.
@@ -444,10 +459,237 @@ One `InstancedMesh` per line color (23 lines = 23 draw calls, not 600).
 
 ---
 
-## 11. Phase 4 — Trip Planner + Car Positioning
+## 11. Phase 4 — Real Trains + Station LOD
 
 ### Goal
-The central feature. User inputs origin and destination station. The app finds the optimal route using graph traversal over the GTFS station network, highlights the route on the 3D map, and recommends which car to board based on exit position at the destination.
+Make the map legible at every zoom level and ensure every train shown is a real one. Station rendering switches from Three.js geometry to Maplibre native layers. Same-name stations merge into a single dot at low zoom. Arrival data is split into a permanent north/south two-column view.
+
+### Scope
+- Replace Three.js `CylinderGeometry` station meshes with Maplibre native `circle` layers
+- Two-tier LOD: merged station complexes below zoom 13, individual station circles at zoom 13+
+- Major stations (≥3 routes) render larger than minor stations at all zoom levels
+- Station complexes: group same-name stations into one centroid dot; popup merges arrivals from all constituent stations
+- Arrival popup redesign: permanent two-column north/south split; no direction toggle
+- Station name labels at zoom 13+
+- Real train positions from GTFS-RT `VehiclePosition` (replacing simulated trains)
+- GTFS static files downloaded in CI before build (`npm run gtfs`); removed from gitignore
+
+### Key Implementation Notes
+
+#### Station complex merging (`src/core/gtfs-parser.js`)
+```
+buildStationComplexes(stations):
+  group stations by s.name
+  for each group:
+    centroid.lat = mean(s.lat for s in group)
+    centroid.lng = mean(s.lng for s in group)
+    complex = { name, lat, lng, stationIds: [s.id, ...] }
+  return complexes[]
+```
+
+Complexes are used for the low-zoom source. The `stationGroups` Map derived from complexes provides fast `stationId → siblings[]` lookup for merging arrivals from all platforms of a named station.
+
+#### Maplibre two-tier LOD (`src/scene/renderer.js`)
+Two GeoJSON sources, four circle layers:
+
+```
+source: 'station-complexes'  (maxzoom 13)
+  layer: 'station-complexes-major'  minzoom 10, filter: major == 1
+  layer: 'station-complexes-minor'  minzoom 11, filter: major == 0
+
+source: 'stations'           (minzoom 13)
+  layer: 'station-circles-major'   filter: major == 1
+  layer: 'station-circles-minor'   filter: major == 0
+  layer: 'station-labels'          symbol layer
+```
+
+`major` is stored as integer (1 or 0) in GeoJSON properties. Integer avoids Maplibre filter type coercion issues that occur when comparing strings to numbers.
+
+#### Merged arrival lookup (`src/main.js`)
+Click handler splits `feat.properties.stationIds` (pipe-separated string) to get all constituent IDs. `getArrivals` deduplicates by `tripId` across all sibling station arrival lists and returns a merged, sorted array.
+
+#### Two-column arrival popup (`src/ui/popup.js`)
+```
+popup layout:
+  .popup-line-select      // route pill row
+  .popup-directions       // flex row
+    .popup-dir-col        // Uptown / N column
+    .popup-dir-divider    // 1px separator
+    .popup-dir-col        // Downtown / S column
+```
+
+Both directions always visible; no toggle button. Each column shows up to 4 arrival times.
+
+### Test Cases — Phase 4
+
+| Test | Type | Assertion |
+|---|---|---|
+| `buildStationComplexes` groups stations by name | Unit | Two stations named "Times Sq-42 St" → one complex |
+| Centroid is average of constituent lat/lng values | Unit | Complex lat/lng equals mean of member station coords |
+| `stationIds` array contains all constituent IDs | Unit | Complex with 3 members → `stationIds.length === 3` |
+| Major classification correct | Unit | Station with routeCount ≥ 3 → `major: 1` |
+| Minor classification correct | Unit | Station with routeCount < 3 → `major: 0` |
+| Pipe-separated stationIds round-trips correctly | Unit | `ids.join('|').split('|')` recovers original array |
+| Merged arrivals deduplicated by tripId | Unit | Same tripId from two sibling stations appears once |
+| Merged arrivals sorted by minutes | Unit | Ascending sort after merge |
+
+---
+
+## 12. Phase 5 — Go API Server (Cloud Run)
+
+### Goal
+Move all GTFS-RT fetching, protobuf parsing, and GTFS static file serving to a dedicated Go API server on Google Cloud Run. The browser receives clean JSON. Every user benefits from a shared server-side cache rather than each fetching independently from MTA.
+
+### Scope
+- Replace Fly.io CORS proxy with a Go API server deployed to Cloud Run
+- Background goroutine fetches and parses all 8 GTFS-RT feeds every 30s
+- In-memory cache shared across all concurrent users
+- New endpoints: `GET /api/arrivals/:stationId`, `GET /api/vehicles`, `GET /api/gtfs/:file`
+- Browser JS: remove protobuf decoding; replace with simple `fetch('/api/...')` calls
+- CI: replace `flyctl deploy` with `gcloud run deploy`
+- Remove `npm run gtfs` step from CI — server handles GTFS static at startup
+
+### Key Implementation Notes
+
+#### Background goroutine architecture
+```go
+func startFeedRefresher(cache *Cache) {
+    go func() {
+        refresh()            // immediate first fetch
+        ticker := time.NewTicker(30 * time.Second)
+        for range ticker.C {
+            refresh()
+        }
+    }()
+}
+
+func refresh() {
+    var wg sync.WaitGroup
+    for _, feed := range gtfsFeedURLs {
+        wg.Add(1)
+        go func(url string) {
+            defer wg.Done()
+            body, _ := fetchMTAFeed(url)
+            parsed := parseGTFSRT(body)  // protobuf decode in Go
+            cache.Set(url, parsed)
+        }(feed)
+    }
+    wg.Wait()
+}
+```
+
+All 8 feeds fetched concurrently in Go goroutines. Cache is populated once at startup and refreshed every 30s — no per-user MTA request.
+
+#### JSON API endpoints
+```
+GET /api/arrivals/:stationId
+  → [{ routeId, direction, minutes, tripId }, ...]
+  Merges N and S platforms; caller gets both directions.
+
+GET /api/vehicles
+  → [{ vehicleId, routeId, lat, lng, bearing, stopId, timestamp }, ...]
+
+GET /api/gtfs/stops.txt
+GET /api/gtfs/shapes.txt
+GET /api/gtfs/trips.txt
+GET /api/gtfs/routes.txt
+  → raw GTFS static file text, loaded from ZIP at server startup
+
+GET /health
+  → { status: "ok", lastRefresh: "<ISO timestamp>", feedsLoaded: 8 }
+```
+
+#### Frontend changes
+```js
+// Before (Phase 4):
+const feeds = await loadRT()              // 8 protobuf fetches in browser
+const index = buildArrivalIndex(feeds)   // protobuf decode in browser JS
+
+// After (Phase 5):
+const arrivals = await fetch(`/api/arrivals/${stationId}`).then(r => r.json())
+```
+
+Removes `gtfs-realtime-bindings` from the bundle (~180 KB parsed).
+
+#### Cloud Run deployment
+```yaml
+# .github/workflows/deploy.yml (Phase 5)
+- name: Deploy API to Cloud Run
+  run: |
+    gcloud run deploy nyc-subway-api \
+      --source ./api \
+      --region us-east1 \
+      --platform managed \
+      --allow-unauthenticated \
+      --set-env-vars MTA_API_KEY=${{ secrets.MTA_API_KEY }}
+```
+
+#### Cost at scale
+| Traffic | Estimated cost |
+|---|---|
+| Personal / portfolio (~100 DAU) | $0/month (within free tier) |
+| 1K DAU | ~$5–10/month |
+| 10K DAU | ~$40–60/month |
+
+Free tier: 2M requests/month, 360K GB-seconds compute. New GCP accounts receive $300 credit for 90 days.
+
+### Test Cases — Phase 5
+
+| Test | Type | Assertion |
+|---|---|---|
+| `GET /api/arrivals/:id` returns JSON array | Integration | Response has `Content-Type: application/json` |
+| Arrivals sorted ascending by minutes | Unit | First element has lowest `minutes` value |
+| Cache serves data if MTA unreachable | Unit | Stale cache entry returned on fetch error |
+| Background goroutine refreshes on 30s interval | Unit | `time.NewTicker(30 * time.Second)` invoked |
+| Concurrent requests hit cache, not MTA | Integration | 100 concurrent GET /api/arrivals → 1 MTA request |
+| `/api/gtfs/stops.txt` returns station data | Integration | Response contains `stop_id` in first 100 bytes |
+| `/health` includes `lastRefresh` timestamp | Unit | Field present and parseable as RFC3339 |
+| `GET /api/vehicles` returns bearing field | Unit | Each vehicle object has numeric `bearing` |
+
+---
+
+## 13. Phase 6 — Mobile + UX Polish
+
+### Goal
+Make the app fully usable on a phone. The 3D map already loads on mobile, but the UI controls, popup, and touch gesture handling are designed for desktop. This phase closes that gap and installs the app as a PWA.
+
+### Scope
+- Responsive layout: chip bar, search, popup all adapt to small viewports
+- PWA manifest (`manifest.json`) with name, icons, display mode, and theme color
+- Touch gesture support: pinch-to-zoom, two-finger rotate, single-finger pan via Maplibre
+- Popup redesign for mobile: full-width bottom sheet on small screens
+- Performance pass: profile and reduce JS main-thread work during map panning
+- Lighthouse score target: ≥90 Performance, ≥95 Accessibility, 100 PWA
+
+### Key Implementation Notes
+
+#### PWA manifest
+```json
+{
+  "name": "NYC Subway 3D",
+  "short_name": "Subway 3D",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07071a",
+  "theme_color": "#07071a",
+  "icons": [{ "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }]
+}
+```
+
+#### Responsive popup
+Below 640px viewport width, the popup switches from a floating card to a bottom sheet with a drag handle. Arrival columns stack vertically instead of side-by-side. The route pill row scrolls horizontally.
+
+#### Performance targets
+- Time to Interactive: < 3s on 4G
+- Map frame rate: ≥ 58fps during pan on a mid-range Android device
+- JS bundle: < 600 KB gzipped (after Phase 5 removes protobuf library)
+
+---
+
+## 14. Phase 7 — Trip Planner + Car Positioning
+
+### Goal
+User inputs origin and destination station. The app finds the optimal route using graph traversal over the GTFS station network, highlights the route on the 3D map, and recommends which car to board based on exit position at the destination.
 
 ### Scope
 - Build station graph from GTFS data (nodes = stations, edges = consecutive stops on a route)
@@ -478,7 +720,6 @@ TRANSFER_PENALTY_SECONDS = 120   // 2 minutes, tunable
 For MVP: BFS minimizes transfers (fewest changes). For improvement: Dijkstra with `travel_time` as edge weight minimizes total journey time.
 
 ```js
-// Dijkstra sketch
 function findRoute(graph, originId, destId) {
   const dist = new Map()    // stopId → best seconds
   const prev = new Map()    // stopId → { from, routeId }
@@ -497,12 +738,6 @@ function findRoute(graph, originId, destId) {
     "car_number": "1-2",
     "exit": "42 St / 8 Ave exit",
     "notes": "Board front 2 cars for direct access to A/C/E mezzanine"
-  },
-  "635S_downtown": {
-    "optimal_car": "back",
-    "car_number": "last 2",
-    "exit": "Wall St / Broadway staircase",
-    "notes": "Rear cars align with uptown staircase at Bowling Green"
   }
 }
 ```
@@ -512,11 +747,11 @@ Data sourced from Exit Strategy NYC documentation and MTA station layout diagram
 #### Route highlighting
 When a route is selected:
 1. All non-route line tubes: `material.opacity → 0.1`, `emissiveIntensity → 0.05`
-2. Route segments: `material.opacity → 1.0`, `emissiveIntensity → 0.8`, color stays as line color
+2. Route segments: `material.opacity → 1.0`, `emissiveIntensity → 0.8`
 3. Camera tweens to a position that frames the bounding box of all route stations
 4. Station meshes on the route pulse gently
 
-### Test Cases — Phase 4
+### Test Cases — Phase 7
 
 | Test | Type | Assertion |
 |---|---|---|
@@ -527,127 +762,164 @@ When a route is selected:
 | Dijkstra prefers faster route over fewer transfers | Unit | 20-min direct beats 15-min + 10-min with transfer |
 | Car position lookup returns correct car | Unit | `stopId + direction` key resolves to expected `optimal_car` |
 | Route with no path returns null | Unit | Disconnected stations → `findRoute()` returns `null` |
-| Camera bounding box frames all route stations | Unit | All station positions within frustum after tween |
 
 ---
 
-## 12. Phase 5 — Commute Intelligence + Accessibility
+## 15. Phase 8 — User Accounts
 
 ### Goal
-Personalized features: save your regular commute, see how reliable it is by time of day, and route around broken elevators with live outage data.
+Introduce persistent, server-side user identity using Firebase Auth. Users sign in with Google to save commutes, preferences, and notification settings that follow them across devices.
 
 ### Scope
-- Save up to 3 commute pairs to `localStorage` (no auth required)
-- For each saved commute, show: average on-time rate by hour, best time to leave, next departure from origin
-- Elevator/escalator outage data from MTA Elevator & Escalator Status API
-- Accessibility routing mode: only route through stations with working elevators
-- Visual indicator on map: inaccessible stations dimmed, broken elevators shown as orange markers
+- Firebase Auth with Google Sign-In provider
+- Auth state persisted in browser; JWT sent with API requests
+- Cloud Run API validates Firebase JWT on protected endpoints
+- Saved commutes stored in Firestore: `users/{uid}/commutes[]`
+- Maximum 5 saved commutes per user
+- "My Commute" shortcut in the UI: one tap to show saved route arrival times
+- Settings page: notification preferences, default zoom, preferred direction
 
 ### Key Implementation Notes
 
-#### Elevator outage API
+#### Auth flow
 ```
-GET https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-elevator-escalator
+User clicks "Sign in with Google"
+→ Firebase Auth popup (Google OAuth)
+→ Firebase returns ID token (JWT)
+→ Browser includes token in Authorization header on all /api/* requests
+→ Cloud Run middleware: firebase-admin.VerifyIDToken(token)
+→ uid extracted; requests are scoped to that user's Firestore documents
 ```
-Returns GTFS-RT `Alert` entities where `informed_entity.stop_id` identifies the affected station. Polled every 5 minutes (outages don't change at GTFS-RT cadence).
 
-#### Accessibility routing
-Before building the route graph, filter out stations with known elevator outages on the required direction of travel. Re-run Dijkstra on the filtered graph. If no accessible route exists, surface a message explaining the gap and show the closest accessible alternative.
+#### Firestore data model
+```
+users/{uid}
+  displayName: string
+  email: string
+  createdAt: timestamp
 
-#### On-time scoring
-The MTA publishes historical on-time performance data via NY State Open Data. Pre-compute a per-line, per-hour, per-direction delay probability matrix. Store as a compressed JSON blob (~50KB). At trip plan time, look up the probability of a delay on the user's route at their planned departure time.
+users/{uid}/commutes/{commuteId}
+  originId: string       // GTFS stop_id
+  originName: string
+  destId: string
+  destName: string
+  label: string          // "Morning commute", user-editable
+  createdAt: timestamp
+```
 
-### Test Cases — Phase 5
-
-| Test | Type | Assertion |
-|---|---|---|
-| Saved commutes persist across page reload | Integration | `localStorage.getItem('commutes')` populated after save |
-| Maximum 3 saved commutes enforced | Unit | 4th save replaces oldest |
-| Accessibility filter removes outage stations | Unit | Graph excludes station when elevator outage present |
-| Accessible route found even when direct route inaccessible | Unit | Longer path returned when shortest path blocked |
-| No accessible route surfaces correct message | Unit | `null` route → specific error message (not generic) |
-| Elevator outage poll interval is 5 minutes | Unit | `setInterval` called with `300_000` |
+#### Anonymous → authenticated migration
+Users who saved commutes in `localStorage` (Phases 1–4) are prompted to sign in. On sign-in, `localStorage` commutes are migrated to Firestore and local storage is cleared.
 
 ---
 
-## 13. Phase 6 — Delay Heat Map + Weekend Mode
+## 16. Phase 9 — Push Notifications
 
 ### Goal
-Make the overall health of the system visible spatially. Color-code lines by their current delay severity. On weekends, show the service restructuring visually on the map instead of in a text alert.
+Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground.
 
 ### Scope
-- Per-line delay score: computed from `TripUpdate` deviation vs scheduled arrival times
-- Color each line segment by delay severity: green (on time), amber (minor), red (major)
-- Weekend mode: auto-detect when service changes are active; dim affected segments and show alternate routing
-- Supplemented GTFS feed parsing for planned service changes (updated hourly)
+- Firebase Cloud Messaging (FCM) via service worker
+- Notification types: departure reminder ("Your 6 train leaves 14th St in 3 min"), delay alert ("Your A train is running 12 min late")
+- User sets notification preferences per saved commute: alert window (e.g., 5/10/15 min before scheduled departure), delay threshold
+- Cloud Run schedules notification dispatch based on GTFS-RT data
+- Service worker handles background message receipt and shows system notification
 
 ### Key Implementation Notes
 
-#### Delay score computation
-For each active trip in the `TripUpdate` feed:
+#### Service worker registration
+```js
+navigator.serviceWorker.register('/sw.js')
+const messaging = firebase.messaging()
+const token = await messaging.getToken({ vapidKey: VAPID_KEY })
+// Store token in Firestore under users/{uid}/fcmTokens[]
 ```
-scheduled_arrival = stops.txt stop time for this stop_id
-actual_arrival    = TripUpdate.stop_time_update.arrival.time
-delay_seconds     = actual_arrival - scheduled_arrival
-```
-Aggregate per route: rolling average over last N trips. Score:
-- `0–60s` → green
-- `60–180s` → amber
-- `>180s` → red
 
-#### Weekend service diff
-The MTA supplemented GTFS is updated hourly and includes service changes for the next 7 days. When a trip's `shape_id` differs from the canonical weekday shape, the affected stops are visually flagged on the map. Line segments that are suspended render as dashed tubes rather than solid.
+#### Notification dispatch (Cloud Run)
+A Cloud Run scheduled job (Cloud Scheduler, every minute) checks:
+1. For each user with notifications enabled, load their saved commutes
+2. For each commute, check GTFS-RT arrivals at the origin station
+3. If next arrival is within the user's alert window → send FCM push via `firebase-admin.Messaging.Send`
+4. Deduplicate: store `{ tripId, notifiedAt }` in Firestore to avoid repeat alerts for the same trip
 
-### Test Cases — Phase 6
-
-| Test | Type | Assertion |
-|---|---|---|
-| Delay score 0–60s maps to green | Unit | Score < 60 → `'on-time'` status |
-| Delay score >180s maps to red | Unit | Score > 180 → `'major-delay'` status |
-| Rolling average drops oldest entries | Unit | Window capped at N trips |
-| Weekend mode activates on Saturday/Sunday | Unit | `isWeekend(date)` returns true Sat/Sun |
-| Suspended segment renders as dashed | Unit | Segment material `dashed: true` when no service |
+#### Delay alerting
+Compare current `TripUpdate.arrival.delay` against the user's delay threshold. If threshold exceeded for a trip on the user's commute route, dispatch a delay alert notification.
 
 ---
 
-## 14. Phase 7 — Crowd Avoidance + Cross-Modal Planning
+## 17. Phase 10 — AI Agent Layer
 
 ### Goal
-Tell riders which car is least crowded on their specific train, and plan routes that incorporate CitiBike and NYC Ferry as last-mile options.
+Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes.
 
 ### Scope
-- Historical ridership by car and time of day (MTA publishes this; sourced from open data)
-- Crowd estimate at trip plan time: "car 3 is typically 30% less crowded at 8:45am on this line"
-- NYC Ferry GTFS integration: ferry stops added to routing graph as nodes with walk-time transfer edges
-- CitiBike station availability via CitiBike GBFS feed; show dock availability near destination station
+- Claude API integration with tool use (function calling)
+- Tool definitions that expose the app's data layer to the model
+- Chat input UI accessible from the main map view
+- Agent response displays reasoning and highlights the recommended route on the map
+- Proactive commute intelligence: "Your usual 8:42am 4 train is running 8 minutes late — you have time for coffee"
 
-### Key Implementation Notes
+### Tool Definitions
 
-#### Crowd data
-MTA publishes ridership by car via NY Open Data. Pre-process into a lookup:
-```json
-{ "F_eastbound_8am": { "car1": 0.9, "car2": 0.7, "car3": 0.4, ... } }
+```js
+const tools = [
+  {
+    name: "get_arrivals",
+    description: "Get next train arrivals at a station by name or ID",
+    input_schema: {
+      properties: {
+        station_name: { type: "string" },
+        route_id: { type: "string", description: "Optional — filter by route" }
+      }
+    }
+  },
+  {
+    name: "plan_route",
+    description: "Find the best route between two stations",
+    input_schema: {
+      properties: {
+        origin: { type: "string" },
+        destination: { type: "string" },
+        depart_at: { type: "string", description: "ISO 8601 datetime, defaults to now" }
+      }
+    }
+  },
+  {
+    name: "get_service_status",
+    description: "Get current service alerts and delays for a line or all lines",
+    input_schema: {
+      properties: {
+        route_id: { type: "string", description: "Optional — omit for all lines" }
+      }
+    }
+  },
+  {
+    name: "highlight_route",
+    description: "Highlight a route segment on the 3D map",
+    input_schema: {
+      properties: {
+        station_ids: { type: "array", items: { type: "string" } },
+        route_id: { type: "string" }
+      }
+    }
+  }
+]
 ```
-Where values are relative load factors (1.0 = typical peak). At trip plan time, surface the least-loaded car for the user's departure hour.
 
-#### Cross-modal graph extension
-Add ferry terminal nodes and CitiBike nodes to the routing graph. Ferry edges have exact schedule-based weights. CitiBike edges have a configurable walk-time estimate. The trip planner treats them as valid transfers and can return a route like:
+### Agent Architecture
 ```
-Take the A to Jay St → walk 0.3mi → CitiBike to destination
+User query → Claude claude-sonnet-5
+  → tool_use: get_arrivals("14 St-Union Sq")
+  → tool_result: [{ route: "4", minutes: 2 }, { route: "6", minutes: 5 }]
+  → tool_use: plan_route("14 St-Union Sq", "72 St")
+  → tool_result: { legs: [...], totalMinutes: 18, optimalCar: "front 3 cars" }
+  → final text response + highlight_route side effect → map update
 ```
 
-### Test Cases — Phase 7
-
-| Test | Type | Assertion |
-|---|---|---|
-| Crowd lookup returns least-loaded car | Unit | `minBy(carLoads, v => v)` returns correct car key |
-| Ferry nodes connect to nearest subway stations | Unit | Walk edge created for ferry within 0.5km of subway |
-| CitiBike docks with 0 bikes excluded | Unit | Empty dock not offered as origin |
-| Cross-modal route includes walk segment | Unit | Returned path contains edge with `type: 'walk'` |
+The `highlight_route` tool is the bridge between the AI layer and the 3D map: Claude decides which route to show, and the tool call triggers the existing map highlight function.
 
 ---
 
-## 15. Data Sources
+## 18. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -669,15 +941,12 @@ Take the A to Jay St → walk 0.3mi → CitiBike to destination
 
 ---
 
-## 16. API Reference
+## 19. API Reference
 
-### Go Proxy
-
-All requests go to the proxy. The proxy adds CORS headers and caches responses.
+### Phase 4 — Go Proxy (Fly.io)
 
 ```
 GET /proxy?url=<encoded-mta-feed-url>
-GET /proxy/<url-encoded-path>
 GET /health
 
 Response headers:
@@ -687,6 +956,30 @@ Response headers:
 ```
 
 The proxy only forwards to `api-endpoint.mta.info` and `rrgtfsfeeds.s3.amazonaws.com`. All other target URLs return 403.
+
+### Phase 5+ — Go API Server (Cloud Run)
+
+```
+GET /api/arrivals/:stationId
+  → [{ routeId, direction, minutes, tripId }, ...]
+
+GET /api/vehicles
+  → [{ vehicleId, routeId, lat, lng, bearing, stopId, timestamp }, ...]
+
+GET /api/gtfs/stops.txt
+GET /api/gtfs/shapes.txt
+GET /api/gtfs/trips.txt
+GET /api/gtfs/routes.txt
+  → raw GTFS static file text (loaded from ZIP at server startup)
+
+GET /health
+  → { status: "ok", lastRefresh: "<RFC3339>", feedsLoaded: 8 }
+
+Response headers:
+  Content-Type: application/json (or text/plain for /api/gtfs/*)
+  Access-Control-Allow-Origin: *
+  X-Cache: HIT | MISS
+```
 
 ### Frontend Modules (public API surface)
 
@@ -698,12 +991,13 @@ haversineKm(a, b) → number
 downsample(points, maxPoints) → points[]
 
 // src/core/gtfs-parser.js
-parseCSV(text)    → Object[]
-parseRoutes(text) → { [routeId]: RouteInfo }
-parseStops(text)  → { stations: Station[], childToParent: {} }
-parseShapes(text) → { [shapeId]: ShapePoint[] }
-parseTripsToRouteShapes(text, shapes) → { [routeId]: [lat,lng][] }
+parseCSV(text)                  → Object[]
+parseRoutes(text)               → { [routeId]: RouteInfo }
+parseStops(text)                → { stations: Station[], childToParent: {} }
+parseShapes(text)               → { [shapeId]: ShapePoint[] }
+parseTripsToRouteShapes(t, s)   → { [routeId]: [lat,lng][] }
 parseGTFS(stops, routes, shapes, trips) → GTFSData
+buildStationComplexes(stations) → Complex[]
 
 // src/core/color.js
 contrastColor(hex) → '#000' | '#fff'
@@ -712,11 +1006,11 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 17. Test Strategy
+## 20. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
-- **Go proxy is fully unit-tested** using `net/http/httptest`. No live network calls in tests.
+- **Go backend is fully unit-tested** using `net/http/httptest`. No live network calls in tests.
 - **Integration tests** (Phase 2+) use fixture protobuf binaries checked into `tests/fixtures/` — real snapshots of MTA feeds captured at a point in time.
 - **No mocks for core logic.** Functions in `src/core/` take plain data in and return plain data out. Mocking is never needed.
 
@@ -727,13 +1021,13 @@ npm test                    # run once
 npm run test:watch          # watch mode
 npm run test:coverage       # with V8 coverage report
 
-# Go proxy tests
+# Go backend tests
 cd proxy && go test ./...
-cd proxy && go test ./... -v   # verbose
-cd proxy && go test ./... -race  # race detector
+cd proxy && go test ./... -v      # verbose
+cd proxy && go test ./... -race   # race detector
 
 # CI (runs automatically on every push and PR)
-# See .github/workflows/ci.yml
+# See .github/workflows/deploy.yml
 ```
 
 ### Coverage targets
@@ -743,13 +1037,13 @@ cd proxy && go test ./... -race  # race detector
 | `src/core/gtfs-parser.js` | 100% |
 | `src/core/color.js` | 100% |
 | `proxy/main.go` (handler logic) | >90% |
-| `src/core/router.js` (Phase 4) | 100% |
+| `src/core/router.js` (Phase 7) | 100% |
 
 Scene and UI modules are excluded from coverage requirements — they are tested manually and via visual inspection.
 
 ---
 
-## 18. Deployment
+## 21. Deployment
 
 ### Frontend (Vercel)
 
@@ -762,7 +1056,8 @@ vercel link   # creates .vercel/project.json
 npm run build
 vercel deploy --prod
 
-# Automatic: push to main triggers GitHub Actions → deploy.yml
+# Automatic: push to master triggers GitHub Actions → deploy.yml
+# Pushes to other branches deploy to Vercel preview URLs
 ```
 
 `vercel.json` configures:
@@ -771,7 +1066,7 @@ vercel deploy --prod
 - SPA rewrite: all routes → `index.html`
 - Asset cache headers: `Cache-Control: public, max-age=31536000, immutable` for hashed chunks
 
-### Proxy (Fly.io)
+### Go Proxy — Phase 4 (Fly.io)
 
 ```bash
 # One-time setup
@@ -780,37 +1075,46 @@ fly auth login
 fly apps create nyc-subway-proxy --config proxy/fly.toml
 
 # Manual deploy
-fly deploy --config proxy/fly.toml
+cd proxy && fly deploy --remote-only
 
-# Automatic: push to main triggers GitHub Actions → deploy.yml
+# Automatic: push to master triggers GitHub Actions → deploy.yml
 ```
 
-`proxy/fly.toml` configures:
-- Region: `ewr` (Newark, closest to MTA servers)
-- Memory: 256MB
-- Auto-stop when idle (free tier compatible)
-- Health check: `GET /health` every 15s
+`proxy/fly.toml` configures: region `ewr` (Newark), 256 MB memory, auto-stop when idle, health check at `GET /health` every 15s.
+
+### Go API Server — Phase 5 (Google Cloud Run)
+
+```bash
+# One-time setup
+gcloud auth login
+gcloud projects create nyc-subway-3d
+gcloud run services enable run.googleapis.com
+
+# Manual deploy
+gcloud run deploy nyc-subway-api \
+  --source ./api \
+  --region us-east1 \
+  --platform managed \
+  --allow-unauthenticated
+
+# Automatic: push to master triggers GitHub Actions → deploy.yml
+# Replaces the Fly.io deploy step
+```
 
 ### GitHub Secrets Required
 
-| Secret | Source |
-|---|---|
-| `FLY_API_TOKEN` | `fly tokens create deploy` |
-| `VERCEL_TOKEN` | vercel.com → Account → Tokens |
-| `VERCEL_ORG_ID` | `.vercel/project.json` after `vercel link` |
-| `VERCEL_PROJECT_ID` | `.vercel/project.json` after `vercel link` |
-
-### Environment Configuration
-
-Set `PROXY` in `src/core/gtfs-loader.js`:
-```js
-const PROXY = 'https://nyc-subway-proxy.fly.dev'  // production
-// const PROXY = 'http://localhost:8080'           // local dev
-```
+| Secret | Phase | Source |
+|---|---|---|
+| `FLY_API_TOKEN` | 1–4 | `fly tokens create deploy` |
+| `VERCEL_TOKEN` | All | vercel.com → Account → Tokens |
+| `VERCEL_ORG_ID` | All | `.vercel/project.json` after `vercel link` |
+| `VERCEL_PROJECT_ID` | All | `.vercel/project.json` after `vercel link` |
+| `GCP_SERVICE_ACCOUNT_KEY` | 5+ | GCP IAM → Service Accounts → JSON key |
+| `FIREBASE_SERVICE_ACCOUNT` | 8+ | Firebase Console → Project Settings → Service Accounts |
 
 ---
 
-## 19. Out of Scope
+## 22. Out of Scope
 
 These features are intentionally excluded from all current phases:
 
@@ -818,8 +1122,7 @@ These features are intentionally excluded from all current phases:
 |---|---|
 | Ticket purchasing / OMNY integration | Requires MTA partnership; not buildable independently |
 | Bus routing | Separate MTA Bus Time API with different data shape; dilutes subway focus |
-| User accounts / authentication | No persistent server-side state; `localStorage` is sufficient for MVP |
-| Native iOS / Android app | Progressive web app only; avoids App Store review cycle |
+| Native iOS / Android app | PWA (Phase 6) covers installability; native app adds App Store overhead without new capability |
 | LIRR / Metro-North | Different GTFS feeds, different fare structure, different rider problems |
 | Turn-by-turn walking directions | Google Maps / Apple Maps API dependency; not core to the transit problem |
 | Real-time crowding data via computer vision | Requires hardware access to MTA cameras; not publicly available |
