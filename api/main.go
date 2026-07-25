@@ -36,7 +36,16 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGTFSFile(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	file := r.PathValue("file")
+	gtfsMu.RLock()
+	data, ok := gtfsFiles[file]
+	gtfsMu.RUnlock()
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(data)
 }
 
 func handleArrivals(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +70,11 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	if err := loadGTFSStatic(); err != nil {
+		slog.Error("failed to load gtfs static data", "err", err)
+		os.Exit(1)
+	}
+
 	slog.Info("server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, newMux()); err != nil {
 		slog.Error("server error", "err", err)

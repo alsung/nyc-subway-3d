@@ -69,13 +69,3 @@ func TestStubVehicles(t *testing.T) {
 		t.Errorf("expected 501, got %d", w.Code)
 	}
 }
-
-func TestStubGTFSFile(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/gtfs/stops.txt", nil)
-	w := httptest.NewRecorder()
-	handleGTFSFile(w, req)
-
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("expected 501, got %d", w.Code)
-	}
-}
