@@ -49,13 +49,3 @@ func TestCORSPreflight(t *testing.T) {
 		t.Errorf("expected CORS origin *, got %q", got)
 	}
 }
-
-func TestStubVehicles(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil)
-	w := httptest.NewRecorder()
-	handleVehicles(w, req)
-
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("expected 501, got %d", w.Code)
-	}
-}

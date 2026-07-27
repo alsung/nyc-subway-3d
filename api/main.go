@@ -85,7 +85,19 @@ func handleArrivals(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleVehicles(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	feeds, updated := cachedFeeds()
+	vehicles := parseVehiclePositions(feeds)
+
+	updatedAt := ""
+	if !updated.IsZero() {
+		updatedAt = updated.UTC().Format(time.RFC3339)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(vehiclesResponse{
+		Vehicles:  vehicles,
+		UpdatedAt: updatedAt,
+	})
 }
 
 func newMux() http.Handler {
