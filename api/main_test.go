@@ -50,16 +50,6 @@ func TestCORSPreflight(t *testing.T) {
 	}
 }
 
-func TestStubArrivals(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/arrivals/123", nil)
-	w := httptest.NewRecorder()
-	handleArrivals(w, req)
-
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("expected 501, got %d", w.Code)
-	}
-}
-
 func TestStubVehicles(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil)
 	w := httptest.NewRecorder()

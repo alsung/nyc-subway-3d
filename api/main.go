@@ -61,7 +61,27 @@ func handleGTFSFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleArrivals(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	stationID := r.PathValue("stationId")
+
+	feeds, updated := cachedFeeds()
+	index := buildArrivalIndex(feeds, time.Now())
+
+	arrivals := index[stationID]
+	if arrivals == nil {
+		arrivals = []Arrival{}
+	}
+
+	updatedAt := ""
+	if !updated.IsZero() {
+		updatedAt = updated.UTC().Format(time.RFC3339)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(arrivalsResponse{
+		StationID: stationID,
+		Arrivals:  arrivals,
+		UpdatedAt: updatedAt,
+	})
 }
 
 func handleVehicles(w http.ResponseWriter, r *http.Request) {

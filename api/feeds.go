@@ -118,6 +118,19 @@ func refreshFeeds(ctx context.Context) {
 	slog.Info("feeds refreshed", "ok", ok, "total", len(feedURLs))
 }
 
+// cachedFeeds returns a snapshot of the currently cached decoded feeds plus the
+// time of the last refresh, taken under a read lock. Callers own the returned
+// slice.
+func cachedFeeds() ([]*gtfs.FeedMessage, time.Time) {
+	feedsMu.RLock()
+	defer feedsMu.RUnlock()
+	feeds := make([]*gtfs.FeedMessage, 0, len(feedCache))
+	for _, e := range feedCache {
+		feeds = append(feeds, e.msg)
+	}
+	return feeds, lastRefresh
+}
+
 // startFeedRefresher runs an initial refresh, then refreshes on a fixed interval
 // until ctx is cancelled. Intended to run in its own goroutine.
 func startFeedRefresher(ctx context.Context) {
