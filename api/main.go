@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 )
 
 type healthResponse struct {
@@ -27,11 +29,21 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
+	feedsMu.RLock()
+	loaded := len(feedCache)
+	last := lastRefresh
+	feedsMu.RUnlock()
+
+	lastStr := ""
+	if !last.IsZero() {
+		lastStr = last.UTC().Format(time.RFC3339)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(healthResponse{
 		Status:      "ok",
-		FeedsLoaded: 0,
-		LastRefresh: "",
+		FeedsLoaded: loaded,
+		LastRefresh: lastStr,
 	})
 }
 
@@ -74,6 +86,10 @@ func main() {
 		slog.Error("failed to load gtfs static data", "err", err)
 		os.Exit(1)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go startFeedRefresher(ctx)
 
 	slog.Info("server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, newMux()); err != nil {
