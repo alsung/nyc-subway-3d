@@ -549,6 +549,21 @@ Move all GTFS-RT fetching, protobuf parsing, and GTFS static file serving to a d
 - CI: replace `flyctl deploy` with `gcloud run deploy`
 - Remove `npm run gtfs` step from CI — server handles GTFS static at startup
 
+### Tickets
+
+| Ticket | Description | Status |
+|---|---|---|
+| P5-1 | API scaffold — HTTP server, CORS middleware, `/health`, stub routes | ✅ Done |
+| P5-2 | Load GTFS static ZIP at startup, serve `GET /api/gtfs/:file` | ✅ Done |
+| P5-3 | Background goroutine — refresh 8 GTFS-RT feeds every 30s, decode protobuf server-side (last-known-good per feed) | ✅ Done |
+| P5-4 | `GET /api/arrivals/:stationId` — server-side `buildArrivalIndex`, computed per request | ✅ Done |
+| P5-5 | `GET /api/vehicles` — server-side `parseVehiclePositions` | ✅ Done |
+| P5-6 | Frontend migration — drop `gtfs-realtime-bindings`, fetch JSON from `api/` instead of decoding protobuf in-browser | 🔲 Todo |
+| P5-7 | Deploy `api/` to Cloud Run; point frontend PROD endpoint at the `…run.app` URL | 🔲 Todo |
+| P5-8 | CI cutover (`flyctl` → `gcloud run deploy`), decommission `proxy/`, PR to master | 🔲 Todo |
+
+Backend (P5-1…P5-5) is complete and verified against live MTA feeds. Remaining work is ordered 6 → 7 → 8 (each depends on the previous) and lands in a single PR to master.
+
 ### Key Implementation Notes
 
 #### Background goroutine architecture
@@ -583,11 +598,13 @@ All 8 feeds fetched concurrently in Go goroutines. Cache is populated once at st
 #### JSON API endpoints
 ```
 GET /api/arrivals/:stationId
-  → [{ routeId, direction, minutes, tripId }, ...]
-  Merges N and S platforms; caller gets both directions.
+  → { stationId, arrivals: [{ routeId, direction, minutes, tripId }], updatedAt }
+  Keyed on both directional (127N) and parent (127) IDs; caller gets both directions.
 
 GET /api/vehicles
-  → [{ vehicleId, routeId, lat, lng, bearing, stopId, timestamp }, ...]
+  → { vehicles: [{ routeId, tripId, stopId, currentStatus, stopTimeUpdate: [{ stopId }] }], updatedAt }
+  MTA subway feeds carry no GPS — the client derives each train's position from
+  its stop sequence along the route geometry (no lat/lng/bearing exists).
 
 GET /api/gtfs/stops.txt
 GET /api/gtfs/shapes.txt
@@ -633,6 +650,40 @@ Removes `gtfs-realtime-bindings` from the bundle (~180 KB parsed).
 
 Free tier: 2M requests/month, 360K GB-seconds compute. New GCP accounts receive $300 credit for 90 days.
 
+### Design Decisions & Trade-offs
+
+Phase 5 involved several deliberate choices where the obvious approach wasn't the one we took. Recording them here so the reasoning survives.
+
+#### Decode once server-side (the whole premise)
+Previously every browser fetched all 8 GTFS-RT protobuf feeds and decoded them client-side with `gtfs-realtime-bindings` (~180 KB). Moving the fetch + decode to one Go server means MTA is hit once per 30s regardless of how many users are connected, every client gets clean JSON, and the library leaves the bundle. The trade-off is a server to run and pay for — acceptable, since Cloud Run's free tier covers personal-scale traffic and the GCP ecosystem is needed for Phases 8–10 anyway.
+
+#### Last-known-good per feed (vs. all-or-nothing per cycle)
+The old client rebuilt its entire view every cycle, inserting `null` for any feed that failed — so a single flaky feed made that line's trains blink out. The server instead updates only the feeds that succeed each cycle and keeps the previous data for any that failed (each with its own `fetchedAt`). A transient failure degrades gracefully to slightly-stale data rather than disappearing trains. This is strictly more resilient than the behavior it replaced.
+
+#### Arrivals computed per request (vs. precomputed on refresh)
+`minutes-until-arrival` is relative to *now*. If the server computed it once per 30s refresh and served that for the whole window, every countdown would be up to 30s wrong. So `/api/arrivals/:id` builds the index fresh on each request using `time.Now()`. The cost — rebuilding an in-memory index per request — is microseconds at personal scale, not worth caching.
+
+#### Lazy per-station arrivals (Option B) — the main UX trade-off
+When wiring the frontend to the API, the browser needed a way to get arrivals. Two options:
+
+- **Option A — global index.** Add an "all stations" endpoint, fetch the full arrival index every 30s, keep the popup lookup synchronous (instant, in-memory).
+- **Option B — lazy per-station.** The 30s loop fetches only `/api/vehicles` (needed for the 3D trains). A station's arrivals are fetched on demand when its popup opens, behind a brief "Loading…" state.
+
+|  | Option A — Global | Option B — Lazy *(chosen)* |
+|---|---|---|
+| Popup arrivals appear | Instantly (already in memory) | ~50–150 ms later, warm (behind loading state) |
+| Backend work | Needs a **new** all-stations endpoint | **None** — uses `/api/arrivals/:id` as built |
+| Bandwidth | Ships the entire index (~100–300 KB) every 30s to every client, viewed or not | Only fetches a station's arrivals when someone opens it |
+| Popup code | Synchronous | Async (ripples to 3 call sites) |
+| Cold-start risk | None on popup | First popup after Cloud Run idle can lag 1–3 s |
+
+**We chose Option B.** It needs no additional backend work, and it leans into the whole point of the migration — a shared server cache that *saves* bandwidth. Shipping every station's arrivals to every client every 30s, when a user only ever looks at one station at a time, works against that goal. The one downside — a network round-trip on popup open — is made effectively invisible by opening the popup *immediately* in a loading state and filling the arrival rows when the fetch resolves (~50–150 ms warm; imperceptible). The only real risk, a 1–3 s Cloud Run cold-start stall after idle, is not inherent to Option B — it's a deploy setting (`--min-instances=1` keeps a container warm), decided in P5-7.
+
+A station *complex* spans several GTFS IDs (Times Sq = `127` + `725` + `R16` …), so a popup fetches each member ID in parallel and merges the results deduped by `tripId` — one round-trip regardless of how many platforms the complex has.
+
+#### Vehicles carry only `stopId`, and default to STOPPED_AT
+MTA's subway feeds publish **no GPS** — position is derived client-side from a train's stop sequence along the route geometry. So `/api/vehicles` serializes each `stopTimeUpdate` as just `{stopId}` (the only field the renderer reads), keeping the payload lean even though each of ~700 vehicles carries its whole remaining stop list. And when a vehicle's `current_status` is absent, the server defaults it to `STOPPED_AT` to match the original frontend behavior — deliberately *not* the protobuf spec's own default of `IN_TRANSIT_TO`, so trains render exactly as they did before.
+
 ### Test Cases — Phase 5
 
 | Test | Type | Assertion |
@@ -644,7 +695,7 @@ Free tier: 2M requests/month, 360K GB-seconds compute. New GCP accounts receive 
 | Concurrent requests hit cache, not MTA | Integration | 100 concurrent GET /api/arrivals → 1 MTA request |
 | `/api/gtfs/stops.txt` returns station data | Integration | Response contains `stop_id` in first 100 bytes |
 | `/health` includes `lastRefresh` timestamp | Unit | Field present and parseable as RFC3339 |
-| `GET /api/vehicles` returns bearing field | Unit | Each vehicle object has numeric `bearing` |
+| `GET /api/vehicles` returns stop sequence | Unit | Each vehicle object has a `stopTimeUpdate` array |
 
 ---
 
