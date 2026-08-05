@@ -3,9 +3,9 @@
 // decoding and GTFS-RT parsing now happen server-side; the browser just consumes
 // clean JSON and no longer bundles gtfs-realtime-bindings.
 
-// Switch to the deployed Cloud Run URL for production in P5-7.
+// Production API runs on Fly.io in ewr — see api/fly.toml.
 const API_BASE = import.meta.env.PROD
-    ? 'https://TODO-cloud-run-url.run.app' // TODO(P5-7): real Cloud Run URL
+    ? 'https://nyc-subway-api.fly.dev'
     : 'http://localhost:8080';
 
 // Fetches all live vehicles for the 3D train layer.
