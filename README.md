@@ -20,7 +20,7 @@
 9. [Phase 2 — Live Arrivals](#9-phase-2--live-arrivals)
 10. [Phase 3 — Live Train Positions](#10-phase-3--live-train-positions)
 11. [Phase 4 — Real Trains + Station LOD](#11-phase-4--real-trains--station-lod)
-12. [Phase 5 — Go API Server (Cloud Run)](#12-phase-5--go-api-server-cloud-run)
+12. [Phase 5 — Go API Server (Fly.io)](#12-phase-5--go-api-server-flyio)
 13. [Phase 6 — Mobile + UX Polish](#13-phase-6--mobile--ux-polish)
 14. [Phase 7 — Trip Planner + Car Positioning](#14-phase-7--trip-planner--car-positioning)
 15. [Phase 8 — User Accounts](#15-phase-8--user-accounts)
@@ -117,7 +117,7 @@ A backend engineer looks at the GitHub repo to understand how the GTFS-RT protob
 │  Go Proxy → Go API Server                                                 │
 │                                                                           │
 │  Phase 4:  Fly.io (ewr) — CORS passthrough + 30s TTL cache               │
-│  Phase 5+: Google Cloud Run — full API server, parses protobuf,          │
+│  Phase 5+: Fly.io (ewr) — full API server, parses protobuf,              │
 │            serves /api/arrivals, /api/vehicles, /api/gtfs/*              │
 │            background goroutine refreshes all 8 feeds every 30s          │
 └──────────────────────────────┬───────────────────────────────────────────┘
@@ -136,7 +136,7 @@ Static hosting: Vercel (CDN edge, Vite dist/)
 CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 ```
 
-> **Interactive architecture diagram** — current Phase 4 state vs. Phase 5 Cloud Run migration, with cost and setup time breakdown: [Phase 4 → Phase 5 Architecture](https://claude.ai/code/artifact/e7cddf84-f2a4-4b4d-925c-05fe26bef020)
+> **Interactive architecture diagram** — current Phase 4 state vs. the Phase 5 API-server migration, with cost and setup time breakdown (the diagram predates the move from Cloud Run to Fly.io — see the decision record below): [Phase 4 → Phase 5 Architecture](https://claude.ai/code/artifact/e7cddf84-f2a4-4b4d-925c-05fe26bef020)
 
 ---
 
@@ -157,8 +157,8 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | MTA GTFS static | Data | `stops.txt` → stations, `routes.txt` → colors, `shapes.txt` → route geometry, `trips.txt` → shape-to-route mapping |
 | MTA GTFS-RT | Data | 8 protobuf binary feeds updated every ~30s; `TripUpdate` for arrival times, `VehiclePosition` for train locations |
 | Vercel | Infrastructure | Static frontend hosting; global CDN, automatic deploys from GitHub Actions |
-| Fly.io (Phase 1–4) | Infrastructure | Go proxy containerized app in `ewr` region; replaced by Cloud Run in Phase 5 |
-| Google Cloud Run (Phase 5+) | Infrastructure | Serverless Go container; free tier covers personal-scale traffic; GCP ecosystem (Firebase, FCM, Vertex) for Phases 8–10 |
+| Fly.io | Infrastructure | Containerized Go apps in `ewr`: the Phase 1–4 CORS proxy, and the Phase 5 API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
+| Google Cloud (Phases 8–10) | Infrastructure | Firebase Auth and FCM for user accounts and push notifications; not used for hosting the API |
 | Firebase Auth (Phase 8) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
 | Firebase Cloud Messaging (Phase 9) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
 | Claude API (Phase 10) | AI | Tool-use agent layer for natural language transit queries |
@@ -174,7 +174,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 2 | Live Arrivals | Complete | Real protobuf decoding, next arrivals per station/direction from 8 GTFS-RT feeds |
 | 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
-| 5 | Go API Server (Cloud Run) | Planned | Replace Fly.io proxy with full API server; server-side protobuf parsing and shared cache |
+| 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
 | 6 | Mobile + UX Polish | Planned | Responsive layout, PWA manifest, touch gestures, performance optimization |
 | 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing, highlighted route on map, optimal car recommendation |
 | 8 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
@@ -535,19 +535,19 @@ Both directions always visible; no toggle button. Each column shows up to 4 arri
 
 ---
 
-## 12. Phase 5 — Go API Server (Cloud Run)
+## 12. Phase 5 — Go API Server (Fly.io)
 
 ### Goal
-Move all GTFS-RT fetching, protobuf parsing, and GTFS static file serving to a dedicated Go API server on Google Cloud Run. The browser receives clean JSON. Every user benefits from a shared server-side cache rather than each fetching independently from MTA.
+Move all GTFS-RT fetching and protobuf parsing to a dedicated Go API server on Fly.io. The browser receives clean JSON. Every user benefits from a shared server-side cache rather than each fetching independently from MTA.
 
 ### Scope
-- Replace Fly.io CORS proxy with a Go API server deployed to Cloud Run
+- Replace the CORS proxy with a Go API server deployed to Fly.io
 - Background goroutine fetches and parses all 8 GTFS-RT feeds every 30s
 - In-memory cache shared across all concurrent users
 - New endpoints: `GET /api/arrivals/:stationId`, `GET /api/vehicles`, `GET /api/gtfs/:file`
 - Browser JS: remove protobuf decoding; replace with simple `fetch('/api/...')` calls
-- CI: replace `flyctl deploy` with `gcloud run deploy`
-- Remove `npm run gtfs` step from CI — server handles GTFS static at startup
+- CI: add a `flyctl deploy` job for `api/`; retire the proxy deploy
+- GTFS static stays baked into the Vercel build (see Design Decisions) — the server keeps its own in-memory copy for future server-side use
 
 ### Tickets
 
@@ -558,9 +558,9 @@ Move all GTFS-RT fetching, protobuf parsing, and GTFS static file serving to a d
 | P5-3 | Background goroutine — refresh 8 GTFS-RT feeds every 30s, decode protobuf server-side (last-known-good per feed) | ✅ Done |
 | P5-4 | `GET /api/arrivals/:stationId` — server-side `buildArrivalIndex`, computed per request | ✅ Done |
 | P5-5 | `GET /api/vehicles` — server-side `parseVehiclePositions` | ✅ Done |
-| P5-6 | Frontend migration — drop `gtfs-realtime-bindings`, fetch JSON from `api/` instead of decoding protobuf in-browser | 🔲 Todo |
-| P5-7 | Deploy `api/` to Cloud Run; point frontend PROD endpoint at the `…run.app` URL | 🔲 Todo |
-| P5-8 | CI cutover (`flyctl` → `gcloud run deploy`), decommission `proxy/`, PR to master | 🔲 Todo |
+| P5-6 | Frontend migration — drop `gtfs-realtime-bindings`, fetch JSON from `api/` instead of decoding protobuf in-browser | ✅ Done |
+| P5-7 | Deploy `api/` to Fly.io; point the frontend PROD endpoint at `nyc-subway-api.fly.dev` | ✅ Done |
+| P5-8 | CI cutover (`api/` tests + Fly deploy, `pull_request` trigger), config cleanup, PR to master | ✅ Done |
 
 Backend (P5-1…P5-5) is complete and verified against live MTA feeds. Remaining work is ordered 6 → 7 → 8 (each depends on the previous) and lands in a single PR to master.
 
@@ -628,34 +628,51 @@ const arrivals = await fetch(`/api/arrivals/${stationId}`).then(r => r.json())
 
 Removes `gtfs-realtime-bindings` from the bundle (~180 KB parsed).
 
-#### Cloud Run deployment
+#### Fly.io deployment
 ```yaml
-# .github/workflows/deploy.yml (Phase 5)
-- name: Deploy API to Cloud Run
-  run: |
-    gcloud run deploy nyc-subway-api \
-      --source ./api \
-      --region us-east1 \
-      --platform managed \
-      --allow-unauthenticated \
-      --set-env-vars MTA_API_KEY=${{ secrets.MTA_API_KEY }}
+# .github/workflows/deploy.yml
+- name: Deploy API → Fly.io
+  run: cd api && flyctl deploy --remote-only --ha=false
+  env:
+    FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 ```
 
-#### Cost at scale
-| Traffic | Estimated cost |
-|---|---|
-| Personal / portfolio (~100 DAU) | $0/month (within free tier) |
-| 1K DAU | ~$5–10/month |
-| 10K DAU | ~$40–60/month |
+`--ha=false` is load-bearing, not an optimization: the feed cache lives in-process,
+so a second machine would poll MTA independently and serve inconsistent data.
+Exactly one instance is a correctness requirement of this design.
 
-Free tier: 2M requests/month, 360K GB-seconds compute. New GCP accounts receive $300 credit for 90 days.
+#### Cost
+One always-on `shared-cpu-1x` / 512 MB machine in `ewr`: **~$3.32/month**. Traffic
+barely moves this — the server's floor is set by the always-on background refresher,
+not by request volume, and each response is served from memory (`/api/vehicles`
+gzips to ~14 KB). The same box comfortably serves hundreds of concurrent users.
+
+#### Why not Cloud Run (decision record)
+Cloud Run was the original plan and was abandoned during P5-7. Its execution model
+allocates CPU **only during request processing** — but this server's whole design is a
+background goroutine that must tick every 30s whether or not anyone is asking. Making
+that work requires `--no-cpu-throttling` plus `--min-instances=1`, and Cloud Run then
+rejects fractional CPU outright:
+
+```
+ERROR: spec.template.spec.containers.resources.limits.cpu: Invalid value specified
+for cpu. Total cpu < 1 is not supported with cpu always allocated (unthrottled).
+```
+
+That forces a full always-on vCPU: **~$46/month versus ~$3.32 on Fly.io** for identical
+behavior. Cloud Run is an excellent fit for request-scoped handlers; it is a poor fit
+for a long-lived in-memory cache with a background refresher. Fly.io sells exactly what
+this architecture wants — a small always-on VM — and already hosted the Phase 1–4 proxy.
+
+GCP is still the intended home for Firebase Auth and FCM in Phases 8–10; that setup is
+independent of where this API runs.
 
 ### Design Decisions & Trade-offs
 
 Phase 5 involved several deliberate choices where the obvious approach wasn't the one we took. Recording them here so the reasoning survives.
 
 #### Decode once server-side (the whole premise)
-Previously every browser fetched all 8 GTFS-RT protobuf feeds and decoded them client-side with `gtfs-realtime-bindings` (~180 KB). Moving the fetch + decode to one Go server means MTA is hit once per 30s regardless of how many users are connected, every client gets clean JSON, and the library leaves the bundle. The trade-off is a server to run and pay for — acceptable, since Cloud Run's free tier covers personal-scale traffic and the GCP ecosystem is needed for Phases 8–10 anyway.
+Previously every browser fetched all 8 GTFS-RT protobuf feeds and decoded them client-side with `gtfs-realtime-bindings` (~180 KB). Moving the fetch + decode to one Go server means MTA is hit once per 30s regardless of how many users are connected, every client gets clean JSON, and the library leaves the bundle. The trade-off is a server to run and pay for — ~$3.32/month for one always-on Fly.io machine.
 
 #### Last-known-good per feed (vs. all-or-nothing per cycle)
 The old client rebuilt its entire view every cycle, inserting `null` for any feed that failed — so a single flaky feed made that line's trains blink out. The server instead updates only the feeds that succeed each cycle and keeps the previous data for any that failed (each with its own `fetchedAt`). A transient failure degrades gracefully to slightly-stale data rather than disappearing trains. This is strictly more resilient than the behavior it replaced.
@@ -675,9 +692,9 @@ When wiring the frontend to the API, the browser needed a way to get arrivals. T
 | Backend work | Needs a **new** all-stations endpoint | **None** — uses `/api/arrivals/:id` as built |
 | Bandwidth | Ships the entire index (~100–300 KB) every 30s to every client, viewed or not | Only fetches a station's arrivals when someone opens it |
 | Popup code | Synchronous | Async (ripples to 3 call sites) |
-| Cold-start risk | None on popup | First popup after Cloud Run idle can lag 1–3 s |
+| Cold-start risk | None on popup | Would apply if the machine scaled to zero — avoided by `min_machines_running = 1` |
 
-**We chose Option B.** It needs no additional backend work, and it leans into the whole point of the migration — a shared server cache that *saves* bandwidth. Shipping every station's arrivals to every client every 30s, when a user only ever looks at one station at a time, works against that goal. The one downside — a network round-trip on popup open — is made effectively invisible by opening the popup *immediately* in a loading state and filling the arrival rows when the fetch resolves (~50–150 ms warm; imperceptible). The only real risk, a 1–3 s Cloud Run cold-start stall after idle, is not inherent to Option B — it's a deploy setting (`--min-instances=1` keeps a container warm), decided in P5-7.
+**We chose Option B.** It needs no additional backend work, and it leans into the whole point of the migration — a shared server cache that *saves* bandwidth. Shipping every station's arrivals to every client every 30s, when a user only ever looks at one station at a time, works against that goal. The one downside — a network round-trip on popup open — is made effectively invisible by opening the popup *immediately* in a loading state and filling the arrival rows when the fetch resolves (~50–150 ms warm; imperceptible). The only real risk — a 1–3 s cold-start stall after idle — is not inherent to Option B; it is a deploy setting, resolved in P5-7 by never scaling the machine to zero (`min_machines_running = 1`), which the background feed refresher requires anyway.
 
 A station *complex* spans several GTFS IDs (Times Sq = `127` + `725` + `R16` …), so a popup fetches each member ID in parallel and merges the results deduped by `tripId` — one round-trip regardless of how many platforms the complex has.
 
@@ -824,7 +841,7 @@ Introduce persistent, server-side user identity using Firebase Auth. Users sign 
 ### Scope
 - Firebase Auth with Google Sign-In provider
 - Auth state persisted in browser; JWT sent with API requests
-- Cloud Run API validates Firebase JWT on protected endpoints
+- The API server validates Firebase JWT on protected endpoints
 - Saved commutes stored in Firestore: `users/{uid}/commutes[]`
 - Maximum 5 saved commutes per user
 - "My Commute" shortcut in the UI: one tap to show saved route arrival times
@@ -838,7 +855,7 @@ User clicks "Sign in with Google"
 → Firebase Auth popup (Google OAuth)
 → Firebase returns ID token (JWT)
 → Browser includes token in Authorization header on all /api/* requests
-→ Cloud Run middleware: firebase-admin.VerifyIDToken(token)
+→ API middleware: firebase-admin.VerifyIDToken(token)
 → uid extracted; requests are scoped to that user's Firestore documents
 ```
 
@@ -872,7 +889,7 @@ Alert users before their train arrives and when their commute is disrupted, even
 - Firebase Cloud Messaging (FCM) via service worker
 - Notification types: departure reminder ("Your 6 train leaves 14th St in 3 min"), delay alert ("Your A train is running 12 min late")
 - User sets notification preferences per saved commute: alert window (e.g., 5/10/15 min before scheduled departure), delay threshold
-- Cloud Run schedules notification dispatch based on GTFS-RT data
+- The API server schedules notification dispatch based on GTFS-RT data
 - Service worker handles background message receipt and shows system notification
 
 ### Key Implementation Notes
@@ -885,8 +902,8 @@ const token = await messaging.getToken({ vapidKey: VAPID_KEY })
 // Store token in Firestore under users/{uid}/fcmTokens[]
 ```
 
-#### Notification dispatch (Cloud Run)
-A Cloud Run scheduled job (Cloud Scheduler, every minute) checks:
+#### Notification dispatch
+A scheduled job on the API server (every minute) checks:
 1. For each user with notifications enabled, load their saved commutes
 2. For each commute, check GTFS-RT arrivals at the origin station
 3. If next arrival is within the user's alert window → send FCM push via `firebase-admin.Messaging.Send`
@@ -1008,7 +1025,7 @@ Response headers:
 
 The proxy only forwards to `api-endpoint.mta.info` and `rrgtfsfeeds.s3.amazonaws.com`. All other target URLs return 403.
 
-### Phase 5+ — Go API Server (Cloud Run)
+### Phase 5+ — Go API Server (Fly.io)
 
 ```
 GET /api/arrivals/:stationId
@@ -1133,24 +1150,34 @@ cd proxy && fly deploy --remote-only
 
 `proxy/fly.toml` configures: region `ewr` (Newark), 256 MB memory, auto-stop when idle, health check at `GET /health` every 15s.
 
-### Go API Server — Phase 5 (Google Cloud Run)
+### Go API Server — Phase 5 (Fly.io)
 
 ```bash
 # One-time setup
-gcloud auth login
-gcloud projects create nyc-subway-3d
-gcloud run services enable run.googleapis.com
+flyctl apps create nyc-subway-api
 
-# Manual deploy
-gcloud run deploy nyc-subway-api \
-  --source ./api \
-  --region us-east1 \
-  --platform managed \
-  --allow-unauthenticated
+# Manual deploy (from the repo root)
+cd api && flyctl deploy --remote-only --ha=false
 
 # Automatic: push to master triggers GitHub Actions → deploy.yml
-# Replaces the Fly.io deploy step
 ```
+
+`api/fly.toml` configures: region `ewr`, 512 MB memory, `min_machines_running = 1`
+with `auto_stop_machines = 'off'`, and a `GET /health` check every 15s with a 30s
+grace period.
+
+Three of those differ deliberately from `proxy/fly.toml`:
+
+- **Never scales to zero** — the background goroutine refreshes the GTFS-RT feeds
+  every 30s, so a stopped machine serves stale data.
+- **30s health-check grace period** — `main()` downloads and unzips the 5.6 MB GTFS
+  static ZIP before it starts listening, so a 5s grace would kill the machine at boot.
+- **512 MB** — measured peak RSS is ~51 MB; the headroom is cheap insurance against an
+  OOM restart, which would dump the cache and re-download the ZIP.
+
+Always deploy with `--ha=false`. The cache is in-process, so a second machine would
+poll MTA independently and serve inconsistent data depending on which one a request
+lands on.
 
 ### GitHub Secrets Required
 
