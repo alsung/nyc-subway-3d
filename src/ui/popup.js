@@ -104,6 +104,28 @@ export function showPopup(popup, station, routeMap, arrivals, onLineSelect) {
     popup.classList.remove('hidden');
 }
 
+// Opens the popup immediately in a loading state — station name shown, arrival
+// columns showing a placeholder — while arrivals are fetched (Phase 5 lazy
+// per-station fetch). showPopup replaces this with real data when it resolves.
+export function showPopupLoading(popup, station) {
+    popup.querySelector('.popup-name').textContent = station.name;
+    popup.querySelector('.popup-line-select').innerHTML = '';
+    const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
+    renderLoadingCol(northCol, DEFAULT_DIR.N);
+    renderLoadingCol(southCol, DEFAULT_DIR.S);
+    popup.classList.remove('hidden');
+}
+
+function renderLoadingCol(col, headerText) {
+    col.querySelector('.popup-dir-header').textContent = headerText;
+    const list = col.querySelector('.popup-dir-list');
+    list.innerHTML = '';
+    const loading = document.createElement('div');
+    loading.className = 'arrival-empty';
+    loading.textContent = 'Loading…';
+    list.appendChild(loading);
+}
+
 function renderCol(col, colArrivals, headerText, showBadge) {
     col.querySelector('.popup-dir-header').textContent = headerText;
     const list = col.querySelector('.popup-dir-list');

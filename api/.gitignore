@@ -1,0 +1,8 @@
+# Compiled binary (matches module name)
+/api
+
+# Test binaries
+*.test
+
+# Coverage output
+*.out

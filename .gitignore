@@ -3,6 +3,9 @@ node_modules/
 dist/
 coverage/
 
+# Vite build cache
+.vite/
+
 # MTA GTFS static files - large, regenerated from MTA S3
 # Run: npm run gtfs
 public/gtfs/*.txt

@@ -2,7 +2,7 @@
 // Train meshes that animate along route curves. Two modes coexist:
 //   'simulated' — a random continuous walk along the curve, used as a
 //                 fallback for any route with no live vehicle data.
-//   'real'      — driven by parseVehiclePositions (rt-parser.js), tweened
+//   'real'      — driven by the /api/vehicles JSON feed, tweened
 //                 between snapshots on each RT refresh. MTA's feed has no
 //                 GPS, so positions are derived from stop-relative status —
 //                 see deriveVehicleT below.

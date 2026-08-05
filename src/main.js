@@ -9,12 +9,11 @@ import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight }
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
-import { buildPopup, showPopup, hidePopup } from './ui/popup.js';
+import { buildPopup, showPopup, showPopupLoading, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { loadAndParseGTFS } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
-import { loadRT } from './core/rt-loader.js';
-import { buildArrivalIndex, parseVehiclePositions } from './core/rt-parser.js';
+import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
 
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
@@ -66,17 +65,24 @@ async function init() {
         });
 
         // RT state — shared between the refresh loop and click/search handlers.
-        let arrivalIndex = {};
-        let lastStation  = null;
+        let lastStation = null;
 
-        // station may be a raw GTFS station (from search) or an enriched click object
-        // with stationIds already resolved; fall back to the group map either way.
-        function getArrivals(station) {
+        const highlight = (routeId) => highlightLine(lineMeshes, routeId);
+
+        // Fetches arrivals for a station on demand (Phase 5 lazy per-station fetch).
+        // A station may be a raw GTFS station (from search) or an enriched click
+        // object with stationIds already resolved; a station complex spans several
+        // GTFS IDs, so we fetch each in parallel and merge, deduped by tripId. Failed
+        // fetches are skipped. Returns a sorted array, or null when there are none.
+        async function getArrivals(station) {
             const ids = station.stationIds ?? stationGroups.get(station.id) ?? [station.id];
+            const results = await Promise.all(
+                ids.map(id => fetchArrivals(id).then(r => r.arrivals).catch(() => []))
+            );
             const seen = new Set();
             const merged = [];
-            for (const id of ids) {
-                for (const a of arrivalIndex[id] ?? []) {
+            for (const arrivals of results) {
+                for (const a of arrivals) {
                     if (!seen.has(a.tripId)) { seen.add(a.tripId); merged.push(a); }
                 }
             }
@@ -84,32 +90,36 @@ async function init() {
             return merged.length ? merged : null;
         }
 
-        // Fetches fresh RT data, rebuilds the arrival index, updates the staleness
-        // indicator, and re-renders the popup if it's currently open.
+        // Opens a station popup: shows it immediately in a loading state, then fills
+        // in arrivals when the fetch resolves — unless a different station was
+        // selected (or the popup closed) in the meantime.
+        async function openStationPopup(station) {
+            showPopupLoading(popup, station);
+            const arrivals = await getArrivals(station);
+            if (lastStation !== station || popup.classList.contains('hidden')) return;
+            showPopup(popup, station, routeMap, arrivals, highlight);
+        }
+
+        // Fetches fresh vehicle data from the API, syncs the 3D trains, updates the
+        // staleness indicator (driven by the server's last-refresh time), and quietly
+        // re-fetches arrivals for the popup if it's currently open.
         async function refreshRT() {
             const staleEl = document.getElementById('staleness');
             try {
-                const { feeds, fetchedAt } = await loadRT();
-                const anyLoaded = feeds.some(f => f !== null);
+                const { vehicles, updatedAt } = await fetchVehicles();
+                syncRealTrains(trainMeshes, vehicles, lineCurves, stationTByRoute, routeMap, threeLayer.scene);
 
-                if (!anyLoaded) {
-                    staleEl.classList.remove('hidden');
-                    staleEl.classList.add('stale');
-                    document.getElementById('staleness-label').textContent = 'Offline';
-                    return;
-                }
-
-                arrivalIndex = buildArrivalIndex(feeds, Date.now());
-                syncRealTrains(trainMeshes, parseVehiclePositions(feeds), lineCurves, stationTByRoute, routeMap, threeLayer.scene);
-
-                const isStale = Date.now() - fetchedAt > RT_STALE_MS;
+                const serverTime = updatedAt ? Date.parse(updatedAt) : NaN;
+                const isStale = Number.isNaN(serverTime) || Date.now() - serverTime > RT_STALE_MS;
                 staleEl.classList.remove('hidden', 'stale');
                 if (isStale) staleEl.classList.add('stale');
                 document.getElementById('staleness-label').textContent = isStale ? 'Stale' : 'Live';
 
                 if (lastStation && !popup.classList.contains('hidden')) {
-                    showPopup(popup, lastStation, routeMap, getArrivals(lastStation),
-                        (routeId) => highlightLine(lineMeshes, routeId));
+                    const arrivals = await getArrivals(lastStation);
+                    if (lastStation && !popup.classList.contains('hidden')) {
+                        showPopup(popup, lastStation, routeMap, arrivals, highlight);
+                    }
                 }
             } catch {
                 staleEl.classList.remove('hidden');
@@ -124,8 +134,7 @@ async function init() {
         buildSearch(stations, document.getElementById('search-bar'), (station) => {
             lastStation = station;
             flyToStation(map, station);
-            showPopup(popup, station, routeMap, getArrivals(station),
-                (routeId) => highlightLine(lineMeshes, routeId));
+            openStationPopup(station);
         });
 
         // All four circle layers — complexes (low zoom) and individuals (high zoom).
@@ -149,8 +158,7 @@ async function init() {
                 stationIds: ids,
             };
             flyToStation(map, lastStation);
-            showPopup(popup, lastStation, routeMap, getArrivals(lastStation),
-                (routeId) => highlightLine(lineMeshes, routeId));
+            openStationPopup(lastStation);
         });
 
         for (const layer of STATION_LAYERS) {

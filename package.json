@@ -13,7 +13,6 @@
     "gtfs": "bash scripts/download-gtfs.sh"
   },
   "dependencies": {
-    "gtfs-realtime-bindings": "^2.0.0",
     "maplibre-gl": "^5.24.0",
     "three": "^0.165.0"
   },

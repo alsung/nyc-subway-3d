@@ -2,7 +2,8 @@ name: Deploy
 
 on:
   push:
-    branches: [master, phase-4]
+    branches: [master]
+  pull_request:
 
 jobs:
   test-js:
@@ -18,13 +19,14 @@ jobs:
       - run: npm test
 
   test-go:
-    name: Go proxy tests
+    name: Go tests (api + proxy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+      - run: cd api && go test ./... -race
       - run: cd proxy && go test ./... -race
 
   deploy-frontend:
@@ -61,6 +63,22 @@ jobs:
           VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
+  deploy-api:
+    name: Deploy API → Fly.io
+    if: github.ref == 'refs/heads/master'
+    needs: [test-go]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # --ha=false: the feed cache is in-process, so a second machine would poll
+      # MTA independently and serve inconsistent data. Exactly one instance.
+      - run: cd api && flyctl deploy --remote-only --ha=false
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  # Retired after this PR merges and production is verified — nothing calls the
+  # proxy since the frontend moved to the JSON API in P5-6.
   deploy-proxy:
     name: Deploy proxy → Fly.io
     if: github.ref == 'refs/heads/master'

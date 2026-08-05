@@ -1,0 +1,46 @@
+# fly.toml app configuration for nyc-subway-api
+#
+# See https://fly.io/docs/reference/configuration/ for details.
+#
+# Differs from proxy/fly.toml in three ways, each driven by this server's design:
+#   1. Never scales to zero — a background goroutine refreshes the GTFS-RT feeds
+#      every 30s, so a stopped machine is a stale machine.
+#   2. Longer health-check grace period — main() downloads and unzips the 5.6 MB
+#      GTFS static ZIP before it starts listening.
+#   3. More memory — holds the GTFS static files plus 8 decoded feeds in memory.
+#
+# Deploy with --ha=false: the cache is in-process, so a second machine would poll
+# MTA independently and serve inconsistent data.
+
+app = 'nyc-subway-api'
+primary_region = 'ewr'
+
+[build]
+  dockerfile = 'Dockerfile'
+  [build.args]
+    GO_VERSION = '1.22'
+
+[env]
+  PORT = '8080'
+  # Go 1.22 reads the host CPU count rather than the cgroup limit; pin it to the
+  # single shared vCPU this machine actually gets.
+  GOMAXPROCS = '1'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
