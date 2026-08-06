@@ -798,12 +798,65 @@ existing arrival index with no normalisation. Alerts refresh on a slower interva
 train positions (~60s) — they change far less often and the payload is roughly five times
 larger than a single real-time feed.
 
+#### Alerts UI — subtle pass (P6-4)
+At the station level, an affected station carries a small badge on its map circle, and
+the popup explains the disruption in words rather than leaving an unexplained gap. This
+is what turns P6-2's generic "No trains scheduled" into something actionable: a rider
+looking at Times Sq during a Broadway-line suspension should read *why* there are no
+trains, not be left guessing whether the app is broken.
+
 #### Alerts view (P6-5)
 The app currently has no routing; everything renders into one view. Rather than adding a
 second HTML entry point — which would duplicate the shell and reload Three.js and
 Maplibre — the alerts breakdown is an overlay panel over the warm map, addressed by URL
 hash (`#alerts`) so it stays linkable and the browser back button behaves. No router
 dependency.
+
+The alert data is re-rendered in-app rather than linking out to MTA's own status page.
+Linking out sends the reader away and discards the one thing this project can do that a
+text list cannot: show a disruption spatially.
+
+```
+┌──────────────────────────────────────┬──────────────────────┐
+│                                      │  SERVICE ALERTS   ✕  │
+│                                      ├──────────────────────┤
+│        3D map stays visible          │ ①②③④⑤⑥⑦ⒶⒸⒺⒷⒹⒻⓂ    │  status strip
+│        and interactive               │ ⒿⓏⓁⓃⓆⓇⓌⒼ           │  tinted by severity
+│                                      ├──────────────────────┤
+│   ● affected stations pulse          │ ⚠ SUSPENDED (2)      │
+│     when an alert is selected        │ ┌──────────────────┐ │
+│                                      │ │ ⓃⓆⓇⓌ Manhattan  │ │
+│                                      │ │ Broadway line     │ │  click → map flies
+│                                      │ │ 14 stations       │ │  and highlights
+│                                      │ └──────────────────┘ │
+│                                      │ ⏱ DELAYS (5)         │
+│                                      │ 🔧 PLANNED WORK (9)  │
+└──────────────────────────────────────┴──────────────────────┘
+```
+
+**Line status strip** — a compact grid of route bullets, each tinted by its worst active
+severity (good service / delays / suspended). Scannable at a glance, and doubles as a
+filter: selecting a bullet narrows the list to that route.
+
+**Grouped by severity, not chronology** — Suspended, then Delays, then Planned work. What
+is broken belongs at the top; a 3am weekend track replacement should not outrank a
+suspended trunk line.
+
+**Selecting an alert drives the map** — the view flies to the affected corridor, unaffected
+lines dim, and affected stations pulse. This is the feature worth building: it makes the
+"see the whole system" thesis concrete, and it is precisely what MTA's own status page
+cannot do.
+
+**Entry point** — a button beside the 2D/3D controls showing a live count tinted by worst
+active severity (`⚠ 12`), fading to neutral grey when nothing is wrong. It doubles as an
+ambient system-health signal without anything being opened. A drawer rather than a
+full-page takeover, because keeping the map visible is what makes the map-driving
+behaviour work at all; on small viewports it becomes a bottom sheet, aligning with P6-6.
+
+**Density caveat** — a single sample of the live feed carried 142 active alerts, most of
+them routine planned work. Without severity grouping and route filtering the panel
+degenerates into a wall of text nobody reads, so planned work should collapse by default.
+Worth validating against real data once P6-3 lands and the actual distribution is visible.
 
 ### Key Implementation Notes — Mobile
 
