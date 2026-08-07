@@ -2,8 +2,22 @@ name: Deploy
 
 on:
   push:
-    branches: [master]
+    # phase-* pushes deploy to Vercel preview, so in-progress phase work is
+    # reachable at a stable URL without opening a PR. Only master reaches
+    # production — see the ref guards on the deploy jobs below.
+    branches: [master, "phase-*"]
   pull_request:
+
+# A branch with an open PR matches both triggers above. Grouping by head_ref
+# collapses those into one run. Superseded preview runs are cancelled, but
+# master is never cancelled mid-flight: those runs push to Fly.io, and
+# interrupting a flyctl deploy is not something to do for convenience.
+concurrency:
+  # head_ref is the branch name on pull_request and empty on push; ref_name is
+  # the branch name on push. Together they yield the same key ("phase-6") for
+  # both triggers, which is what makes the two runs collapse into one.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   test-js:
