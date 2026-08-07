@@ -773,6 +773,38 @@ to the 3D view after load reduces the initial tile burst on top of that.
 | GTFS static (4 files, 6.4 MB) | last finishing at 5,522 ms |
 | JS execution total | ~600 ms |
 
+**Three changes shipped:**
+
+1. `createMap` is called *before* `await loadAndParseGTFS()`, so Stadia's tile fetch
+   overlaps the GTFS download instead of queueing behind it.
+2. The search box, filter chips, and popup are built as soon as GTFS resolves. Only the
+   Three.js scene waits on the map's `load` event. Chip toggles made before the line
+   meshes exist are recorded in a `filterState` map and applied once they are — state
+   rather than a queue, so it stays idempotent.
+3. The map opens at `pitch: 0` and eases to the 3D view after load (`introToThreeD`).
+   The animation sets pitch and bearing only, never `center`, so it cannot pull the map
+   away from a station the user selected while it was still loading; it defers past any
+   in-flight `flyTo`, and is skipped entirely if the user moved the camera by hand.
+
+**Measured A/B**, both builds served locally under identical conditions, median of 3 runs.
+"Interactive" is the search input hitting the DOM; "scene ready" is the first successful
+RT refresh:
+
+| | Interactive | Scene ready | Requests before interactive |
+|---|---|---|---|
+| Baseline, unthrottled | 2,177 ms | 3,051 ms | 34 |
+| **After P6-1, unthrottled** | **194 ms** | **2,142 ms** | **8** |
+| Baseline, 10 Mbps | 9,876 ms | 10,683 ms | 34 |
+| **After P6-1, 10 Mbps** | **7,687 ms** | **8,212 ms** | 20 |
+
+The gap between the two regimes is the important finding. On a fast connection the UI is
+effectively instant (11× faster). On a constrained one the win drops to ~22%, because
+interactive is now gated on the 6.4 MB GTFS download — and the map, now fetching in
+parallel, competes with it for the same bandwidth. It is still a net win in both regimes,
+but **the remaining bottleneck is the GTFS payload, not the ordering.** That is the case
+for precomputing GTFS into compact JSON at build time (deferred ticket) — it is the only
+change that moves the constrained number much further.
+
 #### Service alerts (P6-3)
 MTA publishes a dedicated GTFS-RT alerts feed at
 `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts`. It is
