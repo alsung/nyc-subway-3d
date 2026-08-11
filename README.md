@@ -21,7 +21,7 @@
 10. [Phase 3 — Live Train Positions](#10-phase-3--live-train-positions)
 11. [Phase 4 — Real Trains + Station LOD](#11-phase-4--real-trains--station-lod)
 12. [Phase 5 — Go API Server (Fly.io)](#12-phase-5--go-api-server-flyio)
-13. [Phase 6 — Mobile + UX Polish](#13-phase-6--mobile--ux-polish)
+13. [Phase 6 — Performance, Service Alerts + Mobile](#13-phase-6--performance-service-alerts--mobile)
 14. [Phase 7 — Trip Planner + Car Positioning](#14-phase-7--trip-planner--car-positioning)
 15. [Phase 8 — User Accounts](#15-phase-8--user-accounts)
 16. [Phase 9 — Push Notifications](#16-phase-9--push-notifications)
@@ -175,7 +175,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
 | 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
-| 6 | Mobile + UX Polish | Planned | Responsive layout, PWA manifest, touch gestures, performance optimization |
+| 6 | Performance, Service Alerts + Mobile | Planned | Startup performance, popup state clarity, MTA service alerts, responsive layout, PWA manifest, touch gestures |
 | 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing, highlighted route on map, optimal car recommendation |
 | 8 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
 | 9 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
@@ -716,20 +716,191 @@ MTA's subway feeds publish **no GPS** — position is derived client-side from a
 
 ---
 
-## 13. Phase 6 — Mobile + UX Polish
+## 13. Phase 6 — Performance, Service Alerts + Mobile
 
 ### Goal
-Make the app fully usable on a phone. The 3D map already loads on mobile, but the UI controls, popup, and touch gesture handling are designed for desktop. This phase closes that gap and installs the app as a PWA.
+Three threads: make the app load fast, make it honest about what it knows (service
+alerts and empty states), and make it usable on a phone.
 
 ### Scope
-- Responsive layout: chip bar, search, popup all adapt to small viewports
-- PWA manifest (`manifest.json`) with name, icons, display mode, and theme color
-- Touch gesture support: pinch-to-zoom, two-finger rotate, single-finger pan via Maplibre
-- Popup redesign for mobile: full-width bottom sheet on small screens
-- Performance pass: profile and reduce JS main-thread work during map panning
+- **Startup performance** — stop blocking the UI on third-party map tiles; measured 2.1s → 0.26s to interactive
+- **Popup state clarity** — distinguish *loading* / *no trains scheduled* / *request failed* / *data delayed*
+- **Service alerts** — ingest MTA's alerts feed; badge affected stations, explain disruptions in the popup, and provide a full alerts view
+- **Mobile** — responsive layout, touch gestures, PWA install
 - Lighthouse score target: ≥90 Performance, ≥95 Accessibility, 100 PWA
 
+### Tickets
+
+| Ticket | Description | PR |
+|---|---|---|
+| P6-1 | Startup performance — don't block `init()` on `map.on('load')`; lower initial pitch and animate to 3D after load; re-measure | PR 1 |
+| P6-2 | Popup state clarity — replace the ambiguous `—` with distinct loading / no-service / error / stale states | PR 2 |
+| P6-3 | Alerts backend — fetch `camsys/subway-alerts` on its own interval, cache, expose `GET /api/alerts` | PR 3 |
+| P6-4 | Alerts UI (subtle) — badge on affected stations, disruption detail in the popup, enriching P6-2's empty state | PR 3 |
+| P6-5 | Alerts view — dedicated full-breakdown panel reachable from top-level navigation | PR 3 |
+| P6-6 | Responsive layout — chip bar, search, popup → bottom sheet | PR 4 |
+| P6-7 | Touch gestures — pinch-zoom, two-finger rotate | PR 4 |
+| P6-8 | PWA manifest, icons, Lighthouse pass | PR 4 |
+
+P6-1 comes first: it is the largest user-visible win and independent of everything else.
+P6-2 precedes the alerts work because the generic states stand on their own, and the
+alert data then enriches them — instead of "No trains scheduled," an affected station
+can say *why*.
+
+**Deferred to a follow-up:** map-level treatment of alerts (recolouring or pulsing
+affected line segments). Deliberately not in the initial pass — with 142 active alerts
+observed in a single sample, map-wide highlighting risks becoming visual noise. Revisit
+once the subtle treatment shows how dense real alert data actually is.
+
 ### Key Implementation Notes
+
+#### Startup performance (P6-1)
+Profiling with the Chrome DevTools Protocol showed the app is **not** CPU-bound: 82.8% of
+the time to interactive was spent idle, with all JS execution totalling ~600 ms
+(`gtfs-parser.js` 73 ms, `three.js` 64 ms). The blocker is that `init()` waits on
+Maplibre's `load` event, which does not fire until the style and initial tiles arrive
+from Stadia. The opening camera (`pitch: 56`) compounds this by pushing the horizon back
+and enlarging the visible tile set.
+
+The fix is ordering, not optimisation: render the search, filter chips, and popup shell
+immediately, and let the map fill in behind them. Starting at a low pitch and animating
+to the 3D view after load reduces the initial tile burst on top of that.
+
+> **Withdrawn measurement.** An earlier draft of this section cited a 17,128 ms
+> production baseline. It does not reproduce — measuring the same deployment with the
+> same markers gives 2,113 ms. The original figure was most likely captured while
+> Stadia was returning 401s on tiles, which stalls the pre-P6-1 code indefinitely
+> because every UI element sat behind `map.on('load')`. It has been removed rather
+> than corrected in place, since nothing about the run is trustworthy.
+
+**Three changes shipped:**
+
+1. `createMap` is called *before* `await loadAndParseGTFS()`, so Stadia's tile fetch
+   overlaps the GTFS download instead of queueing behind it.
+2. The search box, filter chips, and popup are built as soon as GTFS resolves. Only the
+   Three.js scene waits on the map's `load` event. Chip toggles made before the line
+   meshes exist are recorded in a `filterState` map and applied once they are — state
+   rather than a queue, so it stays idempotent.
+3. The map opens at `pitch: 0` and eases to the 3D view after load (`introToThreeD`).
+   The animation sets pitch and bearing only, never `center`, so it cannot pull the map
+   away from a station the user selected while it was still loading; it defers past any
+   in-flight `flyTo`, and is skipped entirely if the user moved the camera by hand.
+
+**Measured on the real deployments** — the pre-P6-1 production build against the P6-1
+preview build, same harness, same network, median of 3 cold-cache runs. "Interactive" is
+the search input hitting the DOM; "scene ready" is the first successful RT refresh:
+
+| | Interactive | Scene ready | Requests before interactive |
+|---|---|---|---|
+| Production (pre-P6-1) | 2,113 ms | 3,061 ms | 35 |
+| **Preview (P6-1)** | **263 ms** | **1,991 ms** | **6** |
+| | **8.0× faster** | 35% faster | −29 |
+
+The UI now appears in about a quarter of a second instead of waiting on the map. Scene
+readiness improves too, from the flatter opening camera requesting fewer tiles.
+
+A local test under 10 Mbps throttling shows where the next bottleneck is: interactive
+went 9,876 ms → 7,687 ms, a much smaller ~22% win, because once the ordering is fixed
+**interactive is gated on the 6.4 MB GTFS download** — and the map, now fetching in
+parallel, competes with it for the same bandwidth. That is the case for precomputing
+GTFS into compact JSON at build time (deferred ticket); it is the only change that moves
+the constrained number much further.
+
+Two things about measuring this that cost real time and are worth writing down:
+
+- **Stadia serves tiles keyless from `localhost` but 401s from a deployed origin.** Local
+  testing structurally cannot catch a missing `VITE_STADIA_API_KEY`. Any measurement that
+  matters has to run against a deployed URL.
+- **The style JSON returns 200 even when every tile 401s**, so `map.on('load')` still
+  fires and the map reports itself loaded while rendering nothing. It is a silent
+  failure, which is exactly why the withdrawn baseline above went unnoticed for so long.
+
+#### Service alerts (P6-3)
+MTA publishes a dedicated GTFS-RT alerts feed at
+`https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts`. It is
+public, requires no key, and decodes with the protobuf bindings the API server already
+depends on — no new dependencies.
+
+Verified against the live feed: 142 `Alert` entities, ~370 KB. The eight real-time feeds
+already fetched contain essentially no alerts (0–1 per feed), so this data is genuinely
+additional rather than something already being discarded.
+
+Each alert carries human-readable `headerText` plus `informedEntity` entries that name a
+route, a stop, or both:
+
+```
+header:   "[7][7X] trains are running with delays in both directions.
+           The last stop on some Flushing-bound [7][7X] is 111 St or Mets-Willets Point."
+informed: routeId="7"  stopId=""      ← route-level
+informed: routeId=""   stopId="705"   ← station-level
+```
+
+Stop IDs are parent station IDs (`705`, no N/S suffix), so they key directly against the
+existing arrival index with no normalisation. Alerts refresh on a slower interval than
+train positions (~60s) — they change far less often and the payload is roughly five times
+larger than a single real-time feed.
+
+#### Alerts UI — subtle pass (P6-4)
+At the station level, an affected station carries a small badge on its map circle, and
+the popup explains the disruption in words rather than leaving an unexplained gap. This
+is what turns P6-2's generic "No trains scheduled" into something actionable: a rider
+looking at Times Sq during a Broadway-line suspension should read *why* there are no
+trains, not be left guessing whether the app is broken.
+
+#### Alerts view (P6-5)
+The app currently has no routing; everything renders into one view. Rather than adding a
+second HTML entry point — which would duplicate the shell and reload Three.js and
+Maplibre — the alerts breakdown is an overlay panel over the warm map, addressed by URL
+hash (`#alerts`) so it stays linkable and the browser back button behaves. No router
+dependency.
+
+The alert data is re-rendered in-app rather than linking out to MTA's own status page.
+Linking out sends the reader away and discards the one thing this project can do that a
+text list cannot: show a disruption spatially.
+
+```
+┌──────────────────────────────────────┬──────────────────────┐
+│                                      │  SERVICE ALERTS   ✕  │
+│                                      ├──────────────────────┤
+│        3D map stays visible          │ ①②③④⑤⑥⑦ⒶⒸⒺⒷⒹⒻⓂ    │  status strip
+│        and interactive               │ ⒿⓏⓁⓃⓆⓇⓌⒼ           │  tinted by severity
+│                                      ├──────────────────────┤
+│   ● affected stations pulse          │ ⚠ SUSPENDED (2)      │
+│     when an alert is selected        │ ┌──────────────────┐ │
+│                                      │ │ ⓃⓆⓇⓌ Manhattan  │ │
+│                                      │ │ Broadway line     │ │  click → map flies
+│                                      │ │ 14 stations       │ │  and highlights
+│                                      │ └──────────────────┘ │
+│                                      │ ⏱ DELAYS (5)         │
+│                                      │ 🔧 PLANNED WORK (9)  │
+└──────────────────────────────────────┴──────────────────────┘
+```
+
+**Line status strip** — a compact grid of route bullets, each tinted by its worst active
+severity (good service / delays / suspended). Scannable at a glance, and doubles as a
+filter: selecting a bullet narrows the list to that route.
+
+**Grouped by severity, not chronology** — Suspended, then Delays, then Planned work. What
+is broken belongs at the top; a 3am weekend track replacement should not outrank a
+suspended trunk line.
+
+**Selecting an alert drives the map** — the view flies to the affected corridor, unaffected
+lines dim, and affected stations pulse. This is the feature worth building: it makes the
+"see the whole system" thesis concrete, and it is precisely what MTA's own status page
+cannot do.
+
+**Entry point** — a button beside the 2D/3D controls showing a live count tinted by worst
+active severity (`⚠ 12`), fading to neutral grey when nothing is wrong. It doubles as an
+ambient system-health signal without anything being opened. A drawer rather than a
+full-page takeover, because keeping the map visible is what makes the map-driving
+behaviour work at all; on small viewports it becomes a bottom sheet, aligning with P6-6.
+
+**Density caveat** — a single sample of the live feed carried 142 active alerts, most of
+them routine planned work. Without severity grouping and route filtering the panel
+degenerates into a wall of text nobody reads, so planned work should collapse by default.
+Worth validating against real data once P6-3 lands and the actual distribution is visible.
+
+### Key Implementation Notes — Mobile
 
 #### PWA manifest
 ```json
@@ -750,7 +921,7 @@ Below 640px viewport width, the popup switches from a floating card to a bottom 
 #### Performance targets
 - Time to Interactive: < 3s on 4G
 - Map frame rate: ≥ 58fps during pan on a mid-range Android device
-- JS bundle: < 600 KB gzipped (after Phase 5 removes protobuf library)
+- JS bundle: < 600 KB gzipped (Phase 5 removed the protobuf library: 414 KB gzipped as of P5-6)
 
 ---
 

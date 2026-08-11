@@ -14,14 +14,17 @@ const STYLE_URL = STADIA_KEY
 
 // Creates the Maplibre map centered on NYC with a dark street style.
 // Drag, zoom, and pitch are all handled natively by Maplibre.
+// Opens flat (pitch 0): a tilted camera pushes the horizon back and enlarges the
+// initial tile set, which dominated time-to-interactive. main.js calls
+// introToThreeD once the map has loaded to tilt into the 3D view.
 export function createMap(container) {
     return new maplibregl.Map({
         container,
         style: STYLE_URL,
         center: [MAP_CENTER.lng, MAP_CENTER.lat],
         zoom: 12,
-        pitch: 56,
-        bearing: -17,
+        pitch: 0,
+        bearing: 0,
         antialias: true,
     });
 }
