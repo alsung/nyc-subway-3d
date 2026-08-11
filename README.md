@@ -723,7 +723,7 @@ Three threads: make the app load fast, make it honest about what it knows (servi
 alerts and empty states), and make it usable on a phone.
 
 ### Scope
-- **Startup performance** — stop blocking the UI on third-party map tiles; measured baseline 17.1s to interactive
+- **Startup performance** — stop blocking the UI on third-party map tiles; measured 2.1s → 0.26s to interactive
 - **Popup state clarity** — distinguish *loading* / *no trains scheduled* / *request failed* / *data delayed*
 - **Service alerts** — ingest MTA's alerts feed; badge affected stations, explain disruptions in the popup, and provide a full alerts view
 - **Mobile** — responsive layout, touch gestures, PWA install
@@ -759,19 +759,19 @@ Profiling with the Chrome DevTools Protocol showed the app is **not** CPU-bound:
 the time to interactive was spent idle, with all JS execution totalling ~600 ms
 (`gtfs-parser.js` 73 ms, `three.js` 64 ms). The blocker is that `init()` waits on
 Maplibre's `load` event, which does not fire until the style and initial tiles arrive
-from Stadia — 26 requests over ~16 s in production. The opening camera (`pitch: 56`)
-compounds this by pushing the horizon back and enlarging the visible tile set.
+from Stadia. The opening camera (`pitch: 56`) compounds this by pushing the horizon back
+and enlarging the visible tile set.
 
 The fix is ordering, not optimisation: render the search, filter chips, and popup shell
 immediately, and let the map fill in behind them. Starting at a low pitch and animating
 to the 3D view after load reduces the initial tile burst on top of that.
 
-| Measurement | Value |
-|---|---|
-| Time to interactive (production, baseline) | 17,128 ms |
-| Stadia tile requests before interactive | 26, last finishing at 16,064 ms |
-| GTFS static (4 files, 6.4 MB) | last finishing at 5,522 ms |
-| JS execution total | ~600 ms |
+> **Withdrawn measurement.** An earlier draft of this section cited a 17,128 ms
+> production baseline. It does not reproduce — measuring the same deployment with the
+> same markers gives 2,113 ms. The original figure was most likely captured while
+> Stadia was returning 401s on tiles, which stalls the pre-P6-1 code indefinitely
+> because every UI element sat behind `map.on('load')`. It has been removed rather
+> than corrected in place, since nothing about the run is trustworthy.
 
 **Three changes shipped:**
 
@@ -786,24 +786,34 @@ to the 3D view after load reduces the initial tile burst on top of that.
    away from a station the user selected while it was still loading; it defers past any
    in-flight `flyTo`, and is skipped entirely if the user moved the camera by hand.
 
-**Measured A/B**, both builds served locally under identical conditions, median of 3 runs.
-"Interactive" is the search input hitting the DOM; "scene ready" is the first successful
-RT refresh:
+**Measured on the real deployments** — the pre-P6-1 production build against the P6-1
+preview build, same harness, same network, median of 3 cold-cache runs. "Interactive" is
+the search input hitting the DOM; "scene ready" is the first successful RT refresh:
 
 | | Interactive | Scene ready | Requests before interactive |
 |---|---|---|---|
-| Baseline, unthrottled | 2,177 ms | 3,051 ms | 34 |
-| **After P6-1, unthrottled** | **194 ms** | **2,142 ms** | **8** |
-| Baseline, 10 Mbps | 9,876 ms | 10,683 ms | 34 |
-| **After P6-1, 10 Mbps** | **7,687 ms** | **8,212 ms** | 20 |
+| Production (pre-P6-1) | 2,113 ms | 3,061 ms | 35 |
+| **Preview (P6-1)** | **263 ms** | **1,991 ms** | **6** |
+| | **8.0× faster** | 35% faster | −29 |
 
-The gap between the two regimes is the important finding. On a fast connection the UI is
-effectively instant (11× faster). On a constrained one the win drops to ~22%, because
-interactive is now gated on the 6.4 MB GTFS download — and the map, now fetching in
-parallel, competes with it for the same bandwidth. It is still a net win in both regimes,
-but **the remaining bottleneck is the GTFS payload, not the ordering.** That is the case
-for precomputing GTFS into compact JSON at build time (deferred ticket) — it is the only
-change that moves the constrained number much further.
+The UI now appears in about a quarter of a second instead of waiting on the map. Scene
+readiness improves too, from the flatter opening camera requesting fewer tiles.
+
+A local test under 10 Mbps throttling shows where the next bottleneck is: interactive
+went 9,876 ms → 7,687 ms, a much smaller ~22% win, because once the ordering is fixed
+**interactive is gated on the 6.4 MB GTFS download** — and the map, now fetching in
+parallel, competes with it for the same bandwidth. That is the case for precomputing
+GTFS into compact JSON at build time (deferred ticket); it is the only change that moves
+the constrained number much further.
+
+Two things about measuring this that cost real time and are worth writing down:
+
+- **Stadia serves tiles keyless from `localhost` but 401s from a deployed origin.** Local
+  testing structurally cannot catch a missing `VITE_STADIA_API_KEY`. Any measurement that
+  matters has to run against a deployed URL.
+- **The style JSON returns 200 even when every tile 401s**, so `map.on('load')` still
+  fires and the map reports itself loaded while rendering nothing. It is a silent
+  failure, which is exactly why the withdrawn baseline above went unnoticed for so long.
 
 #### Service alerts (P6-3)
 MTA publishes a dedicated GTFS-RT alerts feed at
