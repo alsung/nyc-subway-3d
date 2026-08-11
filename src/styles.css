@@ -290,6 +290,47 @@ html, body {
     padding-top: 4px;
 }
 
+/* ── Incomplete-data warning ─────────────────────────────────────────────── */
+
+/* Shown only when the GTFS static files could not be loaded and the app is
+   running on the embedded 45-station subset. Deliberately prominent: the map
+   still looks plausible in that state, so a quiet indicator would not read as
+   a problem. */
+#data-warning {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(560px, calc(100vw - 40px));
+    padding: 10px 12px 10px 16px;
+    border: 1px solid rgba(255, 176, 32, 0.45);
+    border-radius: 8px;
+    background: rgba(60, 42, 8, 0.94);
+    color: #ffd88a;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.data-warning-close {
+    flex-shrink: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.data-warning-close:hover {
+    opacity: 1;
+}
+
 /* ── Staleness indicator ─────────────────────────────────────────────────── */
 
 #staleness {

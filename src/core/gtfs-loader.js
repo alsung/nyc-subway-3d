@@ -36,16 +36,43 @@ export async function loadGTFS() {
     return { stops, routes, shapes, trips };
 }
 
+// True when the last loadAndParseGTFS() call fell back to the embedded dataset.
+// The fallback yields 45 stations against the real feed's ~496, so a map built
+// from it looks plausible while being roughly 9% of the network — worth telling
+// the user about rather than only logging. See showEmbeddedDataWarning.
+export let usingEmbeddedData = false;
+
 export async function loadAndParseGTFS() {
     // call loadGTFS()
     const raw = await loadGTFS();
 
     // if result is null: call buildFromEmbedded() and return it
-    if (raw === null) return buildFromEmbedded();
+    if (raw === null) {
+        usingEmbeddedData = true;
+        return buildFromEmbedded();
+    }
 
+    usingEmbeddedData = false;
     // if result is non-null: call parseGTFS(stops, routes, shapes, trips) and return it
     // both branches return the same shape: { stations, childToParent, routeMap, lineRoutes }
     return parseGTFS(raw.stops, raw.routes, raw.shapes, raw.trips);
+}
+
+// Renders a dismissible banner explaining that the map is incomplete. Every
+// Vercel deployment before 2026-08-11 shipped without the GTFS files and fell
+// back silently; a console.warn nobody reads is not an adequate signal that
+// most of the subway is missing.
+export function showEmbeddedDataWarning(container) {
+    const banner = document.createElement('div');
+    banner.id = 'data-warning';
+    banner.innerHTML = `
+        <span>Showing a limited map — live station data failed to load, so only major stations are displayed.</span>
+        <button class="data-warning-close" aria-label="Dismiss">×</button>
+    `;
+    banner.querySelector('.data-warning-close')
+        .addEventListener('click', () => banner.remove());
+    container.appendChild(banner);
+    return banner;
 }
 
 function buildFromEmbedded() {
