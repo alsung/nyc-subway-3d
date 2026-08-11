@@ -54,7 +54,10 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
-      - run: npm run gtfs
+      # No explicit GTFS download step: it is npm's prebuild hook now, so it
+      # runs inside whichever build produces the deployed output — including
+      # `vercel build` below, which is the one that actually ships. Running it
+      # here instead was why every deployment went out without the data.
       - run: npm run build
       - name: Deploy to Vercel (production)
         if: github.ref == 'refs/heads/master'

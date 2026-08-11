@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "predev": "bash scripts/download-gtfs.sh",
+    "prebuild": "bash scripts/download-gtfs.sh",
+    "build": "vite build && node scripts/verify-build.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "gtfs": "bash scripts/download-gtfs.sh"
+    "gtfs": "bash scripts/download-gtfs.sh --force"
   },
   "dependencies": {
     "maplibre-gl": "^5.24.0",

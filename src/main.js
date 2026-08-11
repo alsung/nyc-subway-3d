@@ -11,7 +11,7 @@ import { flyToStation, setView, introToThreeD } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
-import { loadAndParseGTFS } from './core/gtfs-loader.js';
+import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
 
@@ -59,6 +59,8 @@ async function init() {
 
     // RT state — shared between the refresh loop and click/search handlers.
     let lastStation = null;
+
+    if (usingEmbeddedData) showEmbeddedDataWarning(document.getElementById('ui'));
 
     const popup = buildPopup(document.getElementById('ui'));
     popup.querySelector('.popup-close').addEventListener('click', () => {
