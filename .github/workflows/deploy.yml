@@ -33,7 +33,7 @@ jobs:
       - run: npm test
 
   test-go:
-    name: Go tests (api + proxy)
+    name: Go tests (api)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,6 @@ jobs:
         with:
           go-version: "1.22"
       - run: cd api && go test ./... -race
-      - run: cd proxy && go test ./... -race
 
   deploy-frontend:
     name: Deploy frontend → Vercel (${{ github.ref == 'refs/heads/master' && 'production' || 'preview' }})
@@ -91,19 +90,5 @@ jobs:
       # --ha=false: the feed cache is in-process, so a second machine would poll
       # MTA independently and serve inconsistent data. Exactly one instance.
       - run: cd api && flyctl deploy --remote-only --ha=false
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
-  # Retired after this PR merges and production is verified — nothing calls the
-  # proxy since the frontend moved to the JSON API in P5-6.
-  deploy-proxy:
-    name: Deploy proxy → Fly.io
-    if: github.ref == 'refs/heads/master'
-    needs: [test-go]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: cd proxy && flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

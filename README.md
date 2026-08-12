@@ -157,7 +157,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | MTA GTFS static | Data | `stops.txt` → stations, `routes.txt` → colors, `shapes.txt` → route geometry, `trips.txt` → shape-to-route mapping |
 | MTA GTFS-RT | Data | 8 protobuf binary feeds updated every ~30s; `TripUpdate` for arrival times, `VehiclePosition` for train locations |
 | Vercel | Infrastructure | Static frontend hosting; global CDN, automatic deploys from GitHub Actions |
-| Fly.io | Infrastructure | Containerized Go apps in `ewr`: the Phase 1–4 CORS proxy, and the Phase 5 API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
+| Fly.io | Infrastructure | Containerized Go app in `ewr`: the API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
 | Google Cloud (Phases 8–10) | Infrastructure | Firebase Auth and FCM for user accounts and push notifications; not used for hosting the API |
 | Firebase Auth (Phase 8) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
 | Firebase Cloud Messaging (Phase 9) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
@@ -208,12 +208,7 @@ nyc-subway-3d/
 ├── vercel.json
 ├── .gitignore
 ├── .github/workflows/
-│   ├── ci.yml           # test + build on every PR
-│   └── deploy.yml       # deploy to Vercel + backend on main push
-├── proxy/
-│   ├── main.go
-│   ├── main_test.go
-│   ├── go.mod
+│   └── deploy.yml       # test, build, deploy frontend + API
 │   └── fly.toml
 ├── public/
 │   └── gtfs/            # MTA GTFS files (downloaded by npm run gtfs in CI)
@@ -228,7 +223,7 @@ nyc-subway-3d/
 │   │   ├── geo.js           # lat/lng ↔ XZ projection, haversine, downsample
 │   │   ├── gtfs-parser.js   # CSV parser + GTFS file parsers + station complexes
 │   │   ├── gtfs-loader.js   # fetch GTFS files or fall back to embedded
-│   │   ├── rt-loader.js     # fetch 8 GTFS-RT feeds via proxy
+│   │   ├── rt-loader.js     # fetch vehicles + arrivals from the Go API
 │   │   ├── rt-parser.js     # decode protobuf, build arrival index
 │   │   └── color.js         # contrast color, hexToRGB
 │   ├── data/
@@ -328,23 +323,6 @@ Orbit camera with spherical coordinates `(θ, φ, r)`. Mouse drag updates θ and
 | L line gray → `#000` | Light gray needs dark text |
 | `hexToRGB('#FFFFFF')` → `{r:255,g:255,b:255}` | |
 | `hexToRGB('#000000')` → `{r:0,g:0,b:0}` | |
-
-#### Go proxy (`proxy/main_test.go`)
-| Test | Assertion |
-|---|---|
-| `isAllowed` permits MTA domains | `api-endpoint.mta.info` → true |
-| `isAllowed` permits MTA S3 | `rrgtfsfeeds.s3.amazonaws.com` → true |
-| `isAllowed` blocks arbitrary domains | `evil.com` → false |
-| `isAllowed` blocks malformed URLs | `not-a-url` → false |
-| Cache hit returns stored body | Pre-seeded entry returned with `X-Cache: HIT` |
-| Cache miss on unknown key | `get("nonexistent")` → false |
-| Cache expiry | Entry with `fetchedAt` 2× TTL ago → miss |
-| Cache overwrite | Second `set` on same key returns new value |
-| `/health` returns 200 + JSON | Status and Content-Type correct |
-| Missing URL → 400 | `/proxy` with no `?url=` returns Bad Request |
-| Blocked URL → 403 | `evil.com` URL returns Forbidden |
-| POST method → 405 | Non-GET returns Method Not Allowed |
-| OPTIONS → 204 + CORS header | Preflight returns No Content + `Access-Control-Allow-Origin: *` |
 
 ---
 
@@ -786,18 +764,27 @@ to the 3D view after load reduces the initial tile burst on top of that.
    away from a station the user selected while it was still loading; it defers past any
    in-flight `flyTo`, and is skipped entirely if the user moved the camera by hand.
 
-**Measured on the real deployments** — the pre-P6-1 production build against the P6-1
-preview build, same harness, same network, median of 3 cold-cache runs. "Interactive" is
-the search input hitting the DOM; "scene ready" is the first successful RT refresh:
+**Measured on the real deployments**, same harness, same network. "Interactive" is the
+search input hitting the DOM; "scene ready" is the first successful RT refresh.
 
-| | Interactive | Scene ready | Requests before interactive |
+Two comparisons, because they answer different questions:
+
+| | Interactive | Scene ready | Reqs before interactive |
 |---|---|---|---|
-| Production (pre-P6-1) | 2,113 ms | 3,061 ms | 35 |
-| **Preview (P6-1)** | **263 ms** | **1,991 ms** | **6** |
-| | **8.0× faster** | 35% faster | −29 |
+| Production, pre-P6-1 | 2,113 ms | 3,061 ms | 35 |
+| P6-1, before the GTFS fix | 263 ms | 1,991 ms | 6 |
+| **Production today (P6-1 + real GTFS)** | **468 ms** | **2,005 ms** | 13 |
 
-The UI now appears in about a quarter of a second instead of waiting on the map. Scene
-readiness improves too, from the flatter opening camera requesting fewer tiles.
+**8.0× (2,113 → 263 ms)** isolates the ordering change. Both of those builds predate the
+GTFS static-data fix below, so neither downloaded the 6.4 MB payload — an equal footing
+that measures the reorder and nothing else.
+
+**4.5× (2,113 → 468 ms)** is what users actually get. Today's build is faster *and* doing
+strictly more work: it downloads the full station dataset the old build was silently
+skipping. Median of 9 cold-cache runs, range 452–567 ms.
+
+The gap between 263 ms and 468 ms is the honest cost of that data. Loading a real map of
+the subway is worth 200 ms.
 
 A local test under 10 Mbps throttling shows where the next bottleneck is: interactive
 went 9,876 ms → 7,687 ms, a much smaller ~22% win, because once the ordering is fixed
@@ -806,7 +793,7 @@ parallel, competes with it for the same bandwidth. That is the case for precompu
 GTFS into compact JSON at build time (deferred ticket); it is the only change that moves
 the constrained number much further.
 
-Two things about measuring this that cost real time and are worth writing down:
+Three things about measuring this that cost real time and are worth writing down:
 
 - **Stadia serves tiles keyless from `localhost` but 401s from a deployed origin.** Local
   testing structurally cannot catch a missing `VITE_STADIA_API_KEY`. Any measurement that
@@ -814,6 +801,26 @@ Two things about measuring this that cost real time and are worth writing down:
 - **The style JSON returns 200 even when every tile 401s**, so `map.on('load')` still
   fires and the map reports itself loaded while rendering nothing. It is a silent
   failure, which is exactly why the withdrawn baseline above went unnoticed for so long.
+- **A three-run median hid a 2.8× outlier.** The first sample of this build read 621 ms
+  on runs of 460 / 621 / 1,741 ms; nine runs put it at 468 ms with a 452–567 ms range.
+  Over a real network with a multi-megabyte download, three samples is not a measurement.
+
+#### GTFS static data was missing from every deployment (fixed 2026-08-11)
+Until this date the deployed app served **45 stations out of ~496**. `/gtfs/*.txt` was
+absent from the deployment, the SPA rewrite answered those paths with `index.html` at
+HTTP 200, and `gtfs-loader` fell back to the embedded dataset — producing a map that
+looked plausible while being roughly 9% of the network.
+
+The cause was two independent deploy pipelines. The GitHub Actions workflow ran
+`npm run gtfs` and deployed with `vercel deploy --prebuilt`; Vercel's Git integration
+separately built the same commit using `vercel.json`'s `buildCommand`, never ran the
+download, and won the production alias. The same commit produced two deployments that
+differed: one served `stops.txt` as 63,371 bytes of CSV, the other as 777 bytes of HTML.
+
+The fix moves the download into npm's `prebuild` hook, so it runs inside whichever build
+produces the deployed output. `scripts/verify-build.mjs` now fails the build if
+`dist/gtfs` is missing, truncated, or contains markup, and the app shows a banner rather
+than silently degrading. **Collapsing the two pipelines into one is still outstanding.**
 
 #### Service alerts (P6-3)
 MTA publishes a dedicated GTFS-RT alerts feed at
@@ -1182,7 +1189,10 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ## 19. API Reference
 
-### Phase 4 — Go Proxy (Fly.io)
+### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
+
+Removed in the Phase 6 cleanup. Nothing has called it since the frontend moved to
+the JSON API in P5-6; kept here as a record of the Phase 1–4 architecture.
 
 ```
 GET /proxy?url=<encoded-mta-feed-url>
@@ -1261,9 +1271,9 @@ npm run test:watch          # watch mode
 npm run test:coverage       # with V8 coverage report
 
 # Go backend tests
-cd proxy && go test ./...
-cd proxy && go test ./... -v      # verbose
-cd proxy && go test ./... -race   # race detector
+cd api && go test ./...
+cd api && go test ./... -v      # verbose
+cd api && go test ./... -race   # race detector
 
 # CI (runs automatically on every push and PR)
 # See .github/workflows/deploy.yml
@@ -1275,7 +1285,7 @@ cd proxy && go test ./... -race   # race detector
 | `src/core/geo.js` | 100% |
 | `src/core/gtfs-parser.js` | 100% |
 | `src/core/color.js` | 100% |
-| `proxy/main.go` (handler logic) | >90% |
+| `api/` (handler logic) | >90% |
 | `src/core/router.js` (Phase 7) | 100% |
 
 Scene and UI modules are excluded from coverage requirements — they are tested manually and via visual inspection.
@@ -1305,21 +1315,13 @@ vercel deploy --prod
 - SPA rewrite: all routes → `index.html`
 - Asset cache headers: `Cache-Control: public, max-age=31536000, immutable` for hashed chunks
 
-### Go Proxy — Phase 4 (Fly.io)
+### Go Proxy — Phase 4 (Fly.io) — retired 2026-08-12
 
-```bash
-# One-time setup
-curl -L https://fly.io/install.sh | sh
-fly auth login
-fly apps create nyc-subway-proxy --config proxy/fly.toml
+The `proxy/` directory, its CI job, and the `nyc-subway-proxy` Fly app were removed in
+the Phase 6 cleanup. The frontend has talked to the Go API server since P5-6.
 
-# Manual deploy
-cd proxy && fly deploy --remote-only
-
-# Automatic: push to master triggers GitHub Actions → deploy.yml
-```
-
-`proxy/fly.toml` configures: region `ewr` (Newark), 256 MB memory, auto-stop when idle, health check at `GET /health` every 15s.
+For the record, it ran on region `ewr` (Newark), 256 MB memory, auto-stop when idle, and
+a `GET /health` check every 15s.
 
 ### Go API Server — Phase 5 (Fly.io)
 
@@ -1337,7 +1339,7 @@ cd api && flyctl deploy --remote-only --ha=false
 with `auto_stop_machines = 'off'`, and a `GET /health` check every 15s with a 30s
 grace period.
 
-Three of those differ deliberately from `proxy/fly.toml`:
+Three of those differ deliberately from what the retired proxy used:
 
 - **Never scales to zero** — the background goroutine refreshes the GTFS-RT feeds
   every 30s, so a stopped machine serves stale data.
