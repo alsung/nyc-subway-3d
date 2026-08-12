@@ -786,18 +786,27 @@ to the 3D view after load reduces the initial tile burst on top of that.
    away from a station the user selected while it was still loading; it defers past any
    in-flight `flyTo`, and is skipped entirely if the user moved the camera by hand.
 
-**Measured on the real deployments** — the pre-P6-1 production build against the P6-1
-preview build, same harness, same network, median of 3 cold-cache runs. "Interactive" is
-the search input hitting the DOM; "scene ready" is the first successful RT refresh:
+**Measured on the real deployments**, same harness, same network. "Interactive" is the
+search input hitting the DOM; "scene ready" is the first successful RT refresh.
 
-| | Interactive | Scene ready | Requests before interactive |
+Two comparisons, because they answer different questions:
+
+| | Interactive | Scene ready | Reqs before interactive |
 |---|---|---|---|
-| Production (pre-P6-1) | 2,113 ms | 3,061 ms | 35 |
-| **Preview (P6-1)** | **263 ms** | **1,991 ms** | **6** |
-| | **8.0× faster** | 35% faster | −29 |
+| Production, pre-P6-1 | 2,113 ms | 3,061 ms | 35 |
+| P6-1, before the GTFS fix | 263 ms | 1,991 ms | 6 |
+| **Production today (P6-1 + real GTFS)** | **468 ms** | **2,005 ms** | 13 |
 
-The UI now appears in about a quarter of a second instead of waiting on the map. Scene
-readiness improves too, from the flatter opening camera requesting fewer tiles.
+**8.0× (2,113 → 263 ms)** isolates the ordering change. Both of those builds predate the
+GTFS static-data fix below, so neither downloaded the 6.4 MB payload — an equal footing
+that measures the reorder and nothing else.
+
+**4.5× (2,113 → 468 ms)** is what users actually get. Today's build is faster *and* doing
+strictly more work: it downloads the full station dataset the old build was silently
+skipping. Median of 9 cold-cache runs, range 452–567 ms.
+
+The gap between 263 ms and 468 ms is the honest cost of that data. Loading a real map of
+the subway is worth 200 ms.
 
 A local test under 10 Mbps throttling shows where the next bottleneck is: interactive
 went 9,876 ms → 7,687 ms, a much smaller ~22% win, because once the ordering is fixed
@@ -806,7 +815,7 @@ parallel, competes with it for the same bandwidth. That is the case for precompu
 GTFS into compact JSON at build time (deferred ticket); it is the only change that moves
 the constrained number much further.
 
-Two things about measuring this that cost real time and are worth writing down:
+Three things about measuring this that cost real time and are worth writing down:
 
 - **Stadia serves tiles keyless from `localhost` but 401s from a deployed origin.** Local
   testing structurally cannot catch a missing `VITE_STADIA_API_KEY`. Any measurement that
@@ -814,6 +823,26 @@ Two things about measuring this that cost real time and are worth writing down:
 - **The style JSON returns 200 even when every tile 401s**, so `map.on('load')` still
   fires and the map reports itself loaded while rendering nothing. It is a silent
   failure, which is exactly why the withdrawn baseline above went unnoticed for so long.
+- **A three-run median hid a 2.8× outlier.** The first sample of this build read 621 ms
+  on runs of 460 / 621 / 1,741 ms; nine runs put it at 468 ms with a 452–567 ms range.
+  Over a real network with a multi-megabyte download, three samples is not a measurement.
+
+#### GTFS static data was missing from every deployment (fixed 2026-08-11)
+Until this date the deployed app served **45 stations out of ~496**. `/gtfs/*.txt` was
+absent from the deployment, the SPA rewrite answered those paths with `index.html` at
+HTTP 200, and `gtfs-loader` fell back to the embedded dataset — producing a map that
+looked plausible while being roughly 9% of the network.
+
+The cause was two independent deploy pipelines. The GitHub Actions workflow ran
+`npm run gtfs` and deployed with `vercel deploy --prebuilt`; Vercel's Git integration
+separately built the same commit using `vercel.json`'s `buildCommand`, never ran the
+download, and won the production alias. The same commit produced two deployments that
+differed: one served `stops.txt` as 63,371 bytes of CSV, the other as 777 bytes of HTML.
+
+The fix moves the download into npm's `prebuild` hook, so it runs inside whichever build
+produces the deployed output. `scripts/verify-build.mjs` now fails the build if
+`dist/gtfs` is missing, truncated, or contains markup, and the app shows a banner rather
+than silently degrading. **Collapsing the two pipelines into one is still outstanding.**
 
 #### Service alerts (P6-3)
 MTA publishes a dedicated GTFS-RT alerts feed at
