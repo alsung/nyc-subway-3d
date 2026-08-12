@@ -11,6 +11,12 @@ coverage/
 public/gtfs/*.txt
 public/gtfs/*.csv
 
+# Local env files — VITE_STADIA_API_KEY and anything else secret. Vite exposes
+# every VITE_-prefixed var in the client bundle, so these must never be committed.
+.env
+.env.*
+!.env.example
+
 # OS
 .DS_Store
 Thumbs.db

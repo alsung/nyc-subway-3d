@@ -1,5 +1,4 @@
-# .vercelignore — keep the Go backends out of Vercel's build.
-# api/ is a standalone Cloud Run service, NOT Vercel serverless functions;
-# Vercel otherwise auto-detects the api/ directory and tries to compile it.
+# .vercelignore — keep the Go backend out of Vercel's build.
+# api/ is a standalone Fly.io service, NOT Vercel serverless functions; Vercel
+# otherwise auto-detects the api/ directory and tries to compile it.
 api
-proxy
