@@ -284,10 +284,50 @@ html, body {
     font-variant-numeric: tabular-nums;
 }
 
+/* Holds a short explanatory sentence — "No trains scheduled", "Loading…",
+   "Couldn't load arrivals" — where it used to hold a single "—" glyph, so it is
+   sized for reading rather than for a dash: smaller, legible, and allowed to
+   wrap within the column. */
 .arrival-empty {
-    color: rgba(255, 255, 255, 0.2);
-    font-size: 16px;
-    padding-top: 4px;
+    color: rgba(255, 255, 255, 0.42);
+    font-size: 12px;
+    line-height: 1.35;
+    padding-top: 6px;
+    padding-right: 8px;
+}
+
+/* ── Popup state note ────────────────────────────────────────────────────── */
+
+/* The quiet line under the arrival columns: data freshness, partial failures,
+   and the retry button. Hidden entirely when the popup has nothing to qualify,
+   so a healthy popup looks exactly as it did before. */
+.popup-note {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.popup-retry {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    background: none;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.popup-retry:hover {
+    border-color: rgba(255, 255, 255, 0.5);
+    color: #fff;
 }
 
 /* ── Incomplete-data warning ─────────────────────────────────────────────── */
