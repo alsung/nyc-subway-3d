@@ -1,4 +1,5 @@
 import { contrastColor } from '../core/color.js';
+import { isArrivalsStale, formatAge } from '../core/arrivals.js';
 
 const DIRECTION_LABELS = {
     '1':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
@@ -47,24 +48,52 @@ export function buildPopup(container) {
                 <div class="popup-dir-list"></div>
             </div>
         </div>
+        <div class="popup-note hidden"></div>
     `;
     container.appendChild(popup);
     return popup;
 }
 
-export function showPopup(popup, station, routeMap, arrivals, onLineSelect) {
+/**
+ * Renders a station popup from a mergeArrivalResults() result.
+ *
+ * `result` carries the outcome, not just the data, so the four cases that used
+ * to render an identical "—" are now distinguishable: no service, request
+ * failed, partial data, and delayed data. onRetry is invoked by the retry
+ * button shown in the error state.
+ */
+export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry) {
     popup.querySelector('.popup-name').textContent = station.name;
 
     const lineSelectEl = popup.querySelector('.popup-line-select');
     const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
     lineSelectEl.innerHTML = '';
 
-    if (!Array.isArray(arrivals) || arrivals.length === 0) {
-        renderCol(northCol, [], DEFAULT_DIR.N, false);
-        renderCol(southCol, [], DEFAULT_DIR.S, false);
+    const { status = 'error', arrivals = [], updatedAt = null, failedCount = 0 } = result ?? {};
+
+    if (status === 'error') {
+        renderMessageCol(northCol, DEFAULT_DIR.N, 'Couldn’t load arrivals');
+        renderMessageCol(southCol, DEFAULT_DIR.S, 'Couldn’t load arrivals');
+        setNote(popup, 'Check your connection.', { retry: onRetry });
         popup.classList.remove('hidden');
         return;
     }
+
+    if (status === 'empty') {
+        renderMessageCol(northCol, DEFAULT_DIR.N, 'No trains scheduled');
+        renderMessageCol(southCol, DEFAULT_DIR.S, 'No trains scheduled');
+        // A partial failure here means we genuinely cannot claim "no service".
+        setNote(popup, failedCount > 0
+            ? 'Some platforms could not be reached, so this may be incomplete.'
+            : 'MTA is not publishing predictions for this station right now.');
+        popup.classList.remove('hidden');
+        return;
+    }
+
+    const notes = [];
+    if (failedCount > 0) notes.push('Some platforms unavailable');
+    if (isArrivalsStale(updatedAt)) notes.push(`Updated ${formatAge(updatedAt)}`);
+    setNote(popup, notes.join(' · '));
 
     const seenRoutes = [...new Set(arrivals.map(a => a.routeId))];
     let activeRouteId = seenRoutes[0];
@@ -72,8 +101,8 @@ export function showPopup(popup, station, routeMap, arrivals, onLineSelect) {
     function render(routeId) {
         const pool = arrivals.filter(a => a.routeId === routeId);
         const labels = DIRECTION_LABELS[routeId] ?? DEFAULT_DIR;
-        renderCol(northCol, pool.filter(a => a.direction === 'N').slice(0, 4), `↑  ${labels.N}`, false);
-        renderCol(southCol, pool.filter(a => a.direction === 'S').slice(0, 4), `↓  ${labels.S}`, false);
+        renderCol(northCol, pool.filter(a => a.direction === 'N').slice(0, 4), `↑  ${labels.N}`);
+        renderCol(southCol, pool.filter(a => a.direction === 'S').slice(0, 4), `↓  ${labels.S}`);
     }
 
     for (const routeId of seenRoutes) {
@@ -111,30 +140,63 @@ export function showPopupLoading(popup, station) {
     popup.querySelector('.popup-name').textContent = station.name;
     popup.querySelector('.popup-line-select').innerHTML = '';
     const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
-    renderLoadingCol(northCol, DEFAULT_DIR.N);
-    renderLoadingCol(southCol, DEFAULT_DIR.S);
+    renderMessageCol(northCol, DEFAULT_DIR.N, 'Loading…');
+    renderMessageCol(southCol, DEFAULT_DIR.S, 'Loading…');
+    setNote(popup, '');
     popup.classList.remove('hidden');
 }
 
-function renderLoadingCol(col, headerText) {
+// A column with a single explanatory line instead of arrival times — loading,
+// no service, or a failed request. Each says which, rather than sharing "—".
+function renderMessageCol(col, headerText, message) {
     col.querySelector('.popup-dir-header').textContent = headerText;
     const list = col.querySelector('.popup-dir-list');
     list.innerHTML = '';
-    const loading = document.createElement('div');
-    loading.className = 'arrival-empty';
-    loading.textContent = 'Loading…';
-    list.appendChild(loading);
+    const el = document.createElement('div');
+    el.className = 'arrival-empty';
+    el.textContent = message;
+    list.appendChild(el);
 }
 
-function renderCol(col, colArrivals, headerText, showBadge) {
+// The quiet line under the columns: staleness, partial failures, and the retry
+// affordance. Empty text hides it entirely so a healthy popup is unchanged.
+function setNote(popup, text, { retry } = {}) {
+    const note = popup.querySelector('.popup-note');
+    note.innerHTML = '';
+
+    if (!text && !retry) {
+        note.classList.add('hidden');
+        return;
+    }
+
+    if (text) {
+        const span = document.createElement('span');
+        span.textContent = text;
+        note.appendChild(span);
+    }
+
+    if (retry) {
+        const btn = document.createElement('button');
+        btn.className = 'popup-retry';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', retry);
+        note.appendChild(btn);
+    }
+
+    note.classList.remove('hidden');
+}
+
+function renderCol(col, colArrivals, headerText) {
     col.querySelector('.popup-dir-header').textContent = headerText;
     const list = col.querySelector('.popup-dir-list');
     list.innerHTML = '';
 
+    // The route has service at this station but nothing in this direction —
+    // a real fact about the schedule, distinct from a failed request.
     if (colArrivals.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'arrival-empty';
-        empty.textContent = '—';
+        empty.textContent = 'No trains scheduled';
         list.appendChild(empty);
         return;
     }
@@ -143,9 +205,6 @@ function renderCol(col, colArrivals, headerText, showBadge) {
         const minText = a.minutes <= 0 ? 'Now' : `${a.minutes} min`;
         const row = document.createElement('div');
         row.className = 'arrival-row';
-        if (showBadge) {
-            // unused for now but left as extension point
-        }
         const time = document.createElement('span');
         time.className = 'arrival-time';
         time.textContent = minText;

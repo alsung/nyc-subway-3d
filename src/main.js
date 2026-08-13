@@ -14,6 +14,7 @@ import { buildSearch } from './ui/search.js';
 import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
+import { mergeArrivalResults } from './core/arrivals.js';
 
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
@@ -85,18 +86,10 @@ async function init() {
     // fetches are skipped. Returns a sorted array, or null when there are none.
     async function getArrivals(station) {
         const ids = station.stationIds ?? stationGroups.get(station.id) ?? [station.id];
-        const results = await Promise.all(
-            ids.map(id => fetchArrivals(id).then(r => r.arrivals).catch(() => []))
-        );
-        const seen = new Set();
-        const merged = [];
-        for (const arrivals of results) {
-            for (const a of arrivals) {
-                if (!seen.has(a.tripId)) { seen.add(a.tripId); merged.push(a); }
-            }
-        }
-        merged.sort((a, b) => a.minutes - b.minutes);
-        return merged.length ? merged : null;
+        // allSettled, not all: a rejected request has to stay distinguishable
+        // from a station with no service. mergeArrivalResults keeps the outcome.
+        const settled = await Promise.allSettled(ids.map(id => fetchArrivals(id)));
+        return mergeArrivalResults(settled);
     }
 
     // Opens a station popup: shows it immediately in a loading state, then fills
@@ -104,9 +97,13 @@ async function init() {
     // selected (or the popup closed) in the meantime.
     async function openStationPopup(station) {
         showPopupLoading(popup, station);
-        const arrivals = await getArrivals(station);
+        const result = await getArrivals(station);
         if (lastStation !== station || popup.classList.contains('hidden')) return;
-        showPopup(popup, station, routeMap, arrivals, highlight);
+        // Retry re-runs this same function, so it re-enters the loading state
+        // and re-applies the race guard above. Manual rather than automatic:
+        // refreshRT already retries every 30s, and looping against an API that
+        // is genuinely down helps nobody.
+        showPopup(popup, station, routeMap, result, highlight, () => openStationPopup(station));
     }
 
     buildSearch(stations, document.getElementById('search-bar'), (station) => {
@@ -159,9 +156,14 @@ async function init() {
             document.getElementById('staleness-label').textContent = isStale ? 'Stale' : 'Live';
 
             if (lastStation && !popup.classList.contains('hidden')) {
-                const arrivals = await getArrivals(lastStation);
-                if (lastStation && !popup.classList.contains('hidden')) {
-                    showPopup(popup, lastStation, routeMap, arrivals, highlight);
+                // Capture the station: the await below can outlive the user's
+                // selection, and re-reading lastStation would let a stale
+                // response overwrite a newer station's popup.
+                const station = lastStation;
+                const result = await getArrivals(station);
+                if (lastStation === station && !popup.classList.contains('hidden')) {
+                    showPopup(popup, station, routeMap, result, highlight,
+                        () => openStationPopup(station));
                 }
             }
         } catch {
