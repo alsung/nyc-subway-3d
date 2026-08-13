@@ -2,15 +2,14 @@ name: Deploy
 
 on:
   push:
-    # phase-* pushes deploy to Vercel preview, so in-progress phase work is
-    # reachable at a stable URL without opening a PR. Only master reaches
-    # production — see the ref guards on the deploy jobs below.
+    # Vercel's Git integration handles preview deploys for every branch, so
+    # these triggers are about tests and the Fly.io deploy only.
     branches: [master, "phase-*"]
   pull_request:
 
 # A branch with an open PR matches both triggers above. Grouping by head_ref
-# collapses those into one run. Superseded preview runs are cancelled, but
-# master is never cancelled mid-flight: those runs push to Fly.io, and
+# collapses those into one run when they overlap. Superseded runs are cancelled,
+# but master is never cancelled mid-flight: those runs push to Fly.io, and
 # interrupting a flyctl deploy is not something to do for convenience.
 concurrency:
   # head_ref is the branch name on pull_request and empty on push; ref_name is
@@ -42,42 +41,14 @@ jobs:
           go-version: "1.22"
       - run: cd api && go test ./... -race
 
-  deploy-frontend:
-    name: Deploy frontend → Vercel (${{ github.ref == 'refs/heads/master' && 'production' || 'preview' }})
-    needs: [test-js]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-      - run: npm ci
-      # No explicit GTFS download step: it is npm's prebuild hook now, so it
-      # runs inside whichever build produces the deployed output — including
-      # `vercel build` below, which is the one that actually ships. Running it
-      # here instead was why every deployment went out without the data.
-      - run: npm run build
-      - name: Deploy to Vercel (production)
-        if: github.ref == 'refs/heads/master'
-        run: |
-          npm install -g vercel
-          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-          vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      - name: Deploy to Vercel (preview / staging)
-        if: github.ref != 'refs/heads/master'
-        run: |
-          npm install -g vercel
-          vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-          vercel build --token=${{ secrets.VERCEL_TOKEN }}
-          vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # The frontend is NOT deployed from here. Vercel's Git integration builds and
+  # deploys every push itself, using vercel.json's buildCommand. This workflow
+  # used to do the same thing in parallel, and the two silently diverged: only
+  # this one ran the GTFS download, while Vercel's build won the production
+  # alias, so the deployed app served 45 of ~496 stations for weeks. One
+  # pipeline, not two. The GTFS download is npm's prebuild hook now, so it runs
+  # inside Vercel's build, and scripts/verify-build.mjs fails that build if the
+  # data is missing.
 
   deploy-api:
     name: Deploy API → Fly.io

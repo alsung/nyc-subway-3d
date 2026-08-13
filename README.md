@@ -156,7 +156,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | net/http/httptest | Backend testing | In-memory request/response testing without binding a port |
 | MTA GTFS static | Data | `stops.txt` → stations, `routes.txt` → colors, `shapes.txt` → route geometry, `trips.txt` → shape-to-route mapping |
 | MTA GTFS-RT | Data | 8 protobuf binary feeds updated every ~30s; `TripUpdate` for arrival times, `VehiclePosition` for train locations |
-| Vercel | Infrastructure | Static frontend hosting; global CDN, automatic deploys from GitHub Actions |
+| Vercel | Infrastructure | Static frontend hosting; global CDN, deploys via Vercel's own Git integration |
 | Fly.io | Infrastructure | Containerized Go app in `ewr`: the API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
 | Google Cloud (Phases 8–10) | Infrastructure | Firebase Auth and FCM for user accounts and push notifications; not used for hosting the API |
 | Firebase Auth (Phase 8) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
@@ -1296,18 +1296,23 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ### Frontend (Vercel)
 
+Vercel's Git integration owns frontend deploys. Every push builds on Vercel using
+`vercel.json`'s `buildCommand`; `master` goes to production, every other branch to a
+preview URL. No GitHub Actions job is involved.
+
 ```bash
-# One-time setup
+# One-time setup (only needed for manual deploys)
 npm i -g vercel
 vercel link   # creates .vercel/project.json
 
-# Manual deploy
+# Manual deploy — normally unnecessary
 npm run build
 vercel deploy --prod
-
-# Automatic: push to master triggers GitHub Actions → deploy.yml
-# Pushes to other branches deploy to Vercel preview URLs
 ```
+
+> The workflow used to deploy the frontend *as well*, and the two pipelines silently
+> diverged — see "GTFS static data was missing from every deployment" in section 13.
+> There is deliberately only one frontend deploy path now.
 
 `vercel.json` configures:
 - Build command: `npm run build`
@@ -1356,10 +1361,10 @@ lands on.
 
 | Secret | Phase | Source |
 |---|---|---|
-| `FLY_API_TOKEN` | 1–4 | `fly tokens create deploy` |
-| `VERCEL_TOKEN` | All | vercel.com → Account → Tokens |
-| `VERCEL_ORG_ID` | All | `.vercel/project.json` after `vercel link` |
-| `VERCEL_PROJECT_ID` | All | `.vercel/project.json` after `vercel link` |
+| `FLY_API_TOKEN` | 5+ | `fly tokens create org <slug>` — org-scoped, so it can deploy `nyc-subway-api` |
+
+The `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` secrets are no longer used;
+Vercel's Git integration authenticates itself. They can be deleted from the repository.
 | `GCP_SERVICE_ACCOUNT_KEY` | 5+ | GCP IAM → Service Accounts → JSON key |
 | `FIREBASE_SERVICE_ACCOUNT` | 8+ | Firebase Console → Project Settings → Service Accounts |
 
