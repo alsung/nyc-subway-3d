@@ -11,6 +11,7 @@ import { flyToStation, setView, introToThreeD } from './ui/camera.js';
 import { buildFilterChips } from './ui/filter.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
+import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
@@ -62,6 +63,17 @@ async function init() {
     let lastStation = null;
 
     if (usingEmbeddedData) showEmbeddedDataWarning(document.getElementById('ui'));
+
+    // Alerts are independent of the map and the 3D scene, so the panel is built
+    // with the rest of the UI rather than behind the map-load gate. It fetches
+    // nothing until opened, beyond a single summary call to set its status dot.
+    const statusButton = document.getElementById('btn-status');
+    buildAlertsPanel(document.getElementById('ui'), routeMap, statusButton);
+    statusButton.addEventListener('click', () => {
+        // Route through the hash so the panel, the URL and the back button stay
+        // in agreement; the panel itself listens for the change.
+        window.location.hash = window.location.hash === '#alerts' ? '' : 'alerts';
+    });
 
     const popup = buildPopup(document.getElementById('ui'));
     popup.querySelector('.popup-close').addEventListener('click', () => {
