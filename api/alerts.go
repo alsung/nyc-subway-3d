@@ -40,11 +40,19 @@ const alertsURL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys
 // order of magnitude larger than a single real-time feed.
 const alertsRefreshInterval = 60 * time.Second
 
-// Mercury extension field numbers, observed on the live feed.
+// Mercury extension field numbers. 1001 is MTA's officially assigned extension
+// ID and the fields below are the MercuryAlert message, documented in MTA's
+// GTFS Alerts Feed Documentation (https://www.mta.info/document/90881) and its
+// accompanying mercury-gtfs-realtime.proto. Verified against the live feed.
+//
+// We read these by hand off the unknown bytes rather than generating Go from
+// the .proto: it is four scalar fields, and vendoring generated code or adding
+// a protoc step to the build buys type safety we do not currently need. Revisit
+// if MercuryEntitySelector is ever required.
 const (
-	mercuryField          = 1001 // extension on Alert
+	mercuryField          = 1001 // MercuryAlert extension on Alert
 	mercuryUpdatedAt      = 2    // varint, unix seconds
-	mercuryAlertType      = 3    // string: "Delays", "Planned - Reroute", ...
+	mercuryAlertType      = 3    // string: "Delays", "Part Suspended", "Planned - Reroute", ...
 	mercuryDisplayBefore  = 7    // varint, seconds before a period to surface
 	mercuryActivePeriodTx = 8    // TranslatedString, human-readable period text
 )
@@ -120,7 +128,36 @@ var (
 	alertsMu        sync.RWMutex
 	alertsCache     *gtfs.FeedMessage
 	alertsRefreshed time.Time
+	// Count of alerts whose Mercury extension yielded a label, recorded at
+	// refresh time. See extensionHealth.
+	alertsLabeled int
 )
+
+// extensionHealth reports how many cached alerts carry a readable Mercury
+// label. The failure mode for an undocumented-shape change is not a crash —
+// readMercury degrades quietly and every alert falls back to a generic label —
+// so without this the UI would silently lose MTA's wording and nobody would
+// notice. A `labeled` count well below `total` means the extension changed.
+func extensionHealth() (labeled, total int) {
+	alertsMu.RLock()
+	defer alertsMu.RUnlock()
+	return alertsLabeled, len(alertsCache.GetEntity())
+}
+
+// countLabeled reports how many alerts in a feed have a readable alert_type.
+func countLabeled(msg *gtfs.FeedMessage) int {
+	n := 0
+	for _, e := range msg.GetEntity() {
+		a := e.GetAlert()
+		if a == nil {
+			continue
+		}
+		if readMercury(a.ProtoReflect().GetUnknown()).alertType != "" {
+			n++
+		}
+	}
+	return n
+}
 
 // ── Mercury extension ────────────────────────────────────────────────────────
 
@@ -442,11 +479,25 @@ func refreshAlerts(ctx context.Context) {
 		slog.Warn("alerts refresh failed", "err", err)
 		return
 	}
+	labeled := countLabeled(msg)
+
 	alertsMu.Lock()
 	alertsCache = msg
 	alertsRefreshed = time.Now()
+	alertsLabeled = labeled
 	alertsMu.Unlock()
-	slog.Info("alerts refreshed", "entities", len(msg.GetEntity()))
+
+	total := len(msg.GetEntity())
+	// Logged on every refresh so a drop is visible in the Fly logs without
+	// anyone having to go looking for it.
+	slog.Info("alerts refreshed", "entities", total, "labeled", labeled)
+	if total > 0 && labeled*2 < total {
+		// Fewer than half carrying a label is not a plausible steady state —
+		// MTA labels essentially everything — so treat it as a signal that the
+		// extension shape changed rather than as ordinary variance.
+		slog.Warn("most alerts have no Mercury label; extension may have changed",
+			"labeled", labeled, "entities", total, "field", mercuryField)
+	}
 }
 
 func cachedAlerts() (*gtfs.FeedMessage, time.Time) {

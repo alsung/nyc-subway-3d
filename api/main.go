@@ -13,10 +13,15 @@ import (
 )
 
 type healthResponse struct {
-	Status       string `json:"status"`
-	FeedsLoaded  int    `json:"feedsLoaded"`
-	LastRefresh  string `json:"lastRefresh"`
-	AlertsLoaded int    `json:"alertsLoaded"`
+	Status      string `json:"status"`
+	FeedsLoaded int    `json:"feedsLoaded"`
+	LastRefresh string `json:"lastRefresh"`
+	// AlertsLoaded is the cached alert count; AlertsLabeled is how many of
+	// those carry a readable Mercury label. The two should track each other
+	// closely — a gap means MTA's extension shape changed and the UI has
+	// quietly fallen back to generic labels.
+	AlertsLoaded  int `json:"alertsLoaded"`
+	AlertsLabeled int `json:"alertsLabeled"`
 }
 
 // gzipMiddleware compresses responses for clients that accept it. Added for the
@@ -68,14 +73,15 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		lastStr = last.UTC().Format(time.RFC3339)
 	}
 
-	alertsMsg, _ := cachedAlerts()
+	labeled, alertTotal := extensionHealth()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(healthResponse{
-		Status:       "ok",
-		FeedsLoaded:  loaded,
-		LastRefresh:  lastStr,
-		AlertsLoaded: len(alertsMsg.GetEntity()),
+		Status:        "ok",
+		FeedsLoaded:   loaded,
+		LastRefresh:   lastStr,
+		AlertsLoaded:  alertTotal,
+		AlertsLabeled: labeled,
 	})
 }
 

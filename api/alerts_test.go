@@ -389,3 +389,35 @@ func TestMercurySurvivesProtoRoundTrip(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+// ── extension health ─────────────────────────────────────────────────────────
+
+func TestCountLabeled(t *testing.T) {
+	labeled := &gtfs.Alert{HeaderText: translated("a")}
+	labeled.ProtoReflect().SetUnknown(buildMercury("Delays", 0, 0, ""))
+
+	unlabeled := &gtfs.Alert{HeaderText: translated("b")}
+
+	// Extension present but carrying no alert_type still counts as unlabeled:
+	// what matters is whether MTA's wording reached us, not whether some
+	// extension bytes existed.
+	emptyType := &gtfs.Alert{HeaderText: translated("c")}
+	emptyType.ProtoReflect().SetUnknown(buildMercury("", 99, 0, ""))
+
+	msg := &gtfs.FeedMessage{Entity: []*gtfs.FeedEntity{
+		alertEntity("lmm:alert:1", labeled),
+		alertEntity("lmm:alert:2", unlabeled),
+		alertEntity("lmm:alert:3", emptyType),
+		{Id: strptr("not-an-alert")},
+	}}
+
+	if got := countLabeled(msg); got != 1 {
+		t.Errorf("countLabeled = %d, want 1", got)
+	}
+	if got := countLabeled(&gtfs.FeedMessage{}); got != 0 {
+		t.Errorf("empty feed = %d, want 0", got)
+	}
+	if got := countLabeled(nil); got != 0 {
+		t.Errorf("nil feed = %d, want 0", got)
+	}
+}
