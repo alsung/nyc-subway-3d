@@ -23,3 +23,22 @@ export async function fetchArrivals(stationId) {
     if (!res.ok) throw new Error(`arrivals request failed: ${res.status}`);
     return res.json();
 }
+
+// Fetches the per-trunk status rollup behind the service status list.
+// Returns { trunks: [...], upcoming, updatedAt }. Small — ~300 bytes gzipped —
+// because it carries counts rather than the alerts themselves.
+export async function fetchAlertSummary() {
+    const res = await fetch(`${API_BASE}/api/alerts/summary`);
+    if (!res.ok) throw new Error(`alert summary request failed: ${res.status}`);
+    return res.json();
+}
+
+// Fetches service alerts. Defaults to those in effect now (~1.2 KB gzipped);
+// includeUpcoming pulls in future planned work as well, which is roughly twenty
+// times larger, so it is only worth requesting for a view that shows it.
+export async function fetchAlerts(includeUpcoming = false) {
+    const url = `${API_BASE}/api/alerts${includeUpcoming ? '?upcoming=true' : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`alerts request failed: ${res.status}`);
+    return res.json();
+}
