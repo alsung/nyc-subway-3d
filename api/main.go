@@ -1,11 +1,14 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -13,7 +16,38 @@ type healthResponse struct {
 	Status      string `json:"status"`
 	FeedsLoaded int    `json:"feedsLoaded"`
 	LastRefresh string `json:"lastRefresh"`
+	// AlertsLoaded is the cached alert count; AlertsLabeled is how many of
+	// those carry a readable Mercury label. The two should track each other
+	// closely — a gap means MTA's extension shape changed and the UI has
+	// quietly fallen back to generic labels.
+	AlertsLoaded  int `json:"alertsLoaded"`
+	AlertsLabeled int `json:"alertsLabeled"`
 }
+
+// gzipMiddleware compresses responses for clients that accept it. Added for the
+// alerts endpoints: the upstream feed is ~520 KB and the flattened JSON is the
+// largest thing this server returns by an order of magnitude.
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		// Length applies to the uncompressed body; leaving it would be wrong.
+		w.Header().Del("Content-Length")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
+}
+
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) { return w.Writer.Write(b) }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,11 +73,58 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		lastStr = last.UTC().Format(time.RFC3339)
 	}
 
+	labeled, alertTotal := extensionHealth()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(healthResponse{
-		Status:      "ok",
-		FeedsLoaded: loaded,
-		LastRefresh: lastStr,
+		Status:        "ok",
+		FeedsLoaded:   loaded,
+		LastRefresh:   lastStr,
+		AlertsLoaded:  alertTotal,
+		AlertsLabeled: labeled,
+	})
+}
+
+// handleAlerts returns alerts currently in effect. Upcoming planned work — the
+// large majority of the feed — is only included with ?upcoming=true, so the
+// default response stays small enough for station badges and popups.
+func handleAlerts(w http.ResponseWriter, r *http.Request) {
+	msg, updated := cachedAlerts()
+	all := parseAlerts(msg, time.Now())
+
+	includeUpcoming := r.URL.Query().Get("upcoming") == "true"
+	alerts := make([]Alert, 0, len(all))
+	for _, a := range all {
+		if a.Surfaced || includeUpcoming {
+			alerts = append(alerts, a)
+		}
+	}
+
+	updatedAt := ""
+	if !updated.IsZero() {
+		updatedAt = updated.UTC().Format(time.RFC3339)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(alertsResponse{Alerts: alerts, UpdatedAt: updatedAt})
+}
+
+// handleAlertsSummary returns the per-trunk rollup behind the status list, so
+// that view renders without downloading every alert.
+func handleAlertsSummary(w http.ResponseWriter, r *http.Request) {
+	msg, updated := cachedAlerts()
+	trunks, upcoming := summarise(parseAlerts(msg, time.Now()))
+
+	updatedAt := ""
+	if !updated.IsZero() {
+		updatedAt = updated.UTC().Format(time.RFC3339)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(summaryResponse{
+		Trunks:    trunks,
+		UpdatedAt: updatedAt,
+		Upcoming:  upcoming,
 	})
 }
 
@@ -106,7 +187,9 @@ func newMux() http.Handler {
 	mux.HandleFunc("GET /api/gtfs/{file}", handleGTFSFile)
 	mux.HandleFunc("GET /api/arrivals/{stationId}", handleArrivals)
 	mux.HandleFunc("GET /api/vehicles", handleVehicles)
-	return corsMiddleware(mux)
+	mux.HandleFunc("GET /api/alerts", handleAlerts)
+	mux.HandleFunc("GET /api/alerts/summary", handleAlertsSummary)
+	return corsMiddleware(gzipMiddleware(mux))
 }
 
 func main() {
@@ -122,6 +205,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go startFeedRefresher(ctx)
+	// Separate goroutine and interval: alerts change far less often than train
+	// positions, and a slow alerts fetch must not delay a vehicle refresh.
+	go startAlertsRefresher(ctx)
 
 	slog.Info("server starting", "port", port)
 	if err := http.ListenAndServe(":"+port, newMux()); err != nil {
