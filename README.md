@@ -150,7 +150,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | Vite 5 | Build | Dev server with HMR, production bundler via Rollup, tree-shakes Three.js |
 | Vanilla JS (ES modules) | Frontend | All app logic as native ES modules; no framework overhead on a WebGL canvas |
 | Vitest | Testing | Unit test runner for all `src/core/` modules; runs in Node, no DOM or browser needed |
-| Go 1.22 | Backend | HTTP server: CORS proxy (Phase 4), full API server (Phase 5+) |
+| Go 1.27 | Backend | HTTP server: CORS proxy (Phase 4), full API server (Phase 5+) |
 | log/slog | Backend | Structured JSON logging for each proxied/API request |
 | sync.RWMutex | Backend | Thread-safe in-memory feed cache; concurrent reads, serialized writes |
 | net/http/httptest | Backend testing | In-memory request/response testing without binding a port |
