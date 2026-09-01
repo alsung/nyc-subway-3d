@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type healthResponse struct {
@@ -189,7 +191,16 @@ func newMux() http.Handler {
 	mux.HandleFunc("GET /api/vehicles", handleVehicles)
 	mux.HandleFunc("GET /api/alerts", handleAlerts)
 	mux.HandleFunc("GET /api/alerts/summary", handleAlertsSummary)
-	return corsMiddleware(gzipMiddleware(mux))
+
+	// /metrics is mounted outside both gzipMiddleware and metricsMiddleware.
+	// promhttp negotiates its own content encoding, so wrapping it in ours
+	// would double-encode and break scraping with no visible error; and Fly
+	// scrapes every few seconds, which would otherwise swamp the request
+	// counter with traffic nobody made.
+	root := http.NewServeMux()
+	root.Handle("GET /metrics", promhttp.Handler())
+	root.Handle("/", metricsMiddleware(corsMiddleware(gzipMiddleware(mux))))
+	return root
 }
 
 func main() {

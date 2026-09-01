@@ -16,6 +16,7 @@ import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
+import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
@@ -26,6 +27,12 @@ const RT_STALE_MS   = 90_000;
 // GTFS resolves rather than waiting for the map's tiles to finish arriving.
 // Only the 3D scene itself is gated on the map's 'load' event.
 async function init() {
+    // Page-view analytics. Cookieless, and a no-op outside Vercel deployments,
+    // so local development is unaffected. Fired before the awaits below because
+    // it is fire-and-forget: a visitor who leaves during the GTFS download
+    // still counts, which matters when the number being measured is traffic.
+    injectAnalytics();
+
     // Created first so Maplibre's tile requests overlap the GTFS download below
     // rather than queueing behind it.
     const map = createMap(document.getElementById('map'));

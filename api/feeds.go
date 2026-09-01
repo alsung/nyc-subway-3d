@@ -107,13 +107,17 @@ func refreshFeeds(ctx context.Context) {
 	for r := range results {
 		if r.err != nil {
 			slog.Warn("feed refresh failed", "group", r.group, "err", r.err)
+			metricFeedRefresh.WithLabelValues(r.group, "failure").Inc()
 			continue
 		}
 		feedCache[r.group] = feedEntry{msg: r.msg, fetchedAt: now}
+		metricFeedRefresh.WithLabelValues(r.group, "success").Inc()
 		ok++
 	}
 	lastRefresh = now
 	feedsMu.Unlock()
+
+	metricFeedLastRefresh.Set(float64(now.Unix()))
 
 	slog.Info("feeds refreshed", "ok", ok, "total", len(feedURLs))
 }

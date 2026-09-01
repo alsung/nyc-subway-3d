@@ -44,3 +44,10 @@ primary_region = 'ewr'
   memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
+
+# Fly scrapes this into their managed Prometheus and surfaces it in managed
+# Grafana at no extra cost. Port matches internal_port; /metrics is served
+# outside the gzip middleware so promhttp can negotiate its own encoding.
+[metrics]
+  port = 8080
+  path = "/metrics"
