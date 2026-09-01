@@ -15,11 +15,13 @@
     "gtfs": "bash scripts/download-gtfs.sh --force"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "maplibre-gl": "^5.24.0",
     "three": "^0.165.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^1.6.0",
+    "playwright": "^1.62.1",
     "vite": "^5.3.1",
     "vitest": "^1.6.0"
   }

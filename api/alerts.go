@@ -488,6 +488,9 @@ func refreshAlerts(ctx context.Context) {
 	alertsMu.Unlock()
 
 	total := len(msg.GetEntity())
+	metricAlertsEntities.Set(float64(total))
+	metricAlertsLabeled.Set(float64(labeled))
+
 	// Logged on every refresh so a drop is visible in the Fly logs without
 	// anyone having to go looking for it.
 	slog.Info("alerts refreshed", "entities", total, "labeled", labeled)
