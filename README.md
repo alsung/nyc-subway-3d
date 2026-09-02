@@ -176,7 +176,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
 | 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
 | 6 | Performance, Service Alerts + Mobile | Planned | Startup performance, popup state clarity, MTA service alerts, responsive layout, PWA manifest, touch gestures |
-| 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing, highlighted route on map, optimal car recommendation |
+| 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing (RAPTOR, transit-only), highlighted route on map, optimal car recommendation; walking legs and Citibike staged after |
 | 8 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
 | 9 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
 | 10 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence |
@@ -935,11 +935,12 @@ Below 640px viewport width, the popup switches from a floating card to a bottom 
 ## 14. Phase 7 — Trip Planner + Car Positioning
 
 ### Goal
-User inputs origin and destination station. The app finds the optimal route using graph traversal over the GTFS station network, highlights the route on the 3D map, and recommends which car to board based on exit position at the destination.
+User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the 3D map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
 
 ### Scope
-- Build station graph from GTFS data (nodes = stations, edges = consecutive stops on a route)
-- Implement BFS/Dijkstra on the graph weighted by travel time + transfer penalty
+- Extend the GTFS download to include `stop_times.txt`, `transfers.txt` and the calendar files
+- Implement RAPTOR in the Go API — time-dependent, bicriteria over arrival time and transfers
+- Use live GTFS-RT predictions inside the realtime horizon, scheduled times beyond it
 - Highlight route segments on the 3D map (selected lines brighten, others dim)
 - Fly camera to frame the route
 - Show turn-by-turn panel: line, direction, stops, transfer instructions
@@ -948,33 +949,101 @@ User inputs origin and destination station. The app finds the optimal route usin
 
 ### Key Implementation Notes
 
-#### Station graph construction
+#### Why not a station graph with Dijkstra
+
+The obvious approach — build a graph of stations, weight edges by travel time, run
+Dijkstra — **cannot express the thing that dominates a real journey: waiting.** A
+fixed edge weight says "Bedford Av to 1 Av takes 3 minutes." It cannot say the L
+runs every 4 minutes at rush hour and every 20 at midnight, and it cannot say you
+just missed one. Transit routing is *time-dependent*, and a static-weight graph
+throws that away.
+
+The algorithms designed for this take a timetable directly rather than a graph.
+
+#### Staged plan
+
+Multimodal routing is three separate problems with very different costs. Each
+stage ships something usable on its own.
+
+| Stage | Scope | New infrastructure |
+|---|---|---|
+| **1. Transit-only** | subway + transfers, time-dependent | none — runs in the existing Go API |
+| **2. Walking legs** | door-to-station, station-to-door | none initially; OSM only if needed |
+| **3. Citibike + true multimodal** | compare modes on time and cost | OTP2 as a separate service |
+
+Stage 1 answers most of what a rider actually wants and needs no new service.
+Deferring stages 2 and 3 keeps the "do we need a second host" decision until
+there is evidence rather than a guess.
+
+#### Stage 1 — RAPTOR in Go
+
+[RAPTOR](https://www.microsoft.com/en-us/research/wp-content/uploads/2012/01/raptor_alenex.pdf)
+(Round-bAsed Public Transit Optimized Router) works directly on the timetable with
+no preprocessing. It proceeds in rounds, where round *k* finds the best journeys
+using exactly *k* trips, which makes it naturally **bicriteria**: it produces a
+Pareto set over arrival time *and* number of transfers. That maps directly onto
+what riders ask for — "fastest" and "fewest changes" are different answers, and
+RAPTOR yields both from one run.
+
 ```
-Graph G = (V, E)
-V = all parent stations from stops.txt
-E = (station_a, station_b, route_id, travel_time_seconds)
-    for each consecutive pair in stop_times.txt
+improve(round k):
+  for each route touching a stop improved in round k-1:
+      board the earliest trip catchable at that stop
+      ride it, improving arrival times at every downstream stop
+  apply footpath transfers between nearby stops
 ```
 
-Transfer edges connect the same physical station served by multiple routes:
-```
-E_transfer = (station_x_line_A, station_x_line_B, null, TRANSFER_PENALTY_SECONDS)
-TRANSFER_PENALTY_SECONDS = 120   // 2 minutes, tunable
-```
+**Data required.** The download script currently extracts 4 of the 10 GTFS files.
+Routing additionally needs:
 
-#### BFS for unweighted / Dijkstra for time-weighted
-For MVP: BFS minimizes transfers (fewest changes). For improvement: Dijkstra with `travel_time` as edge weight minimizes total journey time.
+| File | Size | Purpose |
+|---|---|---|
+| `stop_times.txt` | 34.8 MB | every stop event of every trip — the timetable itself |
+| `transfers.txt` | small | station-to-station transfer rules and minimum times |
+| `calendar.txt`, `calendar_dates.txt` | small | which services run on which dates |
 
-```js
-function findRoute(graph, originId, destId) {
-  const dist = new Map()    // stopId → best seconds
-  const prev = new Map()    // stopId → { from, routeId }
-  const pq = new MinPriorityQueue()
-  pq.enqueue({ id: originId, cost: 0 })
-  // ... standard Dijkstra expansion
-  return reconstructPath(prev, destId)
-}
-```
+34.8 MB is well within what the API can hold, though the in-memory representation
+should be measured before assuming the 512 MB machine is sufficient. Compact
+encoding (int32 seconds, index-based stop references) matters here.
+
+#### The realtime angle
+
+Most trip planners route on the published schedule. This project already
+maintains a live arrival index built from GTFS-RT, which means the router can use
+**predicted** departure times rather than scheduled ones for the near horizon —
+so a delayed train produces a different itinerary, not just a different countdown.
+
+Realtime covers only currently-active trips, roughly the next 30–60 minutes, so
+the design has to fall back to schedule beyond that horizon and be explicit in the
+UI about which is which.
+
+#### Alternatives considered
+
+**Connection Scan Algorithm (CSA)** — scans a single array of connections sorted
+by departure time. Simpler to implement than RAPTOR and
+[comparable in performance on small to medium networks](https://naviqore.github.io/documentation/raptor.html),
+which the ~500-station subway certainly is. Its basic form optimises arrival time
+only; bicriteria variants exist but are more involved. **A reasonable fallback if
+RAPTOR proves fiddly**, at the cost of losing the free transfer-count dimension.
+
+**Transfer Patterns / Trip-Based Routing** — faster at query time, but both
+require substantial preprocessing. Aimed at networks far larger than one subway
+system; not worth the build complexity here.
+
+**Self-hosted OpenTripPlanner 2** — the complete answer, and the only one that
+gets Citibike (via GBFS) and real pedestrian routing (via OSM). It is a JVM
+service that builds an in-memory graph from OSM + GTFS, so it needs its own
+sizing and its own host; it will not share the 512 MB machine. Deferred to
+stage 3, where its cost is justified by capability nothing else provides.
+
+**Hosted routing APIs** — mostly a dead end. Mapbox Directions has no transit at
+all. Google Directions does, but their terms have historically restricted
+displaying Google-sourced results on a non-Google map, which would be
+disqualifying for a MapLibre app — verify against current terms before relying on
+it. [Navitia.io](https://www.navitia.io/) is the most viable of these: an
+open-source engine with a hosted API and permissive terms. Set against all of
+them: the Stadia incident showed what a silent third-party failure costs, and
+routing is the core of the product rather than a basemap.
 
 #### Car positioning data (`src/data/car-positions.json`)
 ```json
@@ -1001,13 +1070,16 @@ When a route is selected:
 
 | Test | Type | Assertion |
 |---|---|---|
-| Graph has correct node count | Unit | `graph.nodes.size === stations.length` |
-| Graph edges are bidirectional | Unit | Edge A→B implies edge B→A |
-| BFS finds path between adjacent stations | Unit | Single-hop route correctly resolved |
-| BFS finds path requiring one transfer | Unit | Route uses transfer edge when direct line unavailable |
-| Dijkstra prefers faster route over fewer transfers | Unit | 20-min direct beats 15-min + 10-min with transfer |
-| Car position lookup returns correct car | Unit | `stopId + direction` key resolves to expected `optimal_car` |
-| Route with no path returns null | Unit | Disconnected stations → `findRoute()` returns `null` |
+| Single-hop journey | Unit | Adjacent stations on one line resolve with zero transfers |
+| Journey requiring a transfer | Unit | Uses a transfer when no direct service exists |
+| Pareto set is genuinely Pareto | Unit | No returned journey is beaten on both arrival time and transfers |
+| Departure time changes the answer | Unit | Same origin/destination at 08:00 and 02:00 differ — the property a static graph cannot express |
+| Just-missed departure waits | Unit | Query one second after a departure returns the following trip |
+| Service calendar respected | Unit | A weekday-only trip is not used for a Sunday query |
+| Realtime beats schedule inside the horizon | Unit | A delayed trip in GTFS-RT shifts the itinerary |
+| Falls back to schedule beyond the horizon | Unit | Query hours ahead uses scheduled times, and says so |
+| Unreachable destination | Unit | Returns an empty Pareto set rather than an error |
+| Car position lookup | Unit | `stopId + direction` resolves to expected `optimal_car` |
 
 ---
 
@@ -1286,7 +1358,7 @@ cd api && go test ./... -race   # race detector
 | `src/core/gtfs-parser.js` | 100% |
 | `src/core/color.js` | 100% |
 | `api/` (handler logic) | >90% |
-| `src/core/router.js` (Phase 7) | 100% |
+| `api/routing.go` (Phase 7 — RAPTOR) | 100% |
 
 Scene and UI modules are excluded from coverage requirements — they are tested manually and via visual inspection.
 
