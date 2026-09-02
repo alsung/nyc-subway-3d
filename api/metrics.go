@@ -70,10 +70,16 @@ var (
 	})
 )
 
-// routeLabel maps a request path to a bounded label. Go 1.22's ServeMux does
-// not expose the matched pattern (added in 1.23), and an allowlist is the safer
-// construction anyway: anything unrecognised is bucketed rather than minting a
-// series.
+// routeLabel maps a request path to a bounded label, holding cardinality fixed:
+// labelling by raw path would mint a series per station ID and per URL a scanner
+// invents.
+//
+// This was written when the module targeted Go 1.22, whose ServeMux did not
+// expose the matched pattern. Since the 1.27 upgrade r.Pattern is available and
+// does work from this middleware (verified: it reads
+// "GET /api/arrivals/{stationId}"), and it would adapt automatically as routes
+// are added, where this allowlist silently buckets anything new into "other".
+// Worth revisiting — deliberately not changed alongside a build fix.
 func routeLabel(path string) string {
 	switch {
 	case path == "/health":

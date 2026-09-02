@@ -18,12 +18,13 @@ primary_region = 'ewr'
 [build]
   dockerfile = 'Dockerfile'
   [build.args]
-    GO_VERSION = '1.22'
+    GO_VERSION = '1.27'
 
 [env]
   PORT = '8080'
-  # Go 1.22 reads the host CPU count rather than the cgroup limit; pin it to the
-  # single shared vCPU this machine actually gets.
+  # Kept explicit, though Go 1.25+ reads the cgroup CPU limit itself and would
+  # arrive at the same value on this shared-cpu-1x machine. Removing it is a
+  # runtime behaviour change, so it does not belong in a build fix.
   GOMAXPROCS = '1'
 
 [http_service]
