@@ -1,6 +1,13 @@
 {
     "buildCommand": "npm run build",
     "outputDirectory": "dist",
+    "redirects": [
+        {
+            "source": "/status",
+            "destination": "https://stats.uptimerobot.com/rC0xhfYVZZ",
+            "permanent": false
+        }
+    ],
     "rewrites": [
         { "source": "/(.*)", "destination": "/index.html" }
     ],
