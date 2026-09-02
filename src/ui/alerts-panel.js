@@ -10,6 +10,7 @@
 
 import { fetchAlertSummary, fetchAlerts } from '../core/rt-loader.js';
 import { trunkDisplay, systemTone, alertsForTrunk, dedupeBulletRoutes } from '../core/alert-status.js';
+import { parseAlertText } from '../core/alert-text.js';
 import { contrastColor } from '../core/color.js';
 
 const HASH = '#alerts';
@@ -18,7 +19,11 @@ const HASH = '#alerts';
 // cannot return anything new.
 const CACHE_MS = 60_000;
 
-export function buildAlertsPanel(container, routeMap, statusButton) {
+// stations powers the affected-station chips; onStationSelect is invoked when
+// one is tapped. The panel deliberately knows nothing about the map or the
+// popup — main.js owns those and supplies the callback, the same shape
+// buildSearch already uses.
+export function buildAlertsPanel(container, routeMap, stations, statusButton, onStationSelect) {
     const panel = document.createElement('div');
     panel.id = 'alerts-panel';
     panel.classList.add('hidden');
@@ -34,6 +39,14 @@ export function buildAlertsPanel(container, routeMap, statusButton) {
     container.appendChild(panel);
 
     const body = panel.querySelector('.alerts-body');
+
+    // Alert stopIds are parent station IDs, which match the GTFS ids the map
+    // renders directly — verified against the live feed at 443/443.
+    const stationById = new Map((stations ?? []).map(st => [st.id, st]));
+
+    // How many chips to show before collapsing. Alerts carry a median of 7
+    // affected stations and up to 40; forty chips would bury the alert text.
+    const CHIP_LIMIT = 6;
     let cache = null;          // { summary, alerts, at }
     let inFlight = null;       // dedupes concurrent opens
 
@@ -151,13 +164,89 @@ export function buildAlertsPanel(container, routeMap, statusButton) {
             body.appendChild(row);
         }
 
-        // Upcoming planned work is a separate destination (P6-5b); until it
-        // exists, report the count rather than offering a row that goes nowhere.
+        // Planned work is kept out of the trunk rows on purpose: the large
+        // majority of the feed is scheduled work, and folding it in would mark
+        // nearly every line disrupted and make the list meaningless.
         if (summary.upcoming > 0) {
-            const note = document.createElement('div');
-            note.className = 'alerts-foot';
-            note.textContent = `${summary.upcoming} planned service change${summary.upcoming === 1 ? '' : 's'} scheduled`;
-            body.appendChild(note);
+            const entry = document.createElement('button');
+            entry.className = 'alerts-foot alerts-foot--link';
+            entry.innerHTML = '';
+            const label = document.createElement('span');
+            label.textContent = `${summary.upcoming} planned service change${summary.upcoming === 1 ? '' : 's'} scheduled`;
+            const chev = document.createElement('span');
+            chev.className = 'alert-chev';
+            chev.textContent = '›';
+            entry.append(label, chev);
+            entry.addEventListener('click', showPlanned);
+            body.appendChild(entry);
+        }
+    }
+
+    // ── planned service changes ─────────────────────────────────────────────
+
+    // Upcoming work is only fetched when this view is opened. The full response
+    // is ~25 KB gzipped against ~1.2 KB for the default, so it is not worth
+    // pulling for the status list that most visitors will only ever see.
+    let plannedCache = null;
+
+    async function showPlanned() {
+        renderPlannedShell();
+        const list = body.querySelector('.planned-list');
+        try {
+            if (!plannedCache || Date.now() - plannedCache.at >= CACHE_MS) {
+                const res = await fetchAlerts(true);
+                plannedCache = { alerts: res.alerts ?? [], at: Date.now() };
+            }
+            // The user may have navigated back while this was in flight.
+            if (!body.contains(list)) return;
+            renderPlannedList(list, plannedCache.alerts.filter(a => !a.surfaced));
+        } catch {
+            if (!body.contains(list)) return;
+            list.innerHTML = '';
+            const msg = document.createElement('div');
+            msg.className = 'alerts-message';
+            msg.textContent = 'Couldn\u2019t load planned service changes.';
+            list.appendChild(msg);
+        }
+    }
+
+    function renderPlannedShell() {
+        body.innerHTML = '';
+
+        const back = document.createElement('button');
+        back.className = 'alerts-back';
+        back.textContent = '\u2039  Service Status';
+        back.addEventListener('click', () => {
+            if (cache) renderRows(cache.summary, cache.alerts);
+            else open();
+        });
+        body.appendChild(back);
+
+        const heading = document.createElement('div');
+        heading.className = 'planned-heading';
+        heading.textContent = 'Planned service changes';
+        body.appendChild(heading);
+
+        const list = document.createElement('div');
+        list.className = 'planned-list';
+        const loading = document.createElement('div');
+        loading.className = 'alerts-message';
+        loading.textContent = 'Loading\u2026';
+        list.appendChild(loading);
+        body.appendChild(list);
+    }
+
+    function renderPlannedList(list, alerts) {
+        list.innerHTML = '';
+        if (!alerts.length) {
+            const msg = document.createElement('div');
+            msg.className = 'alerts-message';
+            msg.textContent = 'No planned service changes scheduled.';
+            list.appendChild(msg);
+            return;
+        }
+        for (const alert of alerts) {
+            list.appendChild(renderAlert(alert));
         }
     }
 
@@ -178,9 +267,18 @@ export function buildAlertsPanel(container, routeMap, statusButton) {
 
         const text = document.createElement('div');
         text.className = 'alert-item-text';
-        // textContent, never innerHTML: this is third-party copy, and the feed
-        // also ships an en-html variant we deliberately never touch.
-        text.textContent = alert.header ?? '';
+        // Route tokens ([N], [B][Q]) become real bullets; everything else goes
+        // in as textContent. innerHTML is never used — this is third-party copy,
+        // and the feed also ships an en-html variant we deliberately ignore.
+        for (const seg of parseAlertText(alert.header)) {
+            if (seg.route !== undefined) {
+                const b = routeBullet(seg.route);
+                b.classList.add('alert-bullet--inline');
+                text.appendChild(b);
+            } else {
+                text.appendChild(document.createTextNode(seg.text));
+            }
+        }
 
         el.append(top, text);
 
@@ -190,7 +288,64 @@ export function buildAlertsPanel(container, routeMap, statusButton) {
             period.textContent = alert.periodText;
             el.appendChild(period);
         }
+
+        const chips = renderStationChips(alert);
+        if (chips) el.appendChild(chips);
+
         return el;
+    }
+
+    // Affected stations, tappable. This is the thing a list of alerts cannot do
+    // on its own: tapping flies the map to the station and opens its popup, so
+    // "N skips 28 St, 23 St, 8 St-NYU" becomes something you can see.
+    function renderStationChips(alert) {
+        const found = (alert.stopIds ?? [])
+            .map(id => stationById.get(id))
+            .filter(Boolean);
+        if (!found.length) return null;
+
+        // Dedupe by name: a complex spans several GTFS ids that share one name,
+        // and repeating "Times Sq-42 St" four times is noise.
+        const seen = new Set();
+        const unique = found.filter(st => !seen.has(st.name) && seen.add(st.name));
+
+        const wrap = document.createElement('div');
+        wrap.className = 'alert-stations';
+
+        const label = document.createElement('div');
+        label.className = 'alert-stations-label';
+        label.textContent = unique.length === 1
+            ? '1 station affected'
+            : `${unique.length} stations affected`;
+        wrap.appendChild(label);
+
+        const list = document.createElement('div');
+        list.className = 'alert-chips';
+        wrap.appendChild(list);
+
+        const addChip = (st) => {
+            const chip = document.createElement('button');
+            chip.className = 'alert-chip';
+            chip.textContent = st.name;
+            chip.addEventListener('click', () => onStationSelect?.(st));
+            list.appendChild(chip);
+        };
+
+        unique.slice(0, CHIP_LIMIT).forEach(addChip);
+
+        // Median is 7 affected stations and the maximum observed is 40, so the
+        // overflow case is the common one rather than an edge case.
+        if (unique.length > CHIP_LIMIT) {
+            const more = document.createElement('button');
+            more.className = 'alert-chip alert-chip--more';
+            more.textContent = `+${unique.length - CHIP_LIMIT} more`;
+            more.addEventListener('click', () => {
+                more.remove();
+                unique.slice(CHIP_LIMIT).forEach(addChip);
+            });
+            list.appendChild(more);
+        }
+        return wrap;
     }
 
     // ── open / close ────────────────────────────────────────────────────────

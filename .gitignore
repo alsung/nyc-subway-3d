@@ -25,3 +25,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Claude Code local config and skills — tooling, not part of the app
+.claude/

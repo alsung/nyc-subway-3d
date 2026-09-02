@@ -75,7 +75,18 @@ async function init() {
     // with the rest of the UI rather than behind the map-load gate. It fetches
     // nothing until opened, beyond a single summary call to set its status dot.
     const statusButton = document.getElementById('btn-status');
-    buildAlertsPanel(document.getElementById('ui'), routeMap, statusButton);
+    buildAlertsPanel(
+        document.getElementById('ui'), routeMap, stations, statusButton,
+        // Tapping an affected station closes the panel and takes the map there.
+        // Routed through the hash so the URL and the panel stay in agreement,
+        // and lastStation is set first so openStationPopup's race guard holds.
+        (station) => {
+            window.location.hash = '';
+            lastStation = station;
+            flyToStation(map, station);
+            openStationPopup(station);
+        },
+    );
     statusButton.addEventListener('click', () => {
         // Route through the hash so the panel, the URL and the back button stay
         // in agreement; the panel itself listens for the change.
