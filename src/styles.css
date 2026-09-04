@@ -12,12 +12,52 @@ html, body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+:root {
+    /* Keyboard focus ring. Chosen for contrast against every ground it can land
+       on: 10:1 over the panel and popup, 7.3:1 over the bare map for the
+       controls that sit directly on it. The browser default (a 1px #005FCC) was
+       only 3.2:1 and read as off-palette blue. */
+    --focus-ring: #5ac8fa;
+}
+
+/* One global rule rather than a list of component selectors, so an element
+   added later cannot silently miss it. :focus-visible, not :focus, so the ring
+   appears for keyboard and assistive-tech users without flashing on every mouse
+   click. 2px meets the WCAG 2.2 focus-appearance minimum; the offset keeps it
+   clear of each control's own border. */
+:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+}
+
+/* Maplibre's own stylesheet sets outline:none on the attribution expander at
+   the same specificity as the rule above, so which one wins would come down to
+   bundling order. Qualifying by class settles it. */
+.maplibregl-ctrl-attrib-button:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+}
+
+/* Rows that span the full width of the alerts panel. The panel clips to its
+   rounded corners with overflow:hidden, so an outward ring loses its left and
+   right edges and reads as a stray underline. A negative offset draws the same
+   ring just inside the row, keeping the perimeter closed. */
+.alert-row-head:focus-visible,
+.alerts-foot:focus-visible,
+.alerts-back:focus-visible {
+    outline-offset: -2px;
+}
+
+/* Painted below #ui. Both are position: fixed, so before this the stacking
+   depended purely on source order — which #ui had to be second to win. Making
+   it explicit frees the markup to put #ui first for tab order. */
 #map {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
+    z-index: 0;
 }
 
 /* Overlay container — pointer-events none so clicks reach the canvas by default.
@@ -29,6 +69,7 @@ html, body {
     width: 100%;
     height: 100%;
     pointer-events: none;
+    z-index: 1;
 }
 
 /* ── Search ─────────────────────────────────────────────────────────────── */
@@ -49,12 +90,11 @@ html, body {
     border-radius: 8px;
     color: #fff;
     font-size: 14px;
-    outline: none;
     backdrop-filter: blur(8px);
 }
 
 .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.55);
 }
 
 .search-input:focus {
@@ -80,6 +120,14 @@ html, body {
 
 .search-result:hover {
     background: rgba(255, 255, 255, 0.1);
+}
+
+/* The arrow-key highlight. Real focus stays in the input (the combobox uses
+   aria-activedescendant), so this is the only thing marking the active option —
+   it is tinted with the focus colour rather than a heavier grey so it cannot be
+   mistaken for the hover state sitting underneath the pointer. */
+.search-result--active {
+    background: rgba(90, 200, 250, 0.16);
 }
 
 /* ── View toggle ─────────────────────────────────────────────────────────── */
@@ -112,7 +160,7 @@ html, body {
 #btn-3d:hover,
 #btn-status:hover {
     background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
 }
 
 /* ── Service status button + panel ───────────────────────────────────────── */
@@ -233,12 +281,12 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     white-space: nowrap;
 }
 
-.alert-row-status--none     { color: rgba(255, 255, 255, 0.35); }
+.alert-row-status--none     { color: rgba(255, 255, 255, 0.55); }
 .alert-row-status--planned  { color: #6aa9ff; font-weight: 600; }
 .alert-row-status--incident { color: #ffb020; font-weight: 600; }
 
 .alert-chev {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 15px;
     transition: transform 0.15s;
 }
@@ -297,7 +345,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 
 .alert-stations-label {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.55);
     margin-bottom: 5px;
 }
 
@@ -321,7 +369,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     color: #fff;
 }
 
-.alert-chip::after { content: ' \203A'; color: rgba(255, 255, 255, 0.4); }
+.alert-chip::after { content: ' \203A'; color: rgba(255, 255, 255, 0.55); }
 
 /* The overflow control is not a destination, so it gets no chevron. */
 .alert-chip--more { color: rgba(255, 255, 255, 0.5); }
@@ -558,7 +606,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
    sized for reading rather than for a dash: smaller, legible, and allowed to
    wrap within the column. */
 .arrival-empty {
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 12px;
     line-height: 1.35;
     padding-top: 6px;
@@ -578,7 +626,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 11px;
     line-height: 1.35;
 }
@@ -586,7 +634,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .popup-retry {
     flex-shrink: 0;
     padding: 3px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.4);
     border-radius: 4px;
     background: none;
     color: rgba(255, 255, 255, 0.75);
