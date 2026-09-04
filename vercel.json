@@ -3,7 +3,7 @@
     "outputDirectory": "dist",
     "redirects": [
         {
-            "source": "/status",
+            "source": "/status{/}?",
             "destination": "https://stats.uptimerobot.com/rC0xhfYVZZ",
             "permanent": false
         }
