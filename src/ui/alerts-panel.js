@@ -384,18 +384,34 @@ export function buildAlertsPanel(container, routeMap, stations, statusButton, on
 
     window.addEventListener('hashchange', syncFromHash);
 
-    panel.querySelector('.alerts-close').addEventListener('click', () => {
-        // Going through the hash keeps the URL and the panel in agreement,
-        // whichever way it was opened.
-        if (window.location.hash === HASH) history.back();
-        else close();
-    });
+    // Closes the panel and takes #alerts out of the URL, so the two stay in
+    // agreement however the panel was opened.
+    //
+    // This must not be history.back(). Going back assumes the previous entry is
+    // one we pushed, and that is not true whenever the document *loaded* at
+    // #alerts — a reload with the panel open, a bookmark, or a shared link. In
+    // those cases there is no earlier same-document entry, so back() either does
+    // nothing at all or navigates off the site entirely, and the close button
+    // looks dead. replaceState drops the hash from the current entry instead,
+    // which works from any history state and leaves no entry behind that would
+    // reopen the panel on Back.
+    //
+    // The browser and Android back buttons still close the panel: opening it
+    // pushes an entry, and going back from that fires hashchange above.
+    function dismiss() {
+        if (window.location.hash !== HASH) {
+            close();
+            return;
+        }
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        // replaceState does not fire hashchange, so close explicitly.
+        close();
+    }
+
+    panel.querySelector('.alerts-close').addEventListener('click', dismiss);
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
-            if (window.location.hash === HASH) history.back();
-            else close();
-        }
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) dismiss();
     });
 
     // Honour #alerts on first load.
