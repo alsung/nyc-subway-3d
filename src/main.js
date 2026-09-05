@@ -8,7 +8,7 @@ import { createMap, createThreeLayer, addStationLayer } from './scene/renderer.j
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView, introToThreeD } from './ui/camera.js';
-import { buildFilterChips } from './ui/filter.js';
+import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
@@ -104,10 +104,13 @@ async function init() {
         if (lineMeshes) highlightLine(lineMeshes, routeId);
     };
 
-    buildFilterChips(routeMap, document.getElementById('chip-bar'), (routeId, active) => {
-        filterState.set(routeId, active);
-        if (lineMeshes) setLineVisibility(lineMeshes, routeId, active);
-    });
+    buildLinesPanel(
+        document.getElementById('ui'), routeMap, document.getElementById('btn-lines'),
+        (routeId, active) => {
+            filterState.set(routeId, active);
+            if (lineMeshes) setLineVisibility(lineMeshes, routeId, active);
+        },
+    );
 
     // Fetches arrivals for a station on demand (Phase 5 lazy per-station fetch).
     // A station may be a raw GTFS station (from search) or an enriched click

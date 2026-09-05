@@ -11,7 +11,7 @@
 import { fetchAlertSummary, fetchAlerts } from '../core/rt-loader.js';
 import { trunkDisplay, systemTone, alertsForTrunk, dedupeBulletRoutes } from '../core/alert-status.js';
 import { parseAlertText } from '../core/alert-text.js';
-import { contrastColor } from '../core/color.js';
+import { routeBullet as bullet } from './route-bullet.js';
 
 const HASH = '#alerts';
 
@@ -80,17 +80,9 @@ export function buildAlertsPanel(container, routeMap, stations, statusButton, on
 
     // ── rendering ───────────────────────────────────────────────────────────
 
-    function routeBullet(routeId) {
-        const route = routeMap[routeId];
-        const color = route?.color ?? '#808183';
-        const el = document.createElement('span');
-        el.className = 'alert-bullet';
-        el.textContent = route?.shortName ?? routeId;
-        el.style.backgroundColor = color;
-        el.style.color = contrastColor(color);
-        if ((route?.shortName ?? routeId).length > 2) el.classList.add('alert-bullet--wide');
-        return el;
-    }
+    // Binds the shared bullet renderer to this panel's routeMap, so the call
+    // sites below read the same as before the helper moved out.
+    const routeBullet = (routeId) => bullet(routeId, routeMap);
 
     function renderMessage(text) {
         body.innerHTML = '';
