@@ -767,6 +767,53 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     padding-right: 8px;
 }
 
+/* ── Popup disruption band ───────────────────────────────────────────────── */
+
+/* Sits between the route bullets and the arrival columns: what is wrong comes
+   before when the next train is, because it changes how the times should be
+   read. Hidden entirely at an unaffected station, so a healthy popup is
+   unchanged. */
+.popup-alerts {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin: 9px 0 2px;
+}
+
+.popup-alert {
+    padding: 7px 9px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    /* The tone is carried by a leading edge rather than a filled panel — enough
+       to separate an incident from planned work without turning a routine
+       weekend closure into an alarm. */
+    border-left: 3px solid rgba(255, 255, 255, 0.3);
+}
+
+.popup-alert--incident { border-left-color: #ffb020; }
+.popup-alert--planned  { border-left-color: #6aa9ff; }
+
+.popup-alert-label {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    margin-bottom: 3px;
+}
+
+.popup-alert--incident .popup-alert-label { color: #ffb020; }
+.popup-alert--planned  .popup-alert-label { color: #6aa9ff; }
+
+.popup-alert-text {
+    font-size: 12px;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.popup-alert-more {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 /* ── Popup state note ────────────────────────────────────────────────────── */
 
 /* The quiet line under the arrival columns: data freshness, partial failures,

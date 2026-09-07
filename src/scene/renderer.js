@@ -33,37 +33,47 @@ export function createMap(container) {
 // complex (centroid of same-name stations); at zoom 13+ individual station
 // circles replace them. Both sources store stationIds as a pipe-separated
 // string so the click handler works uniformly across all four layers.
+// Colour of the ring drawn around a station with an active alert. Matches the
+// incident tone used by the status button and the alerts panel.
+const ALERT_STROKE = '#ffb020';
+const PLAIN_STROKE = '#222222';
+
+// Held so the sources can be rebuilt when alerts arrive; the feature geometry
+// never changes, only the `alert` flag on each.
+let stationFeatures = null;
+let complexFeatures = null;
+
 export function addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts) {
+    complexFeatures = complexes.map(c => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+        properties: {
+            name: c.name,
+            stationIds: c.stationIds.join('|'),
+            major: (complexRouteCounts.get(c.stationIds[0]) ?? 1) >= 3 ? 1 : 0,
+            alert: false,
+        },
+    }));
+
+    stationFeatures = stations.map(s => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        properties: {
+            name: s.name,
+            stationIds: s.id,
+            major: (routeCounts.get(s.id) ?? 1) >= 3 ? 1 : 0,
+            alert: false,
+        },
+    }));
+
     map.addSource('station-complexes', {
         type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: complexes.map(c => ({
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
-                properties: {
-                    name: c.name,
-                    stationIds: c.stationIds.join('|'),
-                    major: (complexRouteCounts.get(c.stationIds[0]) ?? 1) >= 3 ? 1 : 0,
-                },
-            })),
-        },
+        data: { type: 'FeatureCollection', features: complexFeatures },
     });
 
     map.addSource('stations', {
         type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: stations.map(s => ({
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-                properties: {
-                    name: s.name,
-                    stationIds: s.id,
-                    major: (routeCounts.get(s.id) ?? 1) >= 3 ? 1 : 0,
-                },
-            })),
-        },
+        data: { type: 'FeatureCollection', features: stationFeatures },
     });
 
     // Complex dots — visible below zoom 13
@@ -107,8 +117,19 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 5, 16, 9],
             'circle-color': '#ffffff',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 1.5, 16, 2],
-            'circle-stroke-color': '#222222',
+            // Alerted stations get a thicker amber ring. Only the individual
+            // circles carry it, never the complex dots below zoom 13: a third
+            // of the system is typically named by some alert, and at city zoom
+            // that is a wall of amber rather than a signal.
+            //
+            // The zoom interpolation has to stay on the outside with the data
+            // lookup in each stop value. Maplibre permits only one zoom-based
+            // subexpression per property, so wrapping two interpolates in a
+            // case fails to parse and the layer silently falls back to default.
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
+                13, ['case', ['get', 'alert'], 2.5, 1.5],
+                16, ['case', ['get', 'alert'], 3.5, 2]],
+            'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],
         },
     });
 
@@ -121,8 +142,10 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 7],
             'circle-color': '#cccccc',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 16, 1.5],
-            'circle-stroke-color': '#222222',
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
+                13, ['case', ['get', 'alert'], 2, 1],
+                16, ['case', ['get', 'alert'], 3, 1.5]],
+            'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],
         },
     });
 
@@ -144,6 +167,33 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             'text-halo-width': 1.2,
         },
     });
+}
+
+/**
+ * Flags which stations currently have an alert, repainting their rings.
+ *
+ * Rebuilds the source data rather than using setFeatureState: the features
+ * carry no ids, and state would have to be cleared entry by entry each refresh
+ * to drop stations whose alert has ended. Reassigning one boolean across ~500
+ * point features is cheap and cannot leave a stale badge behind.
+ *
+ * Safe to call before the layer exists — the RT loop starts as soon as the map
+ * loads, which can precede the first alerts response either way round.
+ */
+export function setStationAlerts(map, alertedIds) {
+    if (!stationFeatures || !map.getSource('stations')) return;
+
+    const ids = alertedIds ?? new Set();
+    for (const f of stationFeatures) {
+        f.properties.alert = ids.has(f.properties.stationIds);
+    }
+    // Complexes span several station ids; the dot is flagged if any of them is.
+    for (const f of complexFeatures) {
+        f.properties.alert = f.properties.stationIds.split('|').some(id => ids.has(id));
+    }
+
+    map.getSource('stations').setData({ type: 'FeatureCollection', features: stationFeatures });
+    map.getSource('station-complexes').setData({ type: 'FeatureCollection', features: complexFeatures });
 }
 
 // Creates a Maplibre custom layer that hosts a Three.js scene.

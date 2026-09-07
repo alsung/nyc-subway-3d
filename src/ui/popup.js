@@ -1,5 +1,13 @@
 import { contrastColor } from '../core/color.js';
 import { isArrivalsStale, formatAge } from '../core/arrivals.js';
+import { alertsForStation } from '../core/station-alerts.js';
+import { parseAlertText } from '../core/alert-text.js';
+import { routeBullet } from './route-bullet.js';
+
+// How many alerts to show before the popup turns into a wall of text. The
+// panel is the place to read all of them; here we are answering "is something
+// wrong with this station right now".
+const POPUP_ALERT_LIMIT = 2;
 
 const DIRECTION_LABELS = {
     '1':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
@@ -37,6 +45,7 @@ export function buildPopup(container) {
         <button class="popup-close">×</button>
         <div class="popup-name"></div>
         <div class="popup-line-select"></div>
+        <div class="popup-alerts hidden"></div>
         <div class="popup-directions">
             <div class="popup-dir-col" data-dir="N">
                 <div class="popup-dir-header"></div>
@@ -54,6 +63,66 @@ export function buildPopup(container) {
     return popup;
 }
 
+// Fills the disruption band above the arrival columns, and returns how many
+// alerts were shown. Hidden entirely when the station is unaffected, so a
+// healthy popup looks exactly as it did before.
+//
+// This is what turns the popup's generic "No trains scheduled" into a reason:
+// the alerts that explain an empty station are station-scoped and name it
+// directly, so they reach here without needing to know which routes serve it.
+function renderAlerts(popup, station, routeMap, alerts, routeIds) {
+    const band = popup.querySelector('.popup-alerts');
+    band.innerHTML = '';
+
+    const ids = station.stationIds ?? [station.id];
+    const matched = alertsForStation(alerts, ids, routeIds);
+
+    if (matched.length === 0) {
+        band.classList.add('hidden');
+        return 0;
+    }
+
+    for (const alert of matched.slice(0, POPUP_ALERT_LIMIT)) {
+        const row = document.createElement('div');
+        row.className = `popup-alert popup-alert--${alert.kind ?? 'planned'}`;
+
+        if (alert.label) {
+            const label = document.createElement('div');
+            label.className = 'popup-alert-label';
+            label.textContent = alert.label;
+            row.appendChild(label);
+        }
+
+        const text = document.createElement('div');
+        text.className = 'popup-alert-text';
+        // Same treatment as the alerts panel: [A] becomes a real bullet and
+        // everything else goes in as text. innerHTML is never used — this is
+        // third-party copy.
+        for (const seg of parseAlertText(alert.header)) {
+            if (seg.route !== undefined) {
+                const b = routeBullet(seg.route, routeMap);
+                b.classList.add('alert-bullet--inline');
+                text.appendChild(b);
+            } else {
+                text.appendChild(document.createTextNode(seg.text));
+            }
+        }
+        row.appendChild(text);
+        band.appendChild(row);
+    }
+
+    if (matched.length > POPUP_ALERT_LIMIT) {
+        const more = document.createElement('div');
+        more.className = 'popup-alert-more';
+        const n = matched.length - POPUP_ALERT_LIMIT;
+        more.textContent = `+${n} more in Service Status`;
+        band.appendChild(more);
+    }
+
+    band.classList.remove('hidden');
+    return matched.length;
+}
+
 /**
  * Renders a station popup from a mergeArrivalResults() result.
  *
@@ -62,7 +131,7 @@ export function buildPopup(container) {
  * failed, partial data, and delayed data. onRetry is invoked by the retry
  * button shown in the error state.
  */
-export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry) {
+export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry, alerts) {
     popup.querySelector('.popup-name').textContent = station.name;
 
     const lineSelectEl = popup.querySelector('.popup-line-select');
@@ -70,6 +139,9 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
     lineSelectEl.innerHTML = '';
 
     const { status = 'error', arrivals = [], updatedAt = null, failedCount = 0 } = result ?? {};
+
+    const seenRoutes = [...new Set(arrivals.map(a => a.routeId))];
+    const alertCount = renderAlerts(popup, station, routeMap, alerts, seenRoutes);
 
     if (status === 'error') {
         renderMessageCol(northCol, DEFAULT_DIR.N, 'Couldn’t load arrivals');
@@ -83,9 +155,13 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
         renderMessageCol(northCol, DEFAULT_DIR.N, 'No trains scheduled');
         renderMessageCol(southCol, DEFAULT_DIR.S, 'No trains scheduled');
         // A partial failure here means we genuinely cannot claim "no service".
+        // Otherwise the alert above, when there is one, *is* the explanation —
+        // repeating the generic line under it would read as a contradiction.
         setNote(popup, failedCount > 0
             ? 'Some platforms could not be reached, so this may be incomplete.'
-            : 'MTA is not publishing predictions for this station right now.');
+            : alertCount > 0
+                ? ''
+                : 'MTA is not publishing predictions for this station right now.');
         popup.classList.remove('hidden');
         return;
     }
@@ -94,8 +170,6 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
     if (failedCount > 0) notes.push('Some platforms unavailable');
     if (isArrivalsStale(updatedAt)) notes.push(`Updated ${formatAge(updatedAt)}`);
     setNote(popup, notes.join(' · '));
-
-    const seenRoutes = [...new Set(arrivals.map(a => a.routeId))];
     let activeRouteId = seenRoutes[0];
 
     function render(routeId) {
@@ -136,12 +210,17 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
 // Opens the popup immediately in a loading state — station name shown, arrival
 // columns showing a placeholder — while arrivals are fetched (Phase 5 lazy
 // per-station fetch). showPopup replaces this with real data when it resolves.
-export function showPopupLoading(popup, station) {
+export function showPopupLoading(popup, station, routeMap, alerts) {
     popup.querySelector('.popup-name').textContent = station.name;
     popup.querySelector('.popup-line-select').innerHTML = '';
     const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
     renderMessageCol(northCol, DEFAULT_DIR.N, 'Loading…');
     renderMessageCol(southCol, DEFAULT_DIR.S, 'Loading…');
+    // Alerts need no fetch, so they are shown with the station name rather than
+    // popping in when arrivals land. Routes are not known yet, so only the
+    // station-scoped alerts appear here — which are the ones that explain an
+    // empty station anyway.
+    renderAlerts(popup, station, routeMap, alerts, []);
     setNote(popup, '');
     popup.classList.remove('hidden');
 }

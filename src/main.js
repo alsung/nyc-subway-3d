@@ -4,7 +4,7 @@
 // No business logic lives here — only coordination.
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { createMap, createThreeLayer, addStationLayer } from './scene/renderer.js';
+import { createMap, createThreeLayer, addStationLayer, setStationAlerts } from './scene/renderer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView, introToThreeD } from './ui/camera.js';
@@ -14,8 +14,9 @@ import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
-import { fetchVehicles, fetchArrivals } from './core/rt-loader.js';
+import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
+import { alertedStationIds } from './core/station-alerts.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
@@ -68,6 +69,10 @@ async function init() {
 
     // RT state — shared between the refresh loop and click/search handlers.
     let lastStation = null;
+    // Surfaced alerts, for the station rings and the popup's disruption band.
+    // Starts empty so a popup opened before the first response simply shows no
+    // alerts rather than waiting on one.
+    let alerts = [];
 
     if (usingEmbeddedData) showEmbeddedDataWarning(document.getElementById('ui'));
 
@@ -129,14 +134,15 @@ async function init() {
     // in arrivals when the fetch resolves — unless a different station was
     // selected (or the popup closed) in the meantime.
     async function openStationPopup(station) {
-        showPopupLoading(popup, station);
+        showPopupLoading(popup, station, routeMap, alerts);
         const result = await getArrivals(station);
         if (lastStation !== station || popup.classList.contains('hidden')) return;
         // Retry re-runs this same function, so it re-enters the loading state
         // and re-applies the race guard above. Manual rather than automatic:
         // refreshRT already retries every 30s, and looping against an API that
         // is genuinely down helps nobody.
-        showPopup(popup, station, routeMap, result, highlight, () => openStationPopup(station));
+        showPopup(popup, station, routeMap, result, highlight,
+            () => openStationPopup(station), alerts);
     }
 
     buildSearch(stations, document.getElementById('search-bar'), (station) => {
@@ -196,7 +202,7 @@ async function init() {
                 const result = await getArrivals(station);
                 if (lastStation === station && !popup.classList.contains('hidden')) {
                     showPopup(popup, station, routeMap, result, highlight,
-                        () => openStationPopup(station));
+                        () => openStationPopup(station), alerts);
                 }
             }
         } catch {
@@ -206,8 +212,30 @@ async function init() {
         }
     }
 
+    // Alerts drive the station rings and the popup's disruption band. Fetched
+    // here rather than inside the alerts panel, which deliberately loads nothing
+    // until opened — the rings have to be right before anyone opens anything.
+    //
+    // Kept off the startup path on purpose: this runs after the map has loaded,
+    // so the 4 KB it costs cannot delay time-to-interactive. A failure is
+    // silent by design; stale or missing rings are worth far less than the
+    // arrivals the same screen is showing, and there is nothing a rider would
+    // do about an alerts outage.
+    async function refreshAlerts() {
+        try {
+            const { alerts: fresh } = await fetchAlerts();
+            alerts = fresh ?? [];
+            setStationAlerts(map, alertedStationIds(alerts));
+        } catch {
+            // Keep the last known alerts rather than clearing the rings: a
+            // dropped request is not evidence that service was restored.
+        }
+    }
+
     refreshRT();
+    refreshAlerts();
     setInterval(refreshRT, RT_REFRESH_MS);
+    setInterval(refreshAlerts, RT_REFRESH_MS);
 
     // All four circle layers — complexes (low zoom) and individuals (high zoom).
     // Both store stationIds as a pipe-separated string so this handler is uniform.
