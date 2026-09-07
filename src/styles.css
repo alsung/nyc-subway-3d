@@ -870,6 +870,196 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     background: #ff9800;
 }
 
+/* ── Touch targets ───────────────────────────────────────────────────────── */
+
+/* Keyed on the input device, not the viewport. A narrow desktop window is still
+   driven by a cursor and does not need 44px controls; a tablet at 1024px does.
+   Sizing these off a width breakpoint gets both cases wrong.
+   44px is the minimum comfortable target in both Apple's and Google's guidance,
+   and every control in this app was under it — several at 15x19. */
+@media (pointer: coarse) {
+    #view-controls button,
+    .search-input,
+    .lines-row,
+    .alerts-foot,
+    .alerts-back {
+        min-height: 44px;
+    }
+
+    /* Width matters as much as height for these two: "All" is a three-character
+       label, so height alone would leave a 34px-wide target. */
+    .lines-action {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Grown honestly rather than with an oversized invisible hit area: these sit
+       a few pixels from their neighbours, so a 44px overlay centred on a 15px
+       glyph would sit on top of the adjacent control and steal its taps. The
+       panel headers get taller instead, which on a touch device is correct. */
+    .alerts-close,
+    .lines-close {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Absolutely positioned, so growing it costs no layout. Anchored to the
+       corner it already occupied; the glyph centres within the larger box. */
+    .popup-close {
+        top: 0;
+        right: 0;
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+    }
+
+    .line-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* 36 rather than 44 on purpose. These are content inside a scrolling list,
+       not toolbar controls, and six of them at full height would push the alert
+       text they belong to off the screen. */
+    .alert-chip {
+        min-height: 36px;
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
+/* ── Small viewports ─────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+    /* The two top-left/top-right clusters overlap below roughly 700px: at 375px
+       the search field spanned x 20-300 and the control strip x 80-355, so the
+       buttons sat on top of the input. Search keeps the first row because it is
+       the primary way into the app; the controls drop beneath it. */
+    #search-bar {
+        left: 16px;
+        right: 16px;
+        width: auto;
+    }
+
+    #view-controls {
+        top: 74px;
+        right: 16px;
+    }
+
+    /* The panels and the popup hung off a top-right anchor that no longer
+       exists once the controls move. They become bottom sheets: full width,
+       anchored to the bottom edge, capped so the map stays partly visible. */
+    #alerts-panel,
+    #lines-panel,
+    #station-popup {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: auto;
+        /* Also overrides the desktop cap, which measures against a top anchor. */
+        max-height: 75vh;
+        border-radius: 14px 14px 0 0;
+        border-bottom: 0;
+    }
+
+    #station-popup { overflow-y: auto; }
+
+    /* A sheet rises from the edge it is attached to rather than scaling from a
+       corner it no longer touches. */
+    #alerts-panel,
+    #lines-panel {
+        transform-origin: bottom center;
+    }
+
+    #alerts-panel.hidden,
+    #lines-panel.hidden {
+        transform: translateY(12px);
+    }
+
+    /* Would otherwise sit under the popup sheet. */
+    #staleness {
+        bottom: auto;
+        top: 74px;
+        left: 16px;
+        right: auto;
+    }
+}
+
+/* ── Display preferences ─────────────────────────────────────────────────── */
+
+/* Every surface in this app is translucent over a moving map, which is exactly
+   the arrangement this preference exists to opt out of. Backgrounds go opaque
+   and the blur is dropped — the blur is the expensive part as well as the
+   illegible one. */
+@media (prefers-reduced-transparency: reduce) {
+    .search-input,
+    .search-results,
+    #view-controls button,
+    #alerts-panel,
+    #lines-panel,
+    #station-popup {
+        backdrop-filter: none;
+    }
+
+    .search-input,
+    #view-controls button {
+        background: #0a0a1a;
+    }
+
+    .search-results,
+    #station-popup {
+        background: #0a0a1a;
+    }
+
+    #alerts-panel,
+    #lines-panel {
+        background: #0c0f16;
+    }
+}
+
+/* Raises the separators and the quiet text that sit deliberately low in the
+   hierarchy. Borders go to a solid hairline and secondary text to full white,
+   trading the tonal range for legibility — which is the trade the reader asked
+   for by setting this. */
+@media (prefers-contrast: more) {
+    .search-input,
+    .search-results,
+    #view-controls button,
+    #alerts-panel,
+    #lines-panel,
+    #station-popup,
+    .lines-action,
+    .popup-retry {
+        border-color: rgba(255, 255, 255, 0.7);
+    }
+
+    .alerts-head,
+    .alerts-foot,
+    .alert-row,
+    .alert-item,
+    .lines-row,
+    .lines-head,
+    .popup-note {
+        border-color: rgba(255, 255, 255, 0.45);
+    }
+
+    .search-input::placeholder,
+    .alert-row-status--none,
+    .alert-chev,
+    .alert-stations-label,
+    .arrival-empty,
+    .popup-note,
+    .alerts-message,
+    .alerts-foot,
+    .popup-dir-header,
+    #staleness-label {
+        color: #fff;
+    }
+}
+
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 
 .hidden {
