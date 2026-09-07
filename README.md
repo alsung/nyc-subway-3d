@@ -732,6 +732,48 @@ once the subtle treatment shows how dense real alert data actually is.
 
 ### Key Implementation Notes
 
+#### Installability and audit scores (P6-8)
+
+Lighthouse against production, before and after:
+
+| Category | Before | After |
+|---|---|---|
+| Performance | 45 | 45 |
+| Accessibility | **100** | **100** |
+| Best Practices | **100** | **100** |
+| SEO | 82 | **100** |
+
+**SEO** was two concrete failures. There was no meta description, and `robots.txt`
+returned **200 `text/html`** — the SPA rewrite in `vercel.json` serves `index.html`
+for any path that is not a real file, so crawlers were parsing 1.4 KB of markup as
+robots syntax. That is the same catch-all that once served the app shell for missing
+GTFS files and kept a broken data pipeline invisible for weeks. Both `robots.txt` and
+`sitemap.xml` are now real files in `public/`.
+
+**Performance is 45 and is not being chased.** The breakdown is FCP 0.9 s and CLS
+0.018 — both good — against a Total Blocking Time of **3,690 ms**. That is the main
+thread parsing and executing 1.57 MB of Three.js and MapLibre and then building the
+3D scene. Lighthouse has no concept of "this is a WebGL application," and the only
+real fix is code-splitting the 3D engine or moving scene construction off the main
+thread. That is a performance project in its own right, logged for Phase 7, not
+something a manifest ticket addresses. The one cheap win available was taken:
+`preconnect` for the tile and API origins, which Lighthouse measured at 316 ms and
+300 ms of avoidable handshake wait.
+
+**Two startup numbers, and they measure different things.** `scripts/measure-startup.mjs`
+reports ~436 ms; Lighthouse reports 7.4 s Time to Interactive. Both are correct. The
+first is when the search box exists and accepts input; the second is when the main
+thread is quiet enough to *guarantee* responsiveness. Cite the first as "time to first
+interaction," not as TTI.
+
+**Icons are generated, not hand-drawn.** `scripts/build-icons.mjs` renders every PNG
+from two committed SVGs using Playwright's Chromium — already a devDependency — so the
+binaries in `public/` are reproducible rather than opaque. There are two source
+drawings because one asset does not scale: `icon.svg` carries three crossing routes
+through an interchange dot, which collapses into a smudge at favicon size, so
+`favicon.svg` reduces the same idea to a symmetric X with a larger dot. The maskable
+variant is inset 20%, since Android crops it to whatever shape the launcher uses.
+
 #### Startup performance (P6-1)
 Profiling with the Chrome DevTools Protocol showed the app is **not** CPU-bound: 82.8% of
 the time to interactive was spent idle, with all JS execution totalling ~600 ms

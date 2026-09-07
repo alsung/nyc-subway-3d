@@ -1,0 +1,15 @@
+# Everything here is public and safe to index.
+#
+# This file exists because the SPA rewrite in vercel.json returns index.html for
+# any path that is not a real file — so without it, /robots.txt answered with
+# 1.4 KB of HTML and a 200, and crawlers were parsing markup as robots syntax.
+# The same catch-all once served the app shell for missing GTFS files, which is
+# how a broken data pipeline stayed invisible for weeks.
+
+User-agent: *
+Allow: /
+
+# Large static GTFS tables. Useful to the app, meaningless in a search index.
+Disallow: /gtfs/
+
+Sitemap: https://localexpress.nyc/sitemap.xml
