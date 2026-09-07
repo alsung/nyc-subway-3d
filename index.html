@@ -3,7 +3,39 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NYC Subway 3D</title>
+    <title>Local Express — NYC Subway 3D</title>
+    <meta name="description" content="Live NYC subway trains, arrivals and service alerts on a 3D map, built from the MTA's realtime GTFS feeds." />
+
+    <!-- Two drawings, not one asset scaled: the detailed mark collapses into a
+         smudge at favicon size, so favicon.svg is a simplified symmetric
+         version. SVG first for browsers that take it, PNG for those that do not. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0a1a" />
+
+    <!-- Both are hit early and neither is discoverable from the HTML, so the
+         browser cannot start their handshakes until the bundle asks for them.
+         Lighthouse measured 316ms and 300ms of avoidable wait. crossorigin on
+         Stadia because tile requests are CORS; the API's are not. -->
+    <link rel="preconnect" href="https://tiles.stadiamaps.com" crossorigin />
+    <link rel="preconnect" href="https://nyc-subway-api.fly.dev" />
+
+    <!-- Controls the card shown wherever the URL is pasted. Without these a
+         scraper picks whatever it can find, which for a canvas app is nothing. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Local Express" />
+    <meta property="og:title" content="Local Express — NYC Subway 3D" />
+    <meta property="og:description" content="Live NYC subway trains, arrivals and service alerts on a 3D map." />
+    <meta property="og:url" content="https://localexpress.nyc/" />
+    <meta property="og:image" content="https://localexpress.nyc/og-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Local Express — crossing subway route lines meeting at an interchange." />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
