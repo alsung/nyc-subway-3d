@@ -7,7 +7,7 @@
 //
 // Reports, per target, the median of RUNS cold-cache runs:
 //   interactive — search input in the DOM (what the user can first act on)
-//   chips       — filter chips rendered
+//   lines       — Lines panel rows built (GTFS parsed, routeMap ready)
 //   scene       — first successful RT refresh (3D scene live)
 // plus requests completed before interactive, and any non-200 responses
 // grouped by host.
@@ -65,8 +65,13 @@ async function runOnce(url) {
     const t_search = await mark(() =>
         document.querySelector('#search-bar .search-input') ? performance.now() : false);
     const reqsAtInteractive = completed;
-    const t_chips = await mark(() =>
-        document.querySelector('#chip-bar .chip') ? performance.now() : false);
+    // Rows are built eagerly when the panel is constructed, not on open, so
+    // this marks the moment GTFS has parsed and the route map is usable. It
+    // replaced '#chip-bar .chip' when the chip bar became the Lines panel; the
+    // stale selector timed out and, because these probes run in sequence, took
+    // the scene measurement's clock down with it.
+    const t_lines = await mark(() =>
+        document.querySelector('#lines-panel .lines-row') ? performance.now() : false);
     const t_scene = await mark(() => {
         const el = document.getElementById('staleness');
         return el && !el.classList.contains('hidden') ? performance.now() : false;
@@ -83,7 +88,7 @@ async function runOnce(url) {
         .catch(() => '?');
 
     await browser.close();
-    return { t_search, t_chips, t_scene, reqsAtInteractive, bundle, errors, status, stations };
+    return { t_search, t_lines, t_scene, reqsAtInteractive, bundle, errors, status, stations };
 }
 
 const med = xs => xs.filter(x => x != null).slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
@@ -94,9 +99,9 @@ for (const { label, url } of targets) {
     for (let i = 0; i < RUNS; i++) {
         const r = await runOnce(url);
         rs.push(r);
-        console.log(`${label} run ${i + 1}: interactive=${ms(r.t_search)} chips=${ms(r.t_chips)} scene=${ms(r.t_scene)} reqs@interactive=${r.reqsAtInteractive}${r.errors.length ? '\n    errors: ' + r.errors.join(' | ') : ''}`);
+        console.log(`${label} run ${i + 1}: interactive=${ms(r.t_search)} lines=${ms(r.t_lines)} scene=${ms(r.t_scene)} reqs@interactive=${r.reqsAtInteractive}${r.errors.length ? '\n    errors: ' + r.errors.join(' | ') : ''}`);
     }
-    console.log(`\n${label} MEDIAN: interactive=${ms(med(rs.map(r => r.t_search)))} chips=${ms(med(rs.map(r => r.t_chips)))} scene=${ms(med(rs.map(r => r.t_scene)))} reqs@interactive=${med(rs.map(r => r.reqsAtInteractive))}`);
+    console.log(`\n${label} MEDIAN: interactive=${ms(med(rs.map(r => r.t_search)))} lines=${ms(med(rs.map(r => r.t_lines)))} scene=${ms(med(rs.map(r => r.t_scene)))} reqs@interactive=${med(rs.map(r => r.reqsAtInteractive))}`);
     console.log(`${label} bundle: ${rs[0].bundle}`);
     const s = [...rs[0].status.entries()].filter(([k]) => !/ 200$/.test(k));
     console.log(`${label} non-200 responses: ${s.length ? s.map(([k, v]) => `${k} ×${v}`).join(', ') : 'none'}\n`);
