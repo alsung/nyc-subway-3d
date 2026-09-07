@@ -22,10 +22,27 @@
 // of 460 / 621 / 1741; nine runs put it at 468 ms with a 452-567 range.
 //
 // The secret is read from the environment and never printed.
+//
+// REQUIRE names the probes that must resolve, comma-separated, and the process
+// exits non-zero if any of them times out on every run. This is what makes the
+// harness usable as a CI smoke test: the '#chip-bar .chip' selector outlived
+// the chip bar by two merges, reporting TIMEOUT and a nonsense 180s scene time
+// that nobody was watching for. Default is every probe; CI narrows it, since
+// the scene probe needs map tiles and Stadia only serves those keyless from
+// localhost.
+//
+//   REQUIRE=interactive,lines node scripts/measure-startup.mjs local=http://…
 import { chromium } from 'playwright';
 
 const BYPASS = process.env.VERCEL_BYPASS ?? '';
 const RUNS = Number(process.env.RUNS ?? 3);
+const REQUIRE = (process.env.REQUIRE ?? 'interactive,lines,scene')
+    .split(',').map(s => s.trim()).filter(Boolean);
+// How long a probe waits before giving up. Generous by default because a cold
+// deployment on a slow network legitimately takes a while; CI lowers it, since
+// there a probe that has not resolved is a broken selector rather than a slow
+// network, and waiting three minutes to learn that wastes the run.
+const PROBE_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS ?? 180000);
 const targets = process.argv.slice(2).map(a => {
     const i = a.indexOf('=');
     return { label: a.slice(0, i), url: a.slice(i + 1) };
@@ -59,7 +76,7 @@ async function runOnce(url) {
 
     await page.goto(target, { waitUntil: 'commit' });
 
-    const mark = (fn) => page.waitForFunction(fn, null, { timeout: 180000 })
+    const mark = (fn) => page.waitForFunction(fn, null, { timeout: PROBE_TIMEOUT_MS })
         .then(h => h.jsonValue()).catch(() => null);
 
     const t_search = await mark(() =>
@@ -94,6 +111,10 @@ async function runOnce(url) {
 const med = xs => xs.filter(x => x != null).slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const ms = v => v == null ? 'TIMEOUT' : Math.round(v) + 'ms';
 
+// Probes that produced no timing on a given target, so the exit status below
+// can name them.
+const missing = [];
+
 for (const { label, url } of targets) {
     const rs = [];
     for (let i = 0; i < RUNS; i++) {
@@ -105,4 +126,27 @@ for (const { label, url } of targets) {
     console.log(`${label} bundle: ${rs[0].bundle}`);
     const s = [...rs[0].status.entries()].filter(([k]) => !/ 200$/.test(k));
     console.log(`${label} non-200 responses: ${s.length ? s.map(([k, v]) => `${k} ×${v}`).join(', ') : 'none'}\n`);
+
+    // A probe counts as broken only when it timed out on every run — a single
+    // slow run is noise, a selector that no longer matches anything is not.
+    const probes = {
+        interactive: rs.map(r => r.t_search),
+        lines:       rs.map(r => r.t_lines),
+        scene:       rs.map(r => r.t_scene),
+    };
+    for (const name of REQUIRE) {
+        if (!(name in probes)) {
+            missing.push(`${label}: unknown probe "${name}"`);
+        } else if (probes[name].every(v => v == null)) {
+            missing.push(`${label}: ${name}`);
+        }
+    }
+}
+
+if (missing.length) {
+    console.error(`\nFAIL — required probe(s) never resolved: ${missing.join(', ')}`);
+    console.error('A probe that times out on every run usually means its selector no longer');
+    console.error('matches anything, not that the app got slow. Check scripts/measure-startup.mjs');
+    console.error('against the current markup before assuming a regression.');
+    process.exit(1);
 }

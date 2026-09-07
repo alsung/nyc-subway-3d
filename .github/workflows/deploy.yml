@@ -31,6 +31,54 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  startup-smoke:
+    name: Startup probes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # Builds and serves the app inside the runner rather than measuring a
+      # deployment. Two reasons: hitting production on every push is the traffic
+      # pattern that got this project's own domain served a firewall challenge,
+      # and a runner's datacenter IP is exactly what bot mitigation looks for.
+      #
+      # Server start, readiness wait and measurement are one step on purpose.
+      # Each `run` is its own shell, so a server backgrounded in one step is not
+      # something the next step can rely on. Readiness is a curl loop rather
+      # than wait-on, which is not a dependency here and would otherwise be
+      # fetched from the network mid-run.
+      #
+      # This is a smoke test for the probes, NOT a performance budget. Timings
+      # from a shared runner against localhost are not comparable to the numbers
+      # measured against production, so nothing asserts on duration — only that
+      # each probe still resolves. It exists because '#chip-bar .chip' outlived
+      # the chip bar by two merges, reporting TIMEOUT that nobody was watching.
+      #
+      # 'scene' is excluded deliberately: it waits on the staleness indicator,
+      # which needs map tiles, and Stadia serves those keyless only from
+      # localhost — a runner gets 401s. Including it would fail for reasons
+      # unrelated to the code. The gap is real: a rotted '#staleness' selector
+      # will not be caught here.
+      - name: Build, serve and probe
+        run: |
+          npm run build
+          npx vite preview --port 4173 --strictPort &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -sSf -o /dev/null http://localhost:4173/ && break
+            sleep 1
+          done
+          curl -sSf -o /dev/null http://localhost:4173/
+          RUNS=1 REQUIRE=interactive,lines PROBE_TIMEOUT_MS=45000 \
+            node scripts/measure-startup.mjs "ci=http://localhost:4173"
+
   test-go:
     name: Go tests (api)
     runs-on: ubuntu-latest
