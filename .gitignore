@@ -6,10 +6,13 @@ coverage/
 # Vite build cache
 .vite/
 
-# MTA GTFS static files - large, regenerated from MTA S3
+# MTA static data - downloaded by scripts/download-gtfs.sh (npm prebuild).
+# Not committed for the same reason as any other build input: it is large,
+# it goes stale, and the build fetches it fresh.
 # Run: npm run gtfs
 public/gtfs/*.txt
 public/gtfs/*.csv
+public/stations.json
 
 # Local env files — VITE_STADIA_API_KEY and anything else secret. Vite exposes
 # every VITE_-prefixed var in the client bundle, so these must never be committed.
