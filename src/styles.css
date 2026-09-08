@@ -295,7 +295,7 @@ button:active,
 .alerts-message,
 .alerts-foot {
     padding: 14px;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 12.5px;
     line-height: 1.4;
 }
@@ -323,6 +323,12 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 
 .alert-bullets { display: flex; gap: 4px; flex-shrink: 0; }
 
+/* Route bullets sit below the 12px minimum that applies to body text, and
+   deliberately stay there. A bullet is a letterform inside a coloured circle —
+   an icon that happens to contain a glyph, the same construction the MTA prints
+   on signage — not running text. Enlarging the type means enlarging the circles,
+   which reflows the panel and the popup without making anything easier to read.
+   Verified legible at 1x, including the 8.5px inline variant used mid-sentence. */
 .alert-bullet {
     width: 22px;
     height: 22px;
@@ -724,9 +730,13 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     flex-shrink: 0;
 }
 
+/* The only text in the app that stacked four weakening factors at once: 10px,
+   uppercase, letter-spaced, and the lowest alpha in use — 4.55:1, passing 4.5
+   by rounding. Uppercase and tracking are what make it read as a column header,
+   so the size and the contrast are what moved. */
 .popup-dir-header {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
