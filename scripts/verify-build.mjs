@@ -15,6 +15,12 @@ const DIST = 'dist';
 const REQUIRED = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
 const MIN_BYTES = 1024;
 
+// Station metadata carries the borough and direction labels behind the popup's
+// direction tabs. Missing, the tabs would silently fall back to generic
+// compass labels — degraded rather than broken, which is exactly the shape of
+// failure this file exists to catch.
+const MIN_STATIONS = 490;
+
 const problems = [];
 
 for (const name of REQUIRED) {
@@ -41,6 +47,21 @@ for (const name of REQUIRED) {
     }
 }
 
+// stations.json — a JSON array, not CSV, so it gets its own checks.
+try {
+    const raw = readFileSync(join(DIST, 'stations.json'), 'utf8');
+    const rows = JSON.parse(raw);
+    if (!Array.isArray(rows)) {
+        problems.push('dist/stations.json is not a JSON array');
+    } else if (rows.length < MIN_STATIONS) {
+        problems.push(`dist/stations.json has ${rows.length} stations, expected at least ${MIN_STATIONS}`);
+    } else if (!rows[0]?.gtfs_stop_id || !rows[0]?.borough) {
+        problems.push('dist/stations.json rows are missing gtfs_stop_id or borough');
+    }
+} catch (err) {
+    problems.push(`dist/stations.json unreadable — did prebuild run? (${err.message})`);
+}
+
 if (problems.length) {
     console.error('\nBuild verification failed:\n');
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -48,4 +69,4 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files present in ${DIST}/gtfs`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station metadata present`);

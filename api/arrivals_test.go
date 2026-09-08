@@ -175,3 +175,89 @@ func TestHandleArrivalsUnknownStation(t *testing.T) {
 		t.Errorf("expected arrivals to serialize as [], got: %s", raw)
 	}
 }
+
+// multiStopFeed builds one trip update spanning several stops, each one minute
+// apart, so the destination logic has a real sequence to reduce.
+func multiStopFeed(stopIDs []string, firstUnix int64, routeID, tripID string) *gtfs.FeedMessage {
+	stus := make([]*gtfs.TripUpdate_StopTimeUpdate, 0, len(stopIDs))
+	for i, s := range stopIDs {
+		stu := &gtfs.TripUpdate_StopTimeUpdate{
+			Arrival: &gtfs.TripUpdate_StopTimeEvent{Time: proto.Int64(firstUnix + int64(i)*60)},
+		}
+		// An empty string means "this entry carries no stop id", which the feed
+		// does occasionally emit; proto.String("") would not be the same thing.
+		if s != "" {
+			stu.StopId = proto.String(s)
+		}
+		stus = append(stus, stu)
+	}
+	return &gtfs.FeedMessage{
+		Header: &gtfs.FeedHeader{GtfsRealtimeVersion: proto.String("2.0")},
+		Entity: []*gtfs.FeedEntity{{
+			Id: proto.String("e1"),
+			TripUpdate: &gtfs.TripUpdate{
+				Trip:           &gtfs.TripDescriptor{RouteId: proto.String(routeID), TripId: proto.String(tripID)},
+				StopTimeUpdate: stus,
+			},
+		}},
+	}
+}
+
+func TestTripDestination(t *testing.T) {
+	cases := []struct {
+		name  string
+		stops []string
+		want  string
+	}{
+		{"last stop of the sequence", []string{"127N", "126N", "125N"}, "125"},
+		{"directional suffix stripped", []string{"L01S", "L29S"}, "L29"},
+		{"single stop is its own destination", []string{"R29N"}, "R29"},
+		{"trailing entry without a stop id is skipped", []string{"A41N", "A40N", ""}, "A40"},
+		{"no usable stop id at all", []string{"", ""}, ""},
+		{"no stop time updates", nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			feed := multiStopFeed(c.stops, time.Now().Unix()+60, "1", "trip-x")
+			got := tripDestination(feed.Entity[0].TripUpdate)
+			if got != c.want {
+				t.Errorf("tripDestination(%v) = %q, want %q", c.stops, got, c.want)
+			}
+		})
+	}
+}
+
+// Every arrival from one trip reports the same destination, including the entry
+// for the final stop itself — a rider standing at the terminal should still see
+// where the train terminates rather than a blank.
+func TestArrivalsCarryDestination(t *testing.T) {
+	now := time.Now()
+	feeds := []*gtfs.FeedMessage{
+		multiStopFeed([]string{"R30N", "R29N", "R27N"}, now.Unix()+120, "R", "trip-r"),
+	}
+	index := buildArrivalIndex(feeds, now)
+
+	for _, stop := range []string{"R30", "R29", "R27"} {
+		arrivals := index[stop]
+		if len(arrivals) == 0 {
+			t.Fatalf("no arrivals indexed for %s", stop)
+		}
+		if arrivals[0].Destination != "R27" {
+			t.Errorf("%s: Destination = %q, want %q", stop, arrivals[0].Destination, "R27")
+		}
+	}
+}
+
+// A trip whose stops carry no ids must not poison the arrivals that do resolve.
+func TestDestinationEmptyDoesNotDropArrivals(t *testing.T) {
+	now := time.Now()
+	feeds := []*gtfs.FeedMessage{arrivalFeed("127N", now.Unix()+180, "1", "trip-1")}
+	index := buildArrivalIndex(feeds, now)
+	if len(index["127"]) != 1 {
+		t.Fatalf("expected 1 arrival at 127, got %d", len(index["127"]))
+	}
+	// The only stop in this feed is the arrival stop, so it is also the terminus.
+	if got := index["127"][0].Destination; got != "127" {
+		t.Errorf("Destination = %q, want %q", got, "127")
+	}
+}
