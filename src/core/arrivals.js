@@ -104,3 +104,46 @@ export function formatAge(updatedAt, now = Date.now()) {
     const hours = Math.round(minutes / 60);
     return `${hours} hr ago`;
 }
+
+/**
+ * Splits a station's arrivals into the two platform directions, keeping only
+ * the routes given.
+ *
+ * Routes interleave rather than being listed one line at a time: at Times Sq a
+ * 1 in 3 minutes belongs above a 2 in 4 minutes, because a rider on that
+ * platform boards whichever comes first. This is the ordering MTA's own app
+ * uses, and it is the reason the popup no longer has a per-route selector —
+ * the useful grouping is the platform, not the line.
+ *
+ * routeIds narrows to one trunk. Passing null keeps every route at the station.
+ */
+export function splitByDirection(arrivals, routeIds = null) {
+    const wanted = routeIds ? new Set(routeIds) : null;
+    const out = { N: [], S: [] };
+
+    for (const a of arrivals ?? []) {
+        if (wanted && !wanted.has(a?.routeId)) continue;
+        // Anything without a platform direction cannot be placed under either
+        // tab. The live feed has not produced one in sampling, so dropping it
+        // is preferable to inventing a third bucket that would normally be
+        // empty and occasionally wrong.
+        const dir = a?.direction;
+        if (dir !== 'N' && dir !== 'S') continue;
+        out[dir].push(a);
+    }
+
+    for (const dir of ['N', 'S']) {
+        out[dir].sort((x, y) => (x.minutes ?? 0) - (y.minutes ?? 0));
+    }
+    return out;
+}
+
+/**
+ * The trunks that actually have trains at this station right now, in TRUNKS
+ * order. Drives which chips the popup offers — a trunk with nothing running is
+ * a dead control.
+ */
+export function trunksInArrivals(arrivals, trunks) {
+    const present = new Set((arrivals ?? []).map(a => a?.routeId));
+    return (trunks ?? []).filter(t => t.routeIds.some(id => present.has(id)));
+}

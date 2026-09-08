@@ -1,5 +1,7 @@
-import { contrastColor } from '../core/color.js';
-import { isArrivalsStale, formatAge } from '../core/arrivals.js';
+import { isArrivalsStale, formatAge, splitByDirection, trunksInArrivals } from '../core/arrivals.js';
+import { directionLabel, stopIdForTrunk, routeLabelsFor } from '../core/station-meta.js';
+import { trunksFor, bulletRoutes } from '../core/trunks.js';
+import { dedupeBulletRoutes } from '../core/alert-status.js';
 import { alertsForStation } from '../core/station-alerts.js';
 import { parseAlertText } from '../core/alert-text.js';
 import { routeBullet } from './route-bullet.js';
@@ -9,33 +11,9 @@ import { routeBullet } from './route-bullet.js';
 // wrong with this station right now".
 const POPUP_ALERT_LIMIT = 2;
 
-const DIRECTION_LABELS = {
-    '1':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    '2':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    '3':  { N: 'Uptown / Harlem',        S: 'Downtown / Brooklyn' },
-    '4':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    '5':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    '6':  { N: 'Uptown / Bronx',         S: 'Downtown' },
-    '7':  { N: 'Flushing',               S: 'Hudson Yards' },
-    'A':  { N: 'Uptown / Inwood',        S: 'Ozone Pk / Rockaways' },
-    'C':  { N: 'Uptown / Inwood',        S: 'Downtown / Brooklyn' },
-    'E':  { N: 'Jamaica / Queens',       S: 'Downtown / Manhattan' },
-    'B':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    'D':  { N: 'Uptown / Bronx',         S: 'Downtown / Brooklyn' },
-    'F':  { N: 'Jamaica / Queens',       S: 'Downtown / Brooklyn' },
-    'M':  { N: 'Forest Hills / Queens',  S: 'Downtown / Brooklyn' },
-    'N':  { N: 'Astoria / Queens',       S: 'Downtown / Brooklyn' },
-    'Q':  { N: 'Uptown / Manhattan',     S: 'Downtown / Brooklyn' },
-    'R':  { N: 'Forest Hills / Queens',  S: 'Downtown / Brooklyn' },
-    'W':  { N: 'Astoria / Queens',       S: 'Downtown / Manhattan' },
-    'G':  { N: 'Long Island City',       S: 'Church Av / Brooklyn' },
-    'J':  { N: 'Jamaica / Queens',       S: 'Downtown / Manhattan' },
-    'Z':  { N: 'Jamaica / Queens',       S: 'Downtown / Manhattan' },
-    'L':  { N: '8th Av / Manhattan',     S: 'Canarsie / Brooklyn' },
-    'GS': { N: 'Times Square',           S: 'Grand Central' },
-    'SI': { N: 'St. George',             S: 'Tottenville' },
-};
-const DEFAULT_DIR = { N: 'Uptown', S: 'Downtown' };
+// Rows shown before "Show more" appears. Six covers roughly half an hour at a
+// busy station, which is as far ahead as a countdown is worth reading.
+const VISIBLE_ROWS = 6;
 
 export function buildPopup(container) {
     const popup = document.createElement('div');
@@ -44,19 +22,10 @@ export function buildPopup(container) {
     popup.innerHTML = `
         <button class="popup-close">×</button>
         <div class="popup-name"></div>
-        <div class="popup-line-select"></div>
+        <div class="popup-trunks"></div>
         <div class="popup-alerts hidden"></div>
-        <div class="popup-directions">
-            <div class="popup-dir-col" data-dir="N">
-                <div class="popup-dir-header"></div>
-                <div class="popup-dir-list"></div>
-            </div>
-            <div class="popup-dir-divider"></div>
-            <div class="popup-dir-col" data-dir="S">
-                <div class="popup-dir-header"></div>
-                <div class="popup-dir-list"></div>
-            </div>
-        </div>
+        <div class="popup-tabs" role="tablist"></div>
+        <div class="popup-arrivals"></div>
         <div class="popup-note hidden"></div>
     `;
     container.appendChild(popup);
@@ -131,12 +100,8 @@ function renderAlerts(popup, station, routeMap, alerts, routeIds) {
  * failed, partial data, and delayed data. onRetry is invoked by the retry
  * button shown in the error state.
  */
-export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry, alerts) {
+export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry, alerts, stationMeta) {
     popup.querySelector('.popup-name').textContent = station.name;
-
-    const lineSelectEl = popup.querySelector('.popup-line-select');
-    const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
-    lineSelectEl.innerHTML = '';
 
     const { status = 'error', arrivals = [], updatedAt = null, failedCount = 0 } = result ?? {};
 
@@ -144,16 +109,18 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
     const alertCount = renderAlerts(popup, station, routeMap, alerts, seenRoutes);
 
     if (status === 'error') {
-        renderMessageCol(northCol, DEFAULT_DIR.N, 'Couldn’t load arrivals');
-        renderMessageCol(southCol, DEFAULT_DIR.S, 'Couldn’t load arrivals');
+        renderTrunks(popup, [], null, () => {});
+        renderTabs(popup, [], null, () => {});
+        renderMessage(popup, 'Couldn’t load arrivals');
         setNote(popup, 'Check your connection.', { retry: onRetry });
         popup.classList.remove('hidden');
         return;
     }
 
     if (status === 'empty') {
-        renderMessageCol(northCol, DEFAULT_DIR.N, 'No trains scheduled');
-        renderMessageCol(southCol, DEFAULT_DIR.S, 'No trains scheduled');
+        renderTrunks(popup, [], null, () => {});
+        renderTabs(popup, [], null, () => {});
+        renderMessage(popup, 'No trains scheduled');
         // A partial failure here means we genuinely cannot claim "no service".
         // Otherwise the alert above, when there is one, *is* the explanation —
         // repeating the generic line under it would read as a contradiction.
@@ -170,41 +137,177 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
     if (failedCount > 0) notes.push('Some platforms unavailable');
     if (isArrivalsStale(updatedAt)) notes.push(`Updated ${formatAge(updatedAt)}`);
     setNote(popup, notes.join(' · '));
-    let activeRouteId = seenRoutes[0];
 
-    function render(routeId) {
-        const pool = arrivals.filter(a => a.routeId === routeId);
-        const labels = DIRECTION_LABELS[routeId] ?? DEFAULT_DIR;
-        renderCol(northCol, pool.filter(a => a.direction === 'N').slice(0, 4), `↑  ${labels.N}`);
-        renderCol(southCol, pool.filter(a => a.direction === 'S').slice(0, 4), `↓  ${labels.S}`);
+    // A complex spans several GTFS ids; a trunk's direction labels come from
+    // whichever id serves that trunk, so both are needed downstream.
+    const stationIds = station.stationIds ?? [station.id];
+    const trunks = trunksInArrivals(arrivals, trunksFor(routeMap));
+
+    let activeTrunk = trunks[0] ?? null;
+    let activeDir = null;   // chosen per trunk, since which platforms exist varies
+
+    // Redraws every part of the popup that depends on the selected trunk —
+    // including the chip bar itself, whose highlight would otherwise stay on
+    // the trunk that was selected when the popup opened while the rows below
+    // it changed.
+    function renderForTrunk() {
+        renderTrunks(popup, trunks, activeTrunk, selectTrunk, routeMap);
+        const routeIds = activeTrunk?.routeIds ?? null;
+        const split = splitByDirection(arrivals, routeIds);
+
+        // Only offer a tab for a direction that has trains. At a terminal one
+        // platform is genuinely empty, and an empty tab invites a pointless tap.
+        const dirs = ['N', 'S'].filter(d => split[d].length > 0);
+        if (!dirs.includes(activeDir)) activeDir = dirs[0] ?? null;
+
+        const tabs = dirs.map(d => ({
+            dir: d,
+            label: directionLabel(
+                stationMeta,
+                stopIdForTrunk(stationMeta, stationIds, routeLabelsFor(routeIds, routeMap)),
+                d,
+                split[d][0]?.destination,
+            ),
+        }));
+
+        renderTabs(popup, tabs, activeDir, (d) => { activeDir = d; renderForTrunk(); });
+        renderArrivals(popup, activeDir ? split[activeDir] : [], routeMap, station);
+
+        // Keeps the 3D line highlight in step with what the popup is showing.
+        onLineSelect?.(routeIds?.[0] ?? seenRoutes[0]);
     }
 
-    for (const routeId of seenRoutes) {
-        const route = routeMap[routeId];
-        const color = route?.color ?? '#808183';
-        const label = route?.shortName ?? routeId;
-
-        const btn = document.createElement('button');
-        btn.className = 'line-btn' + (routeId === activeRouteId ? ' line-btn--active' : '');
-        btn.textContent = label;
-        btn.style.backgroundColor = color;
-        btn.style.color = contrastColor(color);
-
-        btn.addEventListener('click', () => {
-            activeRouteId = routeId;
-            lineSelectEl.querySelectorAll('.line-btn').forEach(b =>
-                b.classList.toggle('line-btn--active', b === btn)
-            );
-            render(routeId);
-            onLineSelect?.(routeId);
-        });
-
-        lineSelectEl.appendChild(btn);
+    function selectTrunk(t) {
+        activeTrunk = t;
+        // The platforms differ per trunk, so the previous direction may not
+        // exist here; renderForTrunk picks the first one that has trains.
+        activeDir = null;
+        renderForTrunk();
     }
 
-    render(activeRouteId);
-    onLineSelect?.(activeRouteId);
+    renderForTrunk();
     popup.classList.remove('hidden');
+}
+
+// Trunk chips. Hidden when there is only one trunk running — a lone control
+// that cannot change anything is noise.
+function renderTrunks(popup, trunks, active, onSelect, routeMap) {
+    const bar = popup.querySelector('.popup-trunks');
+    bar.innerHTML = '';
+    if (trunks.length < 2) {
+        bar.classList.add('hidden');
+        return;
+    }
+    for (const t of trunks) {
+        const btn = document.createElement('button');
+        btn.className = 'popup-trunk' + (t === active ? ' popup-trunk--active' : '');
+        btn.setAttribute('aria-pressed', String(t === active));
+        for (const id of dedupeBulletRoutes(bulletRoutes(t.routeIds), routeMap)) {
+            btn.appendChild(routeBullet(id, routeMap));
+        }
+        btn.addEventListener('click', () => onSelect(t));
+        bar.appendChild(btn);
+    }
+    bar.classList.remove('hidden');
+}
+
+// The two direction tabs. A single tab still renders, so a terminal reads
+// "Manhattan" rather than showing an unlabelled list.
+function renderTabs(popup, tabs, activeDir, onSelect) {
+    const bar = popup.querySelector('.popup-tabs');
+    bar.innerHTML = '';
+    if (tabs.length === 0) {
+        bar.classList.add('hidden');
+        return;
+    }
+    for (const t of tabs) {
+        const btn = document.createElement('button');
+        btn.className = 'popup-tab' + (t.dir === activeDir ? ' popup-tab--active' : '');
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-selected', String(t.dir === activeDir));
+        btn.textContent = t.label;
+        btn.addEventListener('click', () => onSelect(t.dir));
+        bar.appendChild(btn);
+    }
+    bar.classList.remove('hidden');
+}
+
+// One row per train: the line's bullet, where it terminates, and how long.
+// Routes interleave, so consecutive rows are frequently different lines — that
+// ordering is the point, since a rider takes whichever comes first.
+function renderArrivals(popup, list, routeMap, station) {
+    const box = popup.querySelector('.popup-arrivals');
+    box.innerHTML = '';
+
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'arrival-empty';
+        empty.textContent = 'No trains scheduled';
+        box.appendChild(empty);
+        return;
+    }
+
+    const render = (limit) => {
+        box.innerHTML = '';
+        for (const a of list.slice(0, limit)) {
+            const row = document.createElement('div');
+            row.className = 'arrival-row';
+
+            row.appendChild(routeBullet(a.routeId, routeMap));
+
+            const dest = document.createElement('span');
+            dest.className = 'arrival-dest';
+            // Falls back to the line's name when the feed gave no terminus, so
+            // the row still says something rather than rendering a gap.
+            dest.textContent = destinationName(a, station) || routeMap?.[a.routeId]?.shortName || '';
+            row.appendChild(dest);
+
+            const time = document.createElement('span');
+            time.className = 'arrival-time';
+            time.textContent = a.minutes <= 0 ? 'Now' : `${a.minutes} min`;
+            row.appendChild(time);
+
+            box.appendChild(row);
+        }
+
+        if (list.length > limit) {
+            const more = document.createElement('button');
+            more.className = 'popup-more';
+            more.textContent = `Show ${list.length - limit} more`;
+            more.addEventListener('click', () => render(list.length));
+            box.appendChild(more);
+        }
+    };
+
+    render(VISIBLE_ROWS);
+}
+
+// Station names are not carried on the arrival itself — only the destination's
+// GTFS id — so the lookup is injected by main.js alongside the station list.
+let stationNameLookup = null;
+
+/** Supplies the id → name map used to render destinations. */
+export function setStationNames(byId) {
+    stationNameLookup = byId;
+}
+
+function destinationName(arrival, station) {
+    const id = arrival?.destination;
+    if (!id) return '';
+    // A train terminating where the rider is standing is worth naming plainly.
+    if (id === station?.id || (station?.stationIds ?? []).includes(id)) return station.name;
+    return stationNameLookup?.get(id) ?? '';
+}
+
+// Replaces the arrivals area with a single explanatory line — loading, no
+// service, or a failed request. Each says which, rather than sharing a dash.
+function renderMessage(popup, text) {
+    const box = popup.querySelector('.popup-arrivals');
+    box.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'arrival-empty';
+    el.textContent = text;
+    box.appendChild(el);
 }
 
 // Opens the popup immediately in a loading state — station name shown, arrival
@@ -212,10 +315,12 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
 // per-station fetch). showPopup replaces this with real data when it resolves.
 export function showPopupLoading(popup, station, routeMap, alerts) {
     popup.querySelector('.popup-name').textContent = station.name;
-    popup.querySelector('.popup-line-select').innerHTML = '';
-    const [northCol, southCol] = popup.querySelectorAll('.popup-dir-col');
-    renderMessageCol(northCol, DEFAULT_DIR.N, 'Loading…');
-    renderMessageCol(southCol, DEFAULT_DIR.S, 'Loading…');
+    // Trunks and tabs are not known until arrivals land — which routes are
+    // running is what decides them — so the chrome stays hidden rather than
+    // rendering placeholder controls that would shift when the data arrives.
+    renderTrunks(popup, [], null, () => {});
+    renderTabs(popup, [], null, () => {});
+    renderMessage(popup, 'Loading…');
     // Alerts need no fetch, so they are shown with the station name rather than
     // popping in when arrivals land. Routes are not known yet, so only the
     // station-scoped alerts appear here — which are the ones that explain an
@@ -225,19 +330,7 @@ export function showPopupLoading(popup, station, routeMap, alerts) {
     popup.classList.remove('hidden');
 }
 
-// A column with a single explanatory line instead of arrival times — loading,
-// no service, or a failed request. Each says which, rather than sharing "—".
-function renderMessageCol(col, headerText, message) {
-    col.querySelector('.popup-dir-header').textContent = headerText;
-    const list = col.querySelector('.popup-dir-list');
-    list.innerHTML = '';
-    const el = document.createElement('div');
-    el.className = 'arrival-empty';
-    el.textContent = message;
-    list.appendChild(el);
-}
-
-// The quiet line under the columns: staleness, partial failures, and the retry
+// The quiet line under the arrivals: staleness, partial failures, and the retry
 // affordance. Empty text hides it entirely so a healthy popup is unchanged.
 function setNote(popup, text, { retry } = {}) {
     const note = popup.querySelector('.popup-note');
@@ -263,33 +356,6 @@ function setNote(popup, text, { retry } = {}) {
     }
 
     note.classList.remove('hidden');
-}
-
-function renderCol(col, colArrivals, headerText) {
-    col.querySelector('.popup-dir-header').textContent = headerText;
-    const list = col.querySelector('.popup-dir-list');
-    list.innerHTML = '';
-
-    // The route has service at this station but nothing in this direction —
-    // a real fact about the schedule, distinct from a failed request.
-    if (colArrivals.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'arrival-empty';
-        empty.textContent = 'No trains scheduled';
-        list.appendChild(empty);
-        return;
-    }
-
-    for (const a of colArrivals) {
-        const minText = a.minutes <= 0 ? 'Now' : `${a.minutes} min`;
-        const row = document.createElement('div');
-        row.className = 'arrival-row';
-        const time = document.createElement('span');
-        time.className = 'arrival-time';
-        time.textContent = minText;
-        row.appendChild(time);
-        list.appendChild(row);
-    }
 }
 
 export function hidePopup(popup) {
