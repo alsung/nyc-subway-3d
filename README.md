@@ -738,10 +738,14 @@ Lighthouse against production, before and after:
 
 | Category | Before | After |
 |---|---|---|
-| Performance | 45 | 45 |
+| Performance | 45 | 48 |
 | Accessibility | **100** | **100** |
 | Best Practices | **100** | **100** |
 | SEO | 82 | **100** |
+
+Both columns are measured against production. An earlier draft of this table
+reported the "after" Performance figure from a local `vite preview` run, where
+it read 42 — a different environment, not a comparable number.
 
 **SEO** was two concrete failures. There was no meta description, and `robots.txt`
 returned **200 `text/html`** — the SPA rewrite in `vercel.json` serves `index.html`
