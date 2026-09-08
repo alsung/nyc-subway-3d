@@ -3,6 +3,7 @@
 // if any file is missing or the fetch fails.
 
 import { parseGTFS } from './gtfs-parser.js';
+import { buildStationMeta } from './station-meta.js';
 import { EMBEDDED_STATIONS, EMBEDDED_ROUTES, EMBEDDED_SHAPES } from '../data/embedded.js';
 
 const GTFS_FILES = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
@@ -41,6 +42,31 @@ export async function loadGTFS() {
 // from it looks plausible while being roughly 9% of the network — worth telling
 // the user about rather than only logging. See showEmbeddedDataWarning.
 export let usingEmbeddedData = false;
+
+/**
+ * Per-station borough and direction labels, from MTA's Subway Stations dataset.
+ *
+ * Deliberately not fatal, and deliberately not bundled with the GTFS load
+ * above: without it the popup's direction tabs fall back to "Northbound" and
+ * "Southbound", which is worse but still usable, whereas without GTFS there is
+ * no map at all. Different severities should not share a failure path.
+ */
+export async function loadStationMeta() {
+    try {
+        const res = await fetch('/stations.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // The SPA rewrite answers 200 with index.html for anything missing, so
+        // the content type is the only thing that distinguishes a real file
+        // from the app shell. This is the failure that once hid a broken GTFS
+        // pipeline for weeks.
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) throw new Error('got HTML, not JSON');
+        return buildStationMeta(await res.json());
+    } catch (err) {
+        console.warn(`[gtfs-loader] station metadata unavailable (${err.message}) — direction tabs will use compass headings`);
+        return buildStationMeta([]);
+    }
+}
 
 export async function loadAndParseGTFS() {
     // call loadGTFS()

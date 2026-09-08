@@ -9,10 +9,10 @@ import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight }
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, setView, introToThreeD } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
-import { buildPopup, showPopup, showPopupLoading, hidePopup } from './ui/popup.js';
+import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
-import { loadAndParseGTFS, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
+import { loadAndParseGTFS, loadStationMeta, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
@@ -49,7 +49,15 @@ async function init() {
         map.getCanvas().addEventListener(type, () => { userMovedCamera = true; }, { once: true, passive: true });
     }
 
-    const { stations, routeMap, lineRoutes } = await loadAndParseGTFS();
+    // Fetched together: the metadata is small and independent, and serialising
+    // it behind GTFS would delay the UI for a file that only labels tabs.
+    const [{ stations, routeMap, lineRoutes }, stationMeta] = await Promise.all([
+        loadAndParseGTFS(),
+        loadStationMeta(),
+    ]);
+
+    // Arrivals name their destination by GTFS id; the popup needs a name.
+    setStationNames(new Map(stations.map(s => [s.id, s.name])));
 
     const complexes = buildStationComplexes(stations);
     // Fast stationId → sibling IDs lookup derived from complexes
@@ -133,16 +141,25 @@ async function init() {
     // Opens a station popup: shows it immediately in a loading state, then fills
     // in arrivals when the fetch resolves — unless a different station was
     // selected (or the popup closed) in the meantime.
-    async function openStationPopup(station) {
+    async function openStationPopup(rawStation) {
+        // A station from search carries only its own GTFS id, while one from a
+        // map click already knows its complex. The popup needs the full set
+        // either way: a complex has one MTA metadata record per platform, and
+        // the direction labels for the 7 and the shuttle at Times Sq live on
+        // records the 1/2/3 id knows nothing about.
+        const station = rawStation.stationIds
+            ? rawStation
+            : { ...rawStation, stationIds: stationGroups.get(rawStation.id) ?? [rawStation.id] };
+
         showPopupLoading(popup, station, routeMap, alerts);
         const result = await getArrivals(station);
-        if (lastStation !== station || popup.classList.contains('hidden')) return;
+        if (lastStation !== rawStation || popup.classList.contains('hidden')) return;
         // Retry re-runs this same function, so it re-enters the loading state
         // and re-applies the race guard above. Manual rather than automatic:
         // refreshRT already retries every 30s, and looping against an API that
         // is genuinely down helps nobody.
         showPopup(popup, station, routeMap, result, highlight,
-            () => openStationPopup(station), alerts);
+            () => openStationPopup(rawStation), alerts, stationMeta);
     }
 
     buildSearch(stations, document.getElementById('search-bar'), (station) => {
@@ -202,7 +219,7 @@ async function init() {
                 const result = await getArrivals(station);
                 if (lastStation === station && !popup.classList.contains('hidden')) {
                     showPopup(popup, station, routeMap, result, highlight,
-                        () => openStationPopup(station), alerts);
+                        () => openStationPopup(station), alerts, stationMeta);
                 }
             }
         } catch {
