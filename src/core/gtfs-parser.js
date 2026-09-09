@@ -179,13 +179,38 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
 // { name, lat, lng, stationIds } where lat/lng is the centroid of the group.
 // Separate GTFS parent entries for the same physical complex (e.g. the two
 // "Times Sq-42 St" entries) collapse into one dot on the map.
-export function buildStationComplexes(stations) {
-    const byName = new Map();
+/**
+ * Groups platforms into the station complexes a rider treats as one place.
+ *
+ * complexId is a Map of GTFS stop id → MTA complex id, from stations.json. It
+ * is the authority: a complex is what MTA says it is, not what shares a name.
+ *
+ * Name grouping was the original rule and was wrong in a way that reached the
+ * arrivals a rider sees. NYC reuses station names heavily — there are six
+ * separate "86 St" stations spanning 21.8 km, from the Upper West Side to Bay
+ * Ridge — so grouping by name merged them into a single complex, put its dot at
+ * a meaningless centroid, and made the popup fetch and interleave arrivals from
+ * all six. Thirty-eight names covered platforms more than a kilometre apart.
+ * Under complex ids, nothing spans more than 0.44 km.
+ *
+ * Falls back to name grouping when no metadata is supplied, because the
+ * embedded-data path has none. That fallback is wrong in exactly the way
+ * described above; it is retained only so a station map still renders when the
+ * real data failed to load, which is already a degraded state.
+ */
+export function buildStationComplexes(stations, complexId = null) {
+    const groups = new Map();
+
     for (const s of stations) {
-        if (!byName.has(s.name)) byName.set(s.name, []);
-        byName.get(s.name).push(s);
+        // Prefixed so a complex id can never collide with a station name.
+        const key = complexId?.get(s.id)
+            ? `cx:${complexId.get(s.id)}`
+            : `name:${s.name}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(s);
     }
-    return [...byName.values()].map(group => ({
+
+    return [...groups.values()].map(group => ({
         name: group[0].name,
         lat: group.reduce((sum, s) => sum + s.lat, 0) / group.length,
         lng: group.reduce((sum, s) => sum + s.lng, 0) / group.length,

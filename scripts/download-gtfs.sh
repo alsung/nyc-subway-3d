@@ -21,16 +21,23 @@ GTFS_URL="http://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip"
 OUT_DIR="$(dirname "$0")/../public/gtfs"
 FILES=(stops.txt routes.txt shapes.txt trips.txt)
 
-# MTA Subway Stations, from the state open-data portal. Supplies two things
-# GTFS itself does not carry: each station's borough, and the direction labels
-# MTA uses in its own app ("Uptown"/"Downtown", "Manhattan"/"Queens"). Those
-# labels are editorial — they cannot be derived from coordinates, and a
-# coordinate rule gets them wrong anyway, since Inwood-207 St sits north and
-# east of Bronx stations because the border is the Harlem River.
+# MTA Subway Stations, from the state open-data portal. Supplies three things
+# GTFS itself does not carry: which platforms form one station complex, each
+# station's borough, and the direction labels MTA uses in its own app
+# ("Uptown"/"Downtown", "Manhattan"/"Queens").
+#
+# complex_id is the one that matters most. Grouping platforms by station name
+# instead merges genuinely different stations: NYC has six separate "86 St"
+# stations spanning 21.8 km, and 38 names cover platforms more than a kilometre
+# apart. Under complex_id no complex spans more than 0.44 km.
+#
+# The direction labels are editorial — they cannot be derived from coordinates,
+# and a coordinate rule gets borough wrong anyway, since Inwood-207 St sits
+# north and east of Bronx stations because the border is the Harlem River.
 #
 # Keyed on gtfs_stop_id, which matches our parent station IDs exactly: 496
 # records against 496 stations, with no id in either set missing from the other.
-STATIONS_URL="https://data.ny.gov/resource/39hk-dx4f.json?\$limit=1000&\$select=gtfs_stop_id,borough,daytime_routes,north_direction_label,south_direction_label"
+STATIONS_URL="https://data.ny.gov/resource/39hk-dx4f.json?\$limit=1000&\$select=gtfs_stop_id,complex_id,borough,daytime_routes,north_direction_label,south_direction_label"
 STATIONS_OUT="$(dirname "$0")/../public/stations.json"
 
 # `mktemp -d` with no template is the one form both GNU and BSD accept: GNU
