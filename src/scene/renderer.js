@@ -12,11 +12,23 @@ const STYLE_URL = STADIA_KEY
     ? `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${STADIA_KEY}`
     : 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
 
+// The zoom at which the map swaps between its two representations of a route.
+//
+// Below it, routes are flat Maplibre line layers; above it, Three.js tubes.
+// Neither works at both distances: tube geometry collapses into a thread when
+// seen from across the city, and a flat line cannot show that one route passes
+// beneath another. Exported because the swap has two halves — the line layer's
+// own maxzoom and the tube visibility handler — and a threshold expressed twice
+// is a threshold that drifts.
+export const TUBE_ZOOM = 14;
+
 // Creates the Maplibre map centered on NYC with a dark street style.
 // Drag, zoom, and pitch are all handled natively by Maplibre.
-// Opens flat (pitch 0): a tilted camera pushes the horizon back and enlarges the
-// initial tile set, which dominated time-to-interactive. main.js calls
-// introToThreeD once the map has loaded to tilt into the 3D view.
+//
+// Opens flat, and stays flat at this zoom: pitch now follows zoom (see
+// camera.js), so the overview is upright and the camera tilts on approach. That
+// also keeps the initial tile set small, which is what a tilted opening camera
+// used to cost — it pushed the horizon back and dominated time-to-interactive.
 export function createMap(container) {
     return new maplibregl.Map({
         container,
@@ -249,4 +261,87 @@ export function createThreeLayer(id) {
             this.map.triggerRepaint();
         },
     };
+}
+
+/**
+ * Draws every route as a flat line, for zooms below TUBE_ZOOM.
+ *
+ * Built from lineRoutes — the same source the tubes are built from — so the two
+ * representations can never disagree about where a line runs.
+ *
+ * Inserted beneath the station circles so the dots stay readable on top of it.
+ */
+export function addRouteLines(map, lineRoutes, routeMap) {
+    const features = Object.entries(lineRoutes ?? {})
+        .filter(([, coords]) => coords.length > 1)
+        .map(([routeId, coords]) => ({
+            type: 'Feature',
+            properties: { routeId, color: routeMap?.[routeId]?.color ?? '#808183' },
+            // lineRoutes stores [lat, lng]; GeoJSON wants [lng, lat].
+            geometry: { type: 'LineString', coordinates: coords.map(([lat, lng]) => [lng, lat]) },
+        }));
+
+    map.addSource('route-lines', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features },
+    });
+
+    map.addLayer({
+        id: 'route-lines',
+        type: 'line',
+        source: 'route-lines',
+        maxzoom: TUBE_ZOOM,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': ['get', 'color'],
+            // Wide enough at overview zoom to be the boldest thing on screen.
+            // Suppressing the basemap alone does not make the subway legible —
+            // it only makes a dim map dimmer; the routes have to become the
+            // figure themselves.
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 13, 5],
+            'line-opacity': 0.95,
+        },
+    }, 'station-complexes-major');
+}
+
+// Basemap layers that carry no meaning for a subway map. Shields and points of
+// interest are tuned for driving and compete directly with the subject.
+const BASEMAP_HIDE = [
+    'highway_shield_other', 'highway_shield_us_other', 'highway_shield_us_interstate',
+    'highway_name_other', 'highway_name_major',
+    'poi_gen1', 'poi_gen0_parks', 'poi_gen0_other',
+    'airport_label_gen0',
+];
+
+// Roads and place names stay, quietly. Neighbourhood names are how a New Yorker
+// locates themselves on a map — useful context, just not at equal weight with
+// the network. An earlier pass hid them outright and over-corrected.
+const BASEMAP_DIM = [
+    ['highway_motorway_inner', 0.25], ['highway_major_inner', 0.25],
+    ['highway_minor', 0.25], ['highway_path', 0.2],
+    ['highway_motorway_casing', 0.25], ['highway_major_casing', 0.25],
+];
+const LABEL_DIM = [
+    ['place_suburb', 0.45], ['place_village', 0.45], ['place_town', 0.45],
+    ['place_other', 0.45], ['place_city', 0.6],
+];
+
+/**
+ * Quiets the basemap so the subway can be the figure rather than one more layer.
+ *
+ * Every layer id here belongs to Stadia's style, not ours. If they restyle, the
+ * lookups miss and the map quietly becomes noisy again — nothing throws. The
+ * guards make that a degradation rather than a crash, but it is a real
+ * dependency on someone else's naming.
+ */
+export function applyBasemapRestraint(map) {
+    for (const id of BASEMAP_HIDE) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    }
+    for (const [id, opacity] of BASEMAP_DIM) {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', opacity);
+    }
+    for (const [id, opacity] of LABEL_DIM) {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'text-opacity', opacity);
+    }
 }
