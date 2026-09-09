@@ -66,6 +66,16 @@ async function init() {
         for (const id of c.stationIds) stationGroups.set(id, c.stationIds);
     }
 
+    // Attaches a station's complex siblings. Every entry point runs a station
+    // through this before it is stored, because a station that reaches the
+    // popup knowing only its own id loses the other platforms' metadata: the
+    // direction labels for the 7 and the shuttle at Times Sq live on records
+    // the 1/2/3 id has never heard of. A map click already carries the full
+    // set; search and the alerts panel do not.
+    const withComplex = (station) => station.stationIds
+        ? station
+        : { ...station, stationIds: stationGroups.get(station.id) ?? [station.id] };
+
     // ── UI — built immediately; none of it depends on the map or the 3D scene ──
 
     // Assigned once the map loads. Everything that touches line geometry must
@@ -95,9 +105,9 @@ async function init() {
         // and lastStation is set first so openStationPopup's race guard holds.
         (station) => {
             window.location.hash = '';
-            lastStation = station;
-            flyToStation(map, station);
-            openStationPopup(station);
+            lastStation = withComplex(station);
+            flyToStation(map, lastStation);
+            openStationPopup(lastStation);
         },
     );
     statusButton.addEventListener('click', () => {
@@ -141,31 +151,22 @@ async function init() {
     // Opens a station popup: shows it immediately in a loading state, then fills
     // in arrivals when the fetch resolves — unless a different station was
     // selected (or the popup closed) in the meantime.
-    async function openStationPopup(rawStation) {
-        // A station from search carries only its own GTFS id, while one from a
-        // map click already knows its complex. The popup needs the full set
-        // either way: a complex has one MTA metadata record per platform, and
-        // the direction labels for the 7 and the shuttle at Times Sq live on
-        // records the 1/2/3 id knows nothing about.
-        const station = rawStation.stationIds
-            ? rawStation
-            : { ...rawStation, stationIds: stationGroups.get(rawStation.id) ?? [rawStation.id] };
-
+    async function openStationPopup(station) {
         showPopupLoading(popup, station, routeMap, alerts);
         const result = await getArrivals(station);
-        if (lastStation !== rawStation || popup.classList.contains('hidden')) return;
+        if (lastStation !== station || popup.classList.contains('hidden')) return;
         // Retry re-runs this same function, so it re-enters the loading state
         // and re-applies the race guard above. Manual rather than automatic:
         // refreshRT already retries every 30s, and looping against an API that
         // is genuinely down helps nobody.
         showPopup(popup, station, routeMap, result, highlight,
-            () => openStationPopup(rawStation), alerts, stationMeta);
+            () => openStationPopup(station), alerts, stationMeta);
     }
 
     buildSearch(stations, document.getElementById('search-bar'), (station) => {
-        lastStation = station;
-        flyToStation(map, station);
-        openStationPopup(station);
+        lastStation = withComplex(station);
+        flyToStation(map, lastStation);
+        openStationPopup(lastStation);
     });
 
     // ── 3D scene — the only work that genuinely needs the map's style loaded ──
