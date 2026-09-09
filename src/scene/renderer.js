@@ -50,6 +50,22 @@ export function createMap(container) {
 const ALERT_STROKE = '#ffb020';
 const PLAIN_STROKE = '#222222';
 
+// One radius for every station dot, at every zoom.
+//
+// The circles used to grow with zoom — 4→7 for complexes, 5→9 for individual
+// stations — which made the same station a different size depending on how far
+// in you happened to be, and made the map feel like it was breathing while you
+// navigated. A station is a station: constant size reads as a consistent symbol
+// rather than a scaling decoration, and it keeps the network's shape legible at
+// the moment complexes split into their constituent platforms.
+const STATION_RADIUS = 5;
+const STATION_STROKE = 1.75;
+
+// Where a complex stops being one dot and becomes its own platforms. Both the
+// complex layers' maxzoom and the individual layers' minzoom, so exactly one
+// representation is on screen at any zoom.
+const SPLIT_ZOOM = 13;
+
 // Held so the sources can be rebuilt when alerts arrive; the feature geometry
 // never changes, only the `alert` flag on each.
 let stationFeatures = null;
@@ -94,13 +110,13 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         type: 'circle',
         source: 'station-complexes',
         minzoom: 10,
-        maxzoom: 13,
+        maxzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 12, 7],
+            'circle-radius': STATION_RADIUS,
             'circle-color': '#ffffff',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 12, 2],
-            'circle-stroke-color': '#222222',
+            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-color': PLAIN_STROKE,
         },
     });
 
@@ -109,13 +125,13 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         type: 'circle',
         source: 'station-complexes',
         minzoom: 11,
-        maxzoom: 13,
+        maxzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 0],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 12, 4],
-            'circle-color': '#cccccc',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 12, 1.5],
-            'circle-stroke-color': '#222222',
+            'circle-radius': STATION_RADIUS,
+            'circle-color': '#ffffff',
+            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-color': PLAIN_STROKE,
         },
     });
 
@@ -124,10 +140,10 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         id: 'station-circles-major',
         type: 'circle',
         source: 'stations',
-        minzoom: 13,
+        minzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 5, 16, 9],
+            'circle-radius': STATION_RADIUS,
             'circle-color': '#ffffff',
             // Alerted stations get a thicker amber ring. Only the individual
             // circles carry it, never the complex dots below zoom 13: a third
@@ -138,9 +154,8 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             // lookup in each stop value. Maplibre permits only one zoom-based
             // subexpression per property, so wrapping two interpolates in a
             // case fails to parse and the layer silently falls back to default.
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
-                13, ['case', ['get', 'alert'], 2.5, 1.5],
-                16, ['case', ['get', 'alert'], 3.5, 2]],
+            // Constant, like the radius — only the alert state changes it.
+            'circle-stroke-width': ['case', ['get', 'alert'], 3, STATION_STROKE],
             'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],
         },
     });
@@ -149,14 +164,12 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         id: 'station-circles-minor',
         type: 'circle',
         source: 'stations',
-        minzoom: 13,
+        minzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 0],
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 7],
-            'circle-color': '#cccccc',
-            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'],
-                13, ['case', ['get', 'alert'], 2, 1],
-                16, ['case', ['get', 'alert'], 3, 1.5]],
+            'circle-radius': STATION_RADIUS,
+            'circle-color': '#ffffff',
+            'circle-stroke-width': ['case', ['get', 'alert'], 3, STATION_STROKE],
             'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],
         },
     });
@@ -165,7 +178,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         id: 'station-labels',
         type: 'symbol',
         source: 'stations',
-        minzoom: 13,
+        minzoom: SPLIT_ZOOM,
         layout: {
             'text-field': ['get', 'name'],
             'text-font': ['Stadia Regular'],
