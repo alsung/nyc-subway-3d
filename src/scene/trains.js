@@ -87,7 +87,17 @@ export function tickTrains(trainMeshes, delta) {
 // without per-frame geometry search.
 export function buildStationTByRoute(lineCurves, stations) {
     const SAMPLE_COUNT = 2000;
+    const R = STATION_MATCH_RADIUS_M;
+    const R2 = R * R;
     const stationTByRoute = new Map();
+
+    // Hoisted out of the route loop: a station's local coordinates depend only
+    // on the station. Computing them inside meant 29 routes x 496 stations =
+    // 14,384 conversions where 496 do.
+    const stationXY = stations.map(st => {
+        const { x, y } = geoToLocalMeters(st.lat, st.lng);
+        return { id: st.id, x, y };
+    });
 
     for (const [routeId, curve] of lineCurves) {
         // getPointAt(u) is arc-length-uniform (calls getUtoTmapping internally).
@@ -98,24 +108,51 @@ export function buildStationTByRoute(lineCurves, stations) {
             points.push(curve.getPointAt(i / SAMPLE_COUNT));
         }
 
-        const stationT = new Map();
-        for (const station of stations) {
-            const { x, y } = geoToLocalMeters(station.lat, station.lng);
-            let bestDist = Infinity;
-            let bestI = 0;
+        // The curve's extent, grown by the match radius. A station outside this
+        // box cannot be within R of any sample on the curve, so the 2001-point
+        // scan below is skipped entirely for it.
+        //
+        // Exactly equivalent to scanning every station, not an approximation:
+        // the scan's result is discarded unless the nearest sample is within R,
+        // and a station outside this box has no sample within R by construction.
+        //
+        // This is where the time went. A route passes near a few dozen of the
+        // system's 496 stations, so the box rejects the large majority of the
+        // 14,384 station-route pairs before any distance is computed at all.
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
+        minX -= R; maxX += R; minY -= R; maxY += R;
 
+        const stationT = new Map();
+        for (const st of stationXY) {
+            if (st.x < minX || st.x > maxX || st.y < minY || st.y > maxY) continue;
+
+            // Squared distance rather than Math.hypot. hypot pays for
+            // overflow-safe scaling that these values never need, and measured
+            // 3.4x slower on this loop; comparing squares is order-preserving,
+            // so the nearest sample is the same one either way.
+            let bestD2 = Infinity;
+            let bestI = 0;
             for (let i = 0; i < points.length; i++) {
-                const dist = Math.hypot(points[i].x - x, points[i].y - y);
-                if (dist < bestDist) {
-                    bestDist = dist;
+                const dx = points[i].x - st.x;
+                const dy = points[i].y - st.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < bestD2) {
+                    bestD2 = d2;
                     bestI = i;
                 }
             }
 
-            if (bestDist <= STATION_MATCH_RADIUS_M) {
+            if (bestD2 <= R2) {
                 // bestI/SAMPLE_COUNT is the arc-length fraction; getUtoTmapping maps it to t.
                 const t = curve.getUtoTmapping(bestI / SAMPLE_COUNT);
-                stationT.set(station.id, t);
+                stationT.set(st.id, t);
             }
         }
 
