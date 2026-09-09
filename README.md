@@ -1096,16 +1096,50 @@ web does. Pitch becomes a function of zoom rather than a button.
 - Station hierarchy: interchanges as anchors, single-line stops as ticks
 
 **Close treatment**
-- **Building extrusions** from the vector tiles Stadia already serves. Without
-  them the tubes float over a flat grid rather than running *under* the city,
-  which undercuts the entire point of the 3D view. This is a style change, not
-  new geometry, and is probably the single largest upgrade to the close view.
+- **Building extrusions** from the `building` source-layer Stadia's vector tiles
+  already serve. Without them the tubes float over a flat grid rather than
+  running *under* the city, which undercuts the entire point of the 3D view.
+  This is a style change, not new geometry, and is the single largest upgrade to
+  the close view. See "Buildings versus legibility" below — the naive settings
+  make the map worse, not better.
 - **Complex-aware labels.** At street zoom "Times Sq-42 St" currently renders
   three times, once per platform, because each is a separate GTFS station. The
   popup already collapses complexes; the label layer does not.
 
 **Station entrances**
 - Render entrances and exits at street zoom from MTA's own dataset
+
+### Buildings versus legibility
+
+Extrusions were mocked before being specified, and the first attempt made the map
+worse. At `fill-extrusion-opacity: 0.72` on a mid-grey `#2a2d34`, the translucent
+massing sits on top of the tubes and desaturates them: the blue 8 Avenue trunk
+and the red 7 Avenue trunk both lose most of their colour. The 3D got better and
+the subject got worse — which is the wrong trade for a subway map.
+
+Four variants were rendered from the same camera:
+
+| Opacity | Colour | Result |
+|---|---|---|
+| 0.72 | `#2a2d34` | Buildings dominate; the red trunk nearly vanishes into the massing |
+| 0.40 | `#2a2d34` | Lines recover somewhat, but the buildings go *milky* — the skyline reads as fog rather than towers |
+| **0.55** | **`#15171c`** | **Towers keep their silhouette and the lines keep their saturation** |
+| 0.12 | `#15171c` | Buildings nearly gone; every line at full strength |
+
+**The colour matters more than the opacity, and that was not the expected
+result.** The obvious lever is transparency, and lowering it only replaced one
+problem with another: a light-grey extrusion at low alpha becomes a haze over
+everything instead of receding. A dark material absorbs light rather than
+scattering it back at the camera, so at `#15171c` the buildings hold their shape
+at *higher* opacity than the grey ones could manage while the route colours stay
+clean. Anyone tuning this later will reach for opacity first, as this attempt
+did; the fix is the colour.
+
+**Opacity is therefore a state, not a constant.** Roughly 0.55 while browsing,
+dropping toward 0.12 when a route or line is selected — context when scanning,
+clarity when following something. That is the same dimming behaviour Phase 8's
+route highlighting needs, so building it here is earlier work rather than extra
+work.
 
 ### Station entrances — what the data supports, and what it does not
 
