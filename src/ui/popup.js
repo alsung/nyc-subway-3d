@@ -15,6 +15,16 @@ const POPUP_ALERT_LIMIT = 2;
 // busy station, which is as far ahead as a countdown is worth reading.
 const VISIBLE_ROWS = 6;
 
+// Which trunk and platform the reader last chose.
+//
+// Held outside showPopup because the 30-second refresh re-enters it with fresh
+// arrivals, and local state would be rebuilt from scratch each time: select the
+// 7 at Times Sq, read for half a minute, and the panel would silently throw you
+// back to the first trunk. Keyed by station so the selection resets when the
+// reader moves somewhere else, where a trunk named "123" means a different
+// platform entirely.
+let selection = { stationId: null, trunkKey: null, dir: null };
+
 export function buildPopup(container) {
     const popup = document.createElement('div');
     popup.id = 'station-popup';
@@ -143,8 +153,14 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
     const stationIds = station.stationIds ?? [station.id];
     const trunks = trunksInArrivals(arrivals, trunksFor(routeMap));
 
-    let activeTrunk = trunks[0] ?? null;
-    let activeDir = null;   // chosen per trunk, since which platforms exist varies
+    if (selection.stationId !== station.id) {
+        selection = { stationId: station.id, trunkKey: null, dir: null };
+    }
+
+    // Falls back to the first trunk when the remembered one has no trains any
+    // more — a selection that has stopped meaning anything should not survive.
+    let activeTrunk = trunks.find(t => t.key === selection.trunkKey) ?? trunks[0] ?? null;
+    let activeDir = selection.dir;   // may not exist on this trunk; checked below
 
     // Redraws every part of the popup that depends on the selected trunk —
     // including the chip bar itself, whose highlight would otherwise stay on
@@ -159,6 +175,9 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
         // platform is genuinely empty, and an empty tab invites a pointless tap.
         const dirs = ['N', 'S'].filter(d => split[d].length > 0);
         if (!dirs.includes(activeDir)) activeDir = dirs[0] ?? null;
+
+        selection.trunkKey = activeTrunk?.key ?? null;
+        selection.dir = activeDir;
 
         const tabs = dirs.map(d => ({
             dir: d,
