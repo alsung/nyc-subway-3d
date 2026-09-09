@@ -42,6 +42,11 @@ export function flyToStation(map, station, zoom = 16) {
     map.flyTo({
         center: [station.lng, station.lat],
         zoom,
+        // The destination pitch travels with the flight rather than being
+        // applied to it. Setting pitch while a flyTo is in the air counts as a
+        // new camera command and cancels it — which stranded this one at zoom
+        // 13.5 instead of 16, with the tilt to match.
+        ...(override === null ? { pitch: pitchForZoom(zoom) } : {}),
         duration: 1200,
     });
 }
@@ -81,11 +86,19 @@ export function currentOverride() {
  * starting an animation on every zoom frame would fight the user's input.
  */
 export function attachAutoPitch(map) {
-    map.on('zoom', () => {
+    map.on('zoom', (e) => {
         if (override !== null) return;
+
+        // Only respond to zooms the reader performed. A programmatic camera
+        // move — flyTo, easeTo — carries no originating DOM event, and calling
+        // setPitch during one cancels the animation partway. Those moves pass
+        // their own destination pitch instead, so the tilt travels with the
+        // flight rather than fighting it.
+        if (!e?.originalEvent) return;
+
         const want = pitchForZoom(map.getZoom());
         // Maplibre reports pitch as a float; skipping sub-degree corrections
-        // avoids a write on every frame of a pan that barely changes zoom.
+        // avoids a write on every frame of a gesture that barely changes zoom.
         if (Math.abs(map.getPitch() - want) > 0.5) map.setPitch(want);
     });
 }
