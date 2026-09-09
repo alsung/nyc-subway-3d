@@ -14,6 +14,7 @@ import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
+import { complexIdIndex } from './core/station-meta.js';
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
 import { alertedStationIds } from './core/station-alerts.js';
@@ -50,7 +51,10 @@ async function init() {
     // Arrivals name their destination by GTFS id; the popup needs a name.
     setStationNames(new Map(stations.map(s => [s.id, s.name])));
 
-    const complexes = buildStationComplexes(stations);
+    // Grouped by MTA's complex id, not by station name. Name grouping merged
+    // the six separate "86 St" stations — 21.8 km apart — into one, which made
+    // the popup show a rider on the Upper West Side trains departing Bay Ridge.
+    const complexes = buildStationComplexes(stations, complexIdIndex(stationMeta));
     // Fast stationId → sibling IDs lookup derived from complexes
     const stationGroups = new Map();
     for (const c of complexes) {

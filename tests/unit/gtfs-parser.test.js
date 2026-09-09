@@ -7,6 +7,7 @@ import {
     parseShapes,
     parseTripsToRouteShapes,
     parseGTFS,
+    buildStationComplexes,
     MTA_ROUTE_COLORS,
 } from '../../src/core/gtfs-parser.js';
 
@@ -299,5 +300,78 @@ describe('MTA_ROUTE_COLORS', () => {
         Object.values(MTA_ROUTE_COLORS).forEach(color => {
             expect(color).toMatch(/^#[0-9A-Fa-f]{6}$/);
         });
+    });
+});
+
+describe('buildStationComplexes — grouping by MTA complex id', () => {
+    // The real failure: six separate "86 St" stations, 21.8 km apart, from the
+    // Upper West Side to Bay Ridge. Name grouping merged them into one complex,
+    // which put its dot at a meaningless centroid and made the popup fetch and
+    // interleave arrivals from all six.
+    const eightySixSts = [
+        { id: '121', name: '86 St', lat: 40.788644, lng: -73.976218 },  // 1
+        { id: '626', name: '86 St', lat: 40.779492, lng: -73.955589 },  // 4/5/6
+        { id: 'A20', name: '86 St', lat: 40.785672, lng: -73.968916 },  // A/C
+        { id: 'N10', name: '86 St', lat: 40.622687, lng: -74.028398 },  // N/W, Bay Ridge
+        { id: 'Q04', name: '86 St', lat: 40.777861, lng: -73.951669 },  // Q
+        { id: 'R44', name: '86 St', lat: 40.592721, lng: -73.977050 },  // R, Brooklyn
+    ];
+    const complexId = new Map([
+        ['121', '311'], ['626', '397'], ['A20', '158'],
+        ['N10', '79'],  ['Q04', '476'], ['R44', '38'],
+    ]);
+
+    it('keeps same-named stations apart when their complex ids differ', () => {
+        const out = buildStationComplexes(eightySixSts, complexId);
+        expect(out).toHaveLength(6);
+        for (const c of out) expect(c.stationIds).toHaveLength(1);
+    });
+
+    it('merged them into one before, which is the bug being fixed', () => {
+        const out = buildStationComplexes(eightySixSts);   // no metadata
+        expect(out).toHaveLength(1);
+        expect(out[0].stationIds).toHaveLength(6);
+    });
+
+    it('still groups platforms that genuinely share a complex', () => {
+        const timesSq = [
+            { id: '127', name: 'Times Sq-42 St', lat: 40.75529,  lng: -73.987495 },
+            { id: '725', name: 'Times Sq-42 St', lat: 40.755477, lng: -73.987691 },
+            { id: '902', name: 'Times Sq-42 St', lat: 40.755983, lng: -73.986229 },
+            { id: 'R16', name: 'Times Sq-42 St', lat: 40.754672, lng: -73.986754 },
+        ];
+        const ids = new Map(timesSq.map(s => [s.id, '611']));
+        const out = buildStationComplexes(timesSq, ids);
+        expect(out).toHaveLength(1);
+        expect(out[0].stationIds.sort()).toEqual(['127', '725', '902', 'R16']);
+        expect(out[0].name).toBe('Times Sq-42 St');
+    });
+
+    it('falls back to name grouping for stations the metadata omits', () => {
+        const stations = [
+            { id: 'A', name: 'Shared', lat: 1, lng: 1 },
+            { id: 'B', name: 'Shared', lat: 1, lng: 1 },
+        ];
+        const out = buildStationComplexes(stations, new Map());
+        expect(out).toHaveLength(1);
+    });
+
+    it('never collides a complex id with a station name', () => {
+        // A station literally named "611" must not join complex 611.
+        const stations = [
+            { id: 'X', name: '611', lat: 1, lng: 1 },
+            { id: 'Y', name: 'Elsewhere', lat: 2, lng: 2 },
+        ];
+        const out = buildStationComplexes(stations, new Map([['Y', '611']]));
+        expect(out).toHaveLength(2);
+    });
+
+    it('averages coordinates within a complex', () => {
+        const out = buildStationComplexes(
+            [{ id: 'A', name: 'N', lat: 0, lng: 0 }, { id: 'B', name: 'N', lat: 2, lng: 4 }],
+            new Map([['A', '1'], ['B', '1']]),
+        );
+        expect(out[0].lat).toBe(1);
+        expect(out[0].lng).toBe(2);
     });
 });

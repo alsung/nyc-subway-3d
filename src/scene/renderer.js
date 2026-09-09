@@ -174,10 +174,14 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         },
     });
 
+    // Labelled from the complex source, not the platform source, and with no
+    // maxzoom so one name persists at every zoom above the split. Labelling
+    // platforms rendered "Times Sq-42 St" three times side by side, once per
+    // GTFS station in the complex.
     map.addLayer({
         id: 'station-labels',
         type: 'symbol',
-        source: 'stations',
+        source: 'station-complexes',
         minzoom: SPLIT_ZOOM,
         layout: {
             'text-field': ['get', 'name'],

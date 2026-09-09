@@ -40,6 +40,7 @@ export function buildStationMeta(rows) {
         const id = r?.gtfs_stop_id;
         if (!id) continue;
         meta.set(id, {
+            complexId: r.complex_id ?? null,
             borough: r.borough ?? '',
             routes: new Set((r.daytime_routes ?? '').split(/\s+/).filter(Boolean)),
             north: r.north_direction_label ?? '',
@@ -116,6 +117,21 @@ export function directionLabel(meta, stopId, direction, destinationStopId) {
 export function isLastStop(meta, stopId, direction) {
     const row = meta?.get(stopId);
     return (direction === 'S' ? row?.south : row?.north) === LAST_STOP;
+}
+
+/**
+ * GTFS stop id → MTA complex id, for grouping platforms into stations.
+ *
+ * Separate from the metadata Map so gtfs-parser can take it without depending
+ * on this module's shape — the grouping runs before anything else needs the
+ * borough or the direction labels.
+ */
+export function complexIdIndex(meta) {
+    const out = new Map();
+    for (const [id, row] of meta ?? []) {
+        if (row.complexId) out.set(id, row.complexId);
+    }
+    return out;
 }
 
 /** Human-readable borough for a station, or '' when unknown. */
