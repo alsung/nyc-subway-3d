@@ -22,15 +22,16 @@
 11. [Phase 4 — Real Trains + Station LOD](#11-phase-4--real-trains--station-lod)
 12. [Phase 5 — Go API Server (Fly.io)](#12-phase-5--go-api-server-flyio)
 13. [Phase 6 — Performance, Service Alerts + Mobile](#13-phase-6--performance-service-alerts--mobile)
-14. [Phase 7 — Trip Planner + Car Positioning](#14-phase-7--trip-planner--car-positioning)
-15. [Phase 8 — User Accounts](#15-phase-8--user-accounts)
-16. [Phase 9 — Push Notifications](#16-phase-9--push-notifications)
-17. [Phase 10 — AI Agent Layer](#17-phase-10--ai-agent-layer)
-18. [Data Sources](#18-data-sources)
-19. [API Reference](#19-api-reference)
-20. [Test Strategy](#20-test-strategy)
-21. [Deployment](#21-deployment)
-22. [Out of Scope](#22-out-of-scope)
+14. [Phase 7 — Map Legibility + Station Detail](#14-phase-7--map-legibility--station-detail)
+15. [Phase 8 — Trip Planner + Car Positioning](#15-phase-8--trip-planner--car-positioning)
+16. [Phase 9 — User Accounts](#16-phase-9--user-accounts)
+17. [Phase 10 — Push Notifications](#17-phase-10--push-notifications)
+18. [Phase 11 — AI Agent Layer](#18-phase-11--ai-agent-layer)
+19. [Data Sources](#19-data-sources)
+20. [API Reference](#20-api-reference)
+21. [Test Strategy](#21-test-strategy)
+22. [Deployment](#22-deployment)
+23. [Out of Scope](#23-out-of-scope)
 
 ---
 
@@ -159,9 +160,9 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | Vercel | Infrastructure | Static frontend hosting; global CDN, deploys via Vercel's own Git integration |
 | Fly.io | Infrastructure | Containerized Go app in `ewr`: the API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
 | Google Cloud (Phases 8–10) | Infrastructure | Firebase Auth and FCM for user accounts and push notifications; not used for hosting the API |
-| Firebase Auth (Phase 8) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
-| Firebase Cloud Messaging (Phase 9) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
-| Claude API (Phase 10) | AI | Tool-use agent layer for natural language transit queries |
+| Firebase Auth (Phase 9) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
+| Firebase Cloud Messaging (Phase 10) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
+| Claude API (Phase 11) | AI | Tool-use agent layer for natural language transit queries |
 | GitHub Actions | CI/CD | Pipeline: JS tests → build → deploy frontend → Go tests → deploy backend |
 
 ---
@@ -175,11 +176,12 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
 | 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
-| 6 | Performance, Service Alerts + Mobile | Planned | Startup performance, popup state clarity, MTA service alerts, responsive layout, PWA manifest, touch gestures |
-| 7 | Trip Planner + Car Positioning | Planned | Origin → destination routing (RAPTOR, transit-only), highlighted route on map, optimal car recommendation; walking legs and Citibike staged after |
-| 8 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
-| 9 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
-| 10 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence |
+| 6 | Performance, Service Alerts + Mobile | **Complete** | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
+| 7 | Map Legibility + Station Detail | **Next** | Zoom-driven camera, basemap restraint, routes as the subject, building extrusions, station entrances and exits |
+| 8 | Trip Planner + Car Positioning | Planned | Origin → destination routing (RAPTOR, transit-only), highlighted route on map, optimal car recommendation; walking legs and Citibike staged after |
+| 9 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
+| 10 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
+| 11 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence |
 
 ---
 
@@ -736,16 +738,18 @@ once the subtle treatment shows how dense real alert data actually is.
 
 Lighthouse against production, before and after:
 
-| Category | Before | After |
-|---|---|---|
-| Performance | 45 | 48 |
-| Accessibility | **100** | **100** |
-| Best Practices | **100** | **100** |
-| SEO | 82 | **100** |
+| Category | Before P6-8 | After P6-8 | After the perf work |
+|---|---|---|---|
+| Performance | 45 | 48 | **56** |
+| Accessibility | **100** | **100** | **100** |
+| Best Practices | **100** | **100** | **100** |
+| SEO | 82 | **100** | **100** |
 
-Both columns are measured against production. An earlier draft of this table
-reported the "after" Performance figure from a local `vite preview` run, where
-it read 42 — a different environment, not a comparable number.
+All three columns are measured against production. An earlier draft reported an
+"after" Performance figure from a local `vite preview` run, where it read 42 — a
+different environment, not a comparable number.
+
+The third column follows the station-matching optimisation described below.
 
 **SEO** was two concrete failures. There was no meta description, and `robots.txt`
 returned **200 `text/html`** — the SPA rewrite in `vercel.json` serves `index.html`
@@ -759,8 +763,9 @@ GTFS files and kept a broken data pipeline invisible for weeks. Both `robots.txt
 thread parsing and executing 1.57 MB of Three.js and MapLibre and then building the
 3D scene. Lighthouse has no concept of "this is a WebGL application," and the only
 real fix is code-splitting the 3D engine or moving scene construction off the main
-thread. That is a performance project in its own right, logged for Phase 7, not
-something a manifest ticket addresses. The one cheap win available was taken:
+thread. That was treated as a separate project and has since been done, though
+not in the way this paragraph predicted — see "Where the blocking time actually
+went" below. The one cheap win available here was taken:
 `preconnect` for the tile and API origins, which Lighthouse measured at 316 ms and
 300 ms of avoidable handshake wait.
 
@@ -777,6 +782,58 @@ drawings because one asset does not scale: `icon.svg` carries three crossing rou
 through an interchange dot, which collapses into a smudge at favicon size, so
 `favicon.svg` reduces the same idea to a symmetric X with a larger dot. The maskable
 variant is inset 20%, since Android crops it to whatever shape the launcher uses.
+
+#### Where the blocking time actually went
+
+The section above assumed the 3.7 s of blocking came from bundle size, and that
+the fix was code-splitting Three.js and Maplibre. **That assumption was wrong,
+and measuring it was what proved so.**
+
+Lighthouse's own attribution: **`parse = 5 ms`, `eval = 3,678 ms`.** Nothing to
+win from splitting — the code is not slow to *load*, it is slow to *run*.
+
+Instrumenting each startup phase under the same 4× CPU throttle Lighthouse uses:
+
+| Phase | Before | After |
+|---|---|---|
+| GTFS fetch + parse | 457 ms | 458 ms |
+| waiting on map load | 1,166 ms | 1,129 ms |
+| `buildLineMeshes` | 54 ms | 51 ms |
+| **`buildStationTByRoute`** | **1,264 ms** | **171 ms** |
+| `buildSimulatedTrains` | 3 ms | 3 ms |
+| `addStationLayer` | 8 ms | 9 ms |
+| **total to scene ready** | **3,389 ms** | **2,195 ms** |
+
+**One function was 37% of startup.** It matched every station against every
+sampled point on every curve — 29 routes × 496 stations × 2001 samples, close to
+29 million `Math.hypot` calls — and recomputed each station's local coordinates
+inside the route loop.
+
+Three changes, none of them structural:
+
+1. **Hoist the coordinate conversion.** It depends only on the station: 14,384
+   calls become 496.
+2. **A bounding box per curve**, grown by the match radius. A station outside it
+   skips the 2001-point scan entirely, and a route passes near a few dozen of 496
+   stations. This is where the time went. It is **exactly equivalent, not an
+   approximation**: the original discards its result unless the nearest sample is
+   within the radius, and a station outside the grown box has none by construction.
+3. **Compare squared distances.** `Math.hypot` pays for overflow-safe scaling
+   these values never need — measured **3.4× slower** on this loop.
+
+The function had no test coverage, so ten characterisation tests were written
+against the original first. Equivalence was then checked against the real feed:
+both implementations agree on all 29 routes and all **1,522 station-`t` entries**
+exactly.
+
+Production result: Lighthouse TBT **1,570 → 850 ms**, Performance **48 → 56**,
+and `scene` over the real network 2,005 → 1,727 ms. Time to first interaction is
+unchanged at ~476 ms, because that path was never blocked by this work.
+
+**What remains is not ours.** The residual ~1.1 s is network wait on Stadia tiles
+plus library initialisation. Performance will not approach 90, and that is not
+the goal — the goal was that the main thread stop blocking for over a second on
+work that takes a tenth of that.
 
 #### Startup performance (P6-1)
 Profiling with the Chrome DevTools Protocol showed the app is **not** CPU-bound: 82.8% of
@@ -978,7 +1035,127 @@ Below 640px viewport width, the popup switches from a floating card to a bottom 
 
 ---
 
-## 14. Phase 7 — Trip Planner + Car Positioning
+## 14. Phase 7 — Map Legibility + Station Detail
+
+### Goal
+
+Make the subway the subject of its own map, and make the 3D view earn its place
+rather than being a toggle. Phase 6 finished the app's *behaviour*; this phase is
+about what a visitor sees in the first three seconds.
+
+### Why this comes before the trip planner
+
+The default view was audited by rendering it and looking at it. At city zoom the
+camera is pitched, so New Jersey — Hackensack, Passaic, Clifton — occupies the
+top third of the screen while the subway compresses into the middle. Highway
+shields (`95`, `278`, `495`, `GSP`) compete with the subject. Every station is an
+identical white dot, and the route lines are dim threads: you cannot tell the 1
+from the L.
+
+A trip planner inside an app that reads as bare gets judged as bare. This phase
+is also mostly deletion, which makes it cheap relative to its effect.
+
+### What the mockups established
+
+Four frames were rendered against the live app with style changes applied at
+runtime, rather than drawn:
+
+1. **Current** — pitched overview, basemap and subway at equal visual weight.
+2. **Flat + basemap suppressed** — shields, POIs and out-of-city labels hidden,
+   roads at 25% opacity, pitch zeroed.
+3. **Routes as the subject** — the same, plus routes drawn as flat lines in their
+   own colours, interchanges enlarged, local stops reduced to ticks.
+4. **Street zoom, tilted** — tube geometry running under the Midtown grid.
+
+**The finding that changed the plan: restraint alone does almost nothing.** Frame
+2 was expected to carry most of the improvement and did not — quieting the
+basemap just made a dim map dimmer. The subway only becomes legible in frame 3,
+when the routes themselves become the boldest thing on screen. Suppression is
+necessary but not sufficient.
+
+### Two representations, swapped by zoom
+
+Frame 3 draws routes as **Maplibre line layers**, not the Three.js tubes, and the
+tubes are hidden to render it. That is the architecture, not a shortcut:
+
+| Zoom | Camera | Routes | Why |
+|---|---|---|---|
+| below ~14 | flat | Maplibre line layers | Tube geometry degrades to a thread at distance; flat lines stay crisp |
+| above ~14 | tilted | Three.js tubes | Tubes show depth and stacking; flat lines cannot |
+
+This is what makes the 3D feel intentional. Tilt at overview zoom costs
+legibility and buys nothing; tilt on approach is the thing nothing else on the
+web does. Pitch becomes a function of zoom rather than a button.
+
+### Scope
+
+**Overview treatment**
+- Zoom-driven pitch; the 2D/3D buttons become an override rather than the mechanism
+- Hide highway shields, POIs, airport and out-of-city place labels; roads to ~25% opacity
+- Routes as Maplibre line layers below the tube threshold, 2.2–5px, real route colours
+- Station hierarchy: interchanges as anchors, single-line stops as ticks
+
+**Close treatment**
+- **Building extrusions** from the vector tiles Stadia already serves. Without
+  them the tubes float over a flat grid rather than running *under* the city,
+  which undercuts the entire point of the 3D view. This is a style change, not
+  new geometry, and is probably the single largest upgrade to the close view.
+- **Complex-aware labels.** At street zoom "Times Sq-42 St" currently renders
+  three times, once per platform, because each is a separate GTFS station. The
+  popup already collapses complexes; the label layer does not.
+
+**Station entrances**
+- Render entrances and exits at street zoom from MTA's own dataset
+
+### Station entrances — what the data supports, and what it does not
+
+The original idea was an X-ray of station interiors: elevators, stairs, exits,
+concourses. The data was checked before scoping, and it supports about half of
+that.
+
+MTA publishes **2,120 entrance records across 485 stations, every one with
+coordinates**, keyed on `gtfs_stop_id` — the same key `stations.json` already
+uses, so it joins directly:
+
+| Type | Count |
+|---|---|
+| Stair | 1,629 |
+| Easement — Street | 164 |
+| Station House | 112 |
+| **Elevator** | **102** |
+| Easement — Passage | 57 |
+| Escalator | 18 |
+| Stair/Escalator | 10 |
+| Ramp | 10 |
+| Underpass / Walkway / Overpass / other | 18 |
+
+It also carries `entry_allowed` and `exit_allowed`, so **exit-only stairs are
+marked** — genuinely useful, and something the major mapping apps surface poorly.
+
+**What does not exist as published data: internal layout.** There are no floor
+plans, no mezzanines, no "this stair connects the uptown platform to the
+mezzanine." A cutaway of a station interior cannot be built from open data and is
+out of scope.
+
+The buildable version is arguably the more useful one anyway: standing on the
+street, *which* stair do I take, and is it an entrance? At street zoom a station
+becomes six to twelve labelled points instead of one dot.
+
+**Live elevator outages are a separate feed.** The existing `subway-alerts` feed
+was searched across 190 alerts and carries essentially none — one passing mention
+of an entrance closure. MTA publishes ADA outages separately, and that feed must
+be verified before the UI claims an elevator is out of service. Showing a
+wheelchair user a working elevator that is broken is worse than showing nothing.
+
+### Sequencing
+
+1. **Overview treatment** — zoom-driven camera, basemap restraint, routes as line layers, station hierarchy. Most of the visual gain.
+2. **Close treatment** — building extrusions, complex-aware labels.
+3. **Station entrances** — the X-ray in the form the data supports.
+
+---
+
+## 15. Phase 8 — Trip Planner + Car Positioning
 
 ### Goal
 User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the 3D map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
@@ -1048,9 +1225,45 @@ Routing additionally needs:
 | `transfers.txt` | small | station-to-station transfer rules and minimum times |
 | `calendar.txt`, `calendar_dates.txt` | small | which services run on which dates |
 
-34.8 MB is well within what the API can hold, though the in-memory representation
-should be measured before assuming the 512 MB machine is sufficient. Compact
-encoding (int32 seconds, index-based stop references) matters here.
+**Measured, not assumed.** A Go prototype parsed the real feed into the compact
+representation and reported:
+
+| | |
+|---|---|
+| parse time | **547 ms** for 565,093 stop-time rows |
+| pattern grouping | **32 ms** |
+| compact arrays | **10.8 MB** |
+| peak heap | **35.6 MB** |
+| trips / platforms / patterns | 20,621 / 989 / **218** |
+
+So the 512 MB machine is not a constraint, and the parse is a one-off cost at
+startup alongside the GTFS download the API already performs. **218 patterns is
+the number that matters for RAPTOR** — the algorithm scans routes per round, and
+218 is small enough that round count, not route count, will dominate.
+
+The API already downloads and extracts the GTFS ZIP, keeping 4 of 10 files, so
+this extends existing machinery rather than adding a pipeline. The 34.8 MB of raw
+`stop_times` should be parsed and discarded rather than retained in `gtfsFiles`
+alongside the served text.
+
+#### Three traps the data revealed
+
+Checked before scoping, because each one fails silently rather than loudly:
+
+1. **Times exceed 24:00.** The maximum arrival time in the feed is `28:02:00`, and
+   **18,876 rows sit at or past midnight**. Parsing these as clock times drops the
+   entire late-night network without erroring. They must stay as seconds from the
+   service day's start.
+2. **`transfers.txt` and `stop_times.txt` disagree on granularity.** Stop times use
+   platforms (`101N`, `101S`); transfers use parent stations (`101`). A
+   station-level transfer has to be expanded to the platform pairs it connects, or
+   no transfer ever matches anything.
+3. **150 of 613 transfers cross stations** — `127 → 725` (Times Sq 1/2/3 to the 7),
+   `112 → A09`. These are the out-of-system walks that make journeys work, and they
+   are a different case from a same-station platform change.
+
+Only **7 service IDs** exist (Weekday, Saturday, Sunday and holiday variants) with
+**6 exception dates**, so calendar handling is genuinely simple.
 
 #### The realtime angle
 
@@ -1112,7 +1325,7 @@ When a route is selected:
 3. Camera tweens to a position that frames the bounding box of all route stations
 4. Station meshes on the route pulse gently
 
-### Test Cases — Phase 7
+### Test Cases — Phase 8
 
 | Test | Type | Assertion |
 |---|---|---|
@@ -1129,7 +1342,7 @@ When a route is selected:
 
 ---
 
-## 15. Phase 8 — User Accounts
+## 16. Phase 9 — User Accounts
 
 ### Goal
 Introduce persistent, server-side user identity using Firebase Auth. Users sign in with Google to save commutes, preferences, and notification settings that follow them across devices.
@@ -1176,7 +1389,7 @@ Users who saved commutes in `localStorage` (Phases 1–4) are prompted to sign i
 
 ---
 
-## 16. Phase 9 — Push Notifications
+## 17. Phase 10 — Push Notifications
 
 ### Goal
 Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground.
@@ -1210,7 +1423,7 @@ Compare current `TripUpdate.arrival.delay` against the user's delay threshold. I
 
 ---
 
-## 17. Phase 10 — AI Agent Layer
+## 18. Phase 11 — AI Agent Layer
 
 ### Goal
 Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes.
@@ -1283,7 +1496,7 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ---
 
-## 18. Data Sources
+## 19. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -1305,7 +1518,7 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ---
 
-## 19. API Reference
+## 20. API Reference
 
 ### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
 
@@ -1373,7 +1586,7 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 20. Test Strategy
+## 21. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
@@ -1404,13 +1617,13 @@ cd api && go test ./... -race   # race detector
 | `src/core/gtfs-parser.js` | 100% |
 | `src/core/color.js` | 100% |
 | `api/` (handler logic) | >90% |
-| `api/routing.go` (Phase 7 — RAPTOR) | 100% |
+| `api/routing.go` (Phase 8 — RAPTOR) | 100% |
 
 Scene and UI modules are excluded from coverage requirements — they are tested manually and via visual inspection.
 
 ---
 
-## 21. Deployment
+## 22. Deployment
 
 ### Frontend (Vercel)
 
@@ -1488,7 +1701,7 @@ Vercel's Git integration authenticates itself. They can be deleted from the repo
 
 ---
 
-## 22. Out of Scope
+## 23. Out of Scope
 
 These features are intentionally excluded from all current phases:
 
