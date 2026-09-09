@@ -225,6 +225,13 @@ button:active,
     transition: background 0.15s, border-color 0.15s;
 }
 
+/* The pressed state of a sticky pitch override. Reads as held-down rather than
+   hovered, since it persists until the reader releases it. */
+#view-controls button.view-btn--active {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.45);
+}
+
 #view-controls button:hover {
     background: rgba(255, 255, 255, 0.12);
     border-color: rgba(255, 255, 255, 0.4);

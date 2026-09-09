@@ -4,10 +4,10 @@
 // No business logic lives here — only coordination.
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { createMap, createThreeLayer, addStationLayer, setStationAlerts } from './scene/renderer.js';
+import { createMap, createThreeLayer, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint, TUBE_ZOOM } from './scene/renderer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
-import { flyToStation, setView, introToThreeD } from './ui/camera.js';
+import { flyToStation, toggleView, currentOverride, attachAutoPitch } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
@@ -39,15 +39,6 @@ async function init() {
     const map = createMap(document.getElementById('map'));
     const threeLayer = createThreeLayer('subway-3d');
     const mapLoaded = new Promise(resolve => map.on('load', resolve));
-
-    // A pan, zoom, or tilt during loading is a deliberate camera choice; the
-    // opening animation must not override it. Listening for raw input on the
-    // canvas rather than Maplibre's move events keeps this independent of
-    // whether a given move was user- or code-initiated.
-    let userMovedCamera = false;
-    for (const type of ['mousedown', 'touchstart', 'wheel']) {
-        map.getCanvas().addEventListener(type, () => { userMovedCamera = true; }, { once: true, passive: true });
-    }
 
     // Fetched together: the metadata is small and independent, and serialising
     // it behind GTFS would delay the UI for a file that only labels tabs.
@@ -131,7 +122,7 @@ async function init() {
         document.getElementById('ui'), routeMap, document.getElementById('btn-lines'),
         (routeId, active) => {
             filterState.set(routeId, active);
-            if (lineMeshes) setLineVisibility(lineMeshes, routeId, active);
+            if (lineMeshes) setLineVisibility(lineMeshes, map, routeId, active);
         },
     );
 
@@ -190,11 +181,30 @@ async function init() {
 
     addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts);
 
+    // The overview representation. Added after the station layers so it can be
+    // inserted beneath them, and after the tubes exist so the two swap cleanly.
+    addRouteLines(map, lineRoutes, routeMap);
+    applyBasemapRestraint(map);
+
+    // Maplibre hides the flat layer by its own maxzoom; the tubes are Three.js
+    // objects it knows nothing about, so their half of the swap is manual. Both
+    // read TUBE_ZOOM so the two halves cannot drift apart.
+    const syncRouteRepresentation = () => {
+        const showTubes = map.getZoom() >= TUBE_ZOOM;
+        for (const [routeId, mesh] of lineMeshes) {
+            // A route the reader has filtered out stays hidden at every zoom.
+            mesh.visible = showTubes && (filterState.get(routeId) ?? true);
+        }
+        threeLayer.map?.triggerRepaint?.();
+    };
+    map.on('zoom', syncRouteRepresentation);
+    syncRouteRepresentation();
+
     threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
 
     // Replay any chip toggles made while the meshes were still being built.
     for (const [routeId, active] of filterState) {
-        setLineVisibility(lineMeshes, routeId, active);
+        setLineVisibility(lineMeshes, map, routeId, active);
     }
 
     // Fetches fresh vehicle data from the API, syncs the 3D trains, updates the
@@ -284,14 +294,26 @@ async function init() {
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     }
 
-    document.getElementById('btn-2d').addEventListener('click', () => setView(map, '2d'));
-    document.getElementById('btn-3d').addEventListener('click', () => setView(map, '3d'));
+    // The buttons no longer set pitch directly — pitch follows zoom. Each is now
+    // a sticky override the reader can release by pressing it again, because
+    // automatic behaviour with no way out is worse than a button.
+    const btn2d = document.getElementById('btn-2d');
+    const btn3d = document.getElementById('btn-3d');
+    const syncViewButtons = () => {
+        const mode = currentOverride();
+        btn2d.setAttribute('aria-pressed', String(mode === '2d'));
+        btn3d.setAttribute('aria-pressed', String(mode === '3d'));
+        btn2d.classList.toggle('view-btn--active', mode === '2d');
+        btn3d.classList.toggle('view-btn--active', mode === '3d');
+    };
+    btn2d.addEventListener('click', () => { toggleView(map, '2d'); syncViewButtons(); });
+    btn3d.addEventListener('click', () => { toggleView(map, '3d'); syncViewButtons(); });
+    syncViewButtons();
 
-    // The map opens flat to keep the initial tile set small; tilt into the 3D
-    // view now that it has loaded. Skipped if the user already moved the camera
-    // by hand. A station selected from search is fine — the intro changes pitch
-    // and bearing only, and waits for any in-flight flyTo to land.
-    if (!userMovedCamera) introToThreeD(map);
+    // Pitch follows zoom from here on. There is no opening tilt animation any
+    // more: the app opens at the overview zoom, where flat is the correct
+    // camera, so the tilt now happens when the reader zooms in.
+    attachAutoPitch(map);
 }
 
 init();
