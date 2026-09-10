@@ -68,3 +68,24 @@ export function trunksFor(routeMap) {
 
     return out;
 }
+
+// Built once from TRUNKS rather than maintained alongside it, so a route added
+// to the table above cannot be forgotten here.
+const TRUNK_BY_ROUTE = new Map(
+    TRUNKS.flatMap(trunk => trunk.routeIds.map(id => [id, trunk.key])),
+);
+
+/**
+ * The trunk key a route belongs to, or null if the table does not know it.
+ *
+ * Callers that group by trunk must handle null rather than assuming coverage:
+ * trunksFor() deliberately keeps unknown routes visible under an "Other"
+ * heading, and a route the feed adds tomorrow should not silently vanish from
+ * whatever is grouping.
+ *
+ * @param {string} routeId
+ * @returns {string|null}
+ */
+export function trunkOf(routeId) {
+    return TRUNK_BY_ROUTE.get(routeId) ?? null;
+}
