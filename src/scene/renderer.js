@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import maplibregl from 'maplibre-gl';
 import { MAP_CENTER } from '../core/geo.js';
+import { segmentCoords } from '../core/corridors.js';
 
 const STADIA_KEY = import.meta.env.VITE_STADIA_API_KEY;
 const STYLE_URL = STADIA_KEY
@@ -49,6 +50,16 @@ export function createMap(container) {
 // incident tone used by the status button and the alerts panel.
 const ALERT_STROKE = '#ffb020';
 const PLAIN_STROKE = '#222222';
+
+// The MTA's own gray, for a route the feed does not describe.
+const UNKNOWN_ROUTE_COLOR = '#808183';
+
+// Flat-line width, and the strand spacing that tracks it. Spacing equals width
+// so strands sit edge to edge: the MTA app draws a packed ribbon, not a fan
+// with gaps, and four touching stripes read as one line of four services.
+const LINE_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 2.2, 13, 5];
+const STRAND_SPACING_PX_MIN = 2.2;
+const STRAND_SPACING_PX_MAX = 5;
 
 // One radius for every station dot, at every zoom.
 //
@@ -281,6 +292,48 @@ export function createThreeLayer(id) {
 }
 
 /**
+ * The GeoJSON features behind the flat route layer.
+ *
+ * One feature per corridor segment rather than per route, because a route's
+ * strand position changes along its length: the M sits between B/D and F on
+ * 6 Av and somewhere else entirely on Queens Blvd. Maplibre's line-offset is
+ * one value per feature, so the geometry has to be cut where the rank changes.
+ *
+ * Exported for its own sake — the layer wiring below needs a live map, this
+ * does not, and the interesting part is the cutting.
+ *
+ * @param {Record<string, [number, number][]>} lineRoutes
+ * @param {Map<string, object[]>} corridors from buildCorridors
+ * @param {Record<string, {color?: string}>} routeMap
+ * @returns {{type: 'FeatureCollection', features: object[]}}
+ */
+export function routeLineFeatures(lineRoutes, corridors, routeMap) {
+    const features = [];
+
+    for (const [routeId, coords] of Object.entries(lineRoutes ?? {})) {
+        if (!coords || coords.length < 2) continue;
+        const color = routeMap?.[routeId]?.color ?? UNKNOWN_ROUTE_COLOR;
+
+        // A route with no corridor data still has to be drawn, at rank 0 — a
+        // missing entry should cost the line its strand, not its existence.
+        const segments = corridors?.get(routeId) ?? [{ from: 0, to: coords.length - 1, rank: 0, flip: false }];
+
+        for (const segment of segments) {
+            const slice = segmentCoords(coords, segment);
+            if (slice.length < 2) continue;
+            features.push({
+                type: 'Feature',
+                properties: { routeId, color, rank: segment.rank },
+                // lineRoutes stores [lat, lng]; GeoJSON wants [lng, lat].
+                geometry: { type: 'LineString', coordinates: slice.map(([lat, lng]) => [lng, lat]) },
+            });
+        }
+    }
+
+    return { type: 'FeatureCollection', features };
+}
+
+/**
  * Draws every route as a flat line, for zooms below TUBE_ZOOM.
  *
  * Built from lineRoutes — the same source the tubes are built from — so the two
@@ -288,19 +341,10 @@ export function createThreeLayer(id) {
  *
  * Inserted beneath the station circles so the dots stay readable on top of it.
  */
-export function addRouteLines(map, lineRoutes, routeMap) {
-    const features = Object.entries(lineRoutes ?? {})
-        .filter(([, coords]) => coords.length > 1)
-        .map(([routeId, coords]) => ({
-            type: 'Feature',
-            properties: { routeId, color: routeMap?.[routeId]?.color ?? '#808183' },
-            // lineRoutes stores [lat, lng]; GeoJSON wants [lng, lat].
-            geometry: { type: 'LineString', coordinates: coords.map(([lat, lng]) => [lng, lat]) },
-        }));
-
+export function addRouteLines(map, lineRoutes, routeMap, corridors) {
     map.addSource('route-lines', {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features },
+        data: routeLineFeatures(lineRoutes, corridors, routeMap),
     });
 
     map.addLayer({
@@ -315,7 +359,20 @@ export function addRouteLines(map, lineRoutes, routeMap) {
             // Suppressing the basemap alone does not make the subway legible —
             // it only makes a dim map dimmer; the routes have to become the
             // figure themselves.
-            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 13, 5],
+            'line-width': LINE_WIDTH_BY_ZOOM,
+            // Strand spacing tracks the line width, so the ribbon holds
+            // together at every zoom instead of needing its own tuning curve.
+            //
+            // The zoom interpolation has to be the outermost expression, with
+            // the data lookup inside each stop value. Multiplying an interpolate
+            // by a ['get'] is rejected outright — "zoom expression may only be
+            // used as input to a top-level step or interpolate" — the same rule
+            // that bit the station rings above.
+            'line-offset': [
+                'interpolate', ['linear'], ['zoom'],
+                10, ['*', ['get', 'rank'], STRAND_SPACING_PX_MIN],
+                13, ['*', ['get', 'rank'], STRAND_SPACING_PX_MAX],
+            ],
             'line-opacity': 0.95,
         },
     }, 'station-complexes-major');

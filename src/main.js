@@ -14,6 +14,7 @@ import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
+import { buildCorridors, offsetPoints } from './core/corridors.js';
 import { complexIdIndex } from './core/station-meta.js';
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
@@ -22,6 +23,17 @@ import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
+
+// Spacing between parallel strands in the 3D view, in meters. Twice the tube
+// radius, so tubes sit edge to edge the way the flat strands do rather than
+// leaving gaps between them.
+//
+// Not physically truthful, and cannot be: the tubes are already 12 m across
+// where a real track is about 4, so honest spacing would just interpenetrate
+// them. Consistency with the tube radius is the real constraint. Measured safe
+// up to about 16 m — beyond that it starts costing station matches against
+// STATION_MATCH_RADIUS_M.
+const STRAND_SPACING_M = 12;
 
 // Bootstraps the entire application. Startup is ordered so nothing waits on a
 // dependency it doesn't actually have: the map begins fetching tiles before the
@@ -170,7 +182,19 @@ async function init() {
 
     map.addLayer(threeLayer);
 
-    const { lineMeshes: meshes, lineCurves } = buildLineMeshes(lineRoutes, routeMap, threeLayer.scene);
+    // Where routes share a right-of-way, so each gets its own strand instead of
+    // stacking on one polyline. Both representations need it, and they need it
+    // in different units: the flat layer offsets in pixels via line-offset, so
+    // the ribbon holds its width on screen at overview zoom, while the tubes are
+    // real geometry and have to be displaced in meters. Hence two coordinate
+    // sets from one corridor index.
+    const corridors = buildCorridors(lineRoutes);
+    const offsetRoutes = Object.fromEntries(
+        Object.entries(lineRoutes).map(([id, coords]) =>
+            [id, offsetPoints(coords, corridors.get(id), STRAND_SPACING_M)]),
+    );
+
+    const { lineMeshes: meshes, lineCurves } = buildLineMeshes(offsetRoutes, routeMap, threeLayer.scene);
     lineMeshes = meshes;
     const stationTByRoute = buildStationTByRoute(lineCurves, stations);
     const routeCounts = countRoutesPerStation(stationTByRoute);
@@ -187,7 +211,7 @@ async function init() {
 
     // The overview representation. Added after the station layers so it can be
     // inserted beneath them, and after the tubes exist so the two swap cleanly.
-    addRouteLines(map, lineRoutes, routeMap);
+    addRouteLines(map, lineRoutes, routeMap, corridors);
     applyBasemapRestraint(map);
 
     // Maplibre hides the flat layer by its own maxzoom; the tubes are Three.js
