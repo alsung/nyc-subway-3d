@@ -4,6 +4,7 @@
 
 import { parseGTFS } from './gtfs-parser.js';
 import { buildStationMeta } from './station-meta.js';
+import { parseEntrances, indexByComplex } from './entrances.js';
 import { EMBEDDED_STATIONS, EMBEDDED_ROUTES, EMBEDDED_SHAPES } from '../data/embedded.js';
 
 const GTFS_FILES = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
@@ -65,6 +66,27 @@ export async function loadStationMeta() {
     } catch (err) {
         console.warn(`[gtfs-loader] station metadata unavailable (${err.message}) — direction tabs will use compass headings`);
         return buildStationMeta([]);
+    }
+}
+
+/**
+ * Street entrances, grouped by the complex they serve.
+ *
+ * Degrades to an empty index rather than failing the page: entrances are an
+ * enrichment, and a map with no entrance dots is still a working map. Same
+ * content-type guard as the metadata above, for the same reason — the SPA
+ * rewrite answers 200 with index.html for a file that is not there.
+ */
+export async function loadEntrances() {
+    try {
+        const res = await fetch('/entrances.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) throw new Error('got HTML, not JSON');
+        return indexByComplex(parseEntrances(await res.json()));
+    } catch (err) {
+        console.warn(`[gtfs-loader] entrance data unavailable (${err.message}) — station entrances will not be drawn`);
+        return new Map();
     }
 }
 
