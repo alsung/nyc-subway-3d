@@ -5,7 +5,6 @@ import {
     CORRIDOR_RADIUS_M, MIN_RUN_M,
 } from '../../src/core/corridors.js';
 import { trunkOf } from '../../src/core/trunks.js';
-import { parseShapes, parseTripsToRouteShapes } from '../../src/core/gtfs-parser.js';
 
 // ── synthetic fixtures ──────────────────────────────────────────────────────
 // Straight lines built in degrees so the projection is exercised for real
@@ -226,13 +225,20 @@ describe('trunkOf', () => {
     });
 });
 
-// ── the real feed ───────────────────────────────────────────────────────────
-// Parsed once. These are regression tests against the actual system: the
-// synthetic cases prove the mechanics, these prove it produces the right answer
-// for corridors a New Yorker would recognize.
+// ── the real system ─────────────────────────────────────────────────────────
+// Regression tests against actual geometry: the synthetic cases prove the
+// mechanics, these prove it produces the right answer for corridors a New
+// Yorker would recognize.
+//
+// Read from a committed fixture rather than public/gtfs, which is a build input
+// and is not in the repo — CI's test job never downloads it. The fixture is the
+// real feed thinned to one point every 60 m by
+// scripts/build-corridor-fixture.mjs; corridors are kilometers long, so every
+// one of them survives that.
 const feed = (() => {
-    const read = (f) => readFileSync(new URL(`../../public/gtfs/${f}`, import.meta.url), 'utf8');
-    const lineRoutes = parseTripsToRouteShapes(read('trips.txt'), parseShapes(read('shapes.txt')));
+    const lineRoutes = JSON.parse(
+        readFileSync(new URL('../fixtures/line-routes.json', import.meta.url), 'utf8'),
+    );
     return { lineRoutes, corridors: buildCorridors(lineRoutes) };
 })();
 
@@ -295,9 +301,9 @@ describe('the real feed', () => {
     });
 
     it('stays well inside the startup budget', () => {
-        // Measured at ~10 ms for 18,232 points. The bound is deliberately loose
-        // because CI machines are not this one; it exists to catch an accidental
-        // O(n^2), not to police milliseconds.
+        // The bound is deliberately loose because CI machines are not this one;
+        // it exists to catch an accidental O(n^2), not to police milliseconds.
+        // The real feed is ~5x this fixture and measures 9.2 ms locally.
         const t0 = performance.now();
         buildCorridors(feed.lineRoutes);
         expect(performance.now() - t0).toBeLessThan(250);
