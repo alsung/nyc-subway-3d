@@ -21,6 +21,11 @@ const MIN_BYTES = 1024;
 // failure this file exists to catch.
 const MIN_STATIONS = 490;
 
+// Entrances degrade the same quiet way: the app catches the fetch failure and
+// simply never draws an entrance, so a missing file looks like a station that
+// happens to have none.
+const MIN_ENTRANCES = 2000;
+
 const problems = [];
 
 for (const name of REQUIRED) {
@@ -62,6 +67,20 @@ try {
     problems.push(`dist/stations.json unreadable — did prebuild run? (${err.message})`);
 }
 
+// entrances.json — same treatment, same reason.
+try {
+    const rows = JSON.parse(readFileSync(join(DIST, 'entrances.json'), 'utf8'));
+    if (!Array.isArray(rows)) {
+        problems.push('dist/entrances.json is not a JSON array');
+    } else if (rows.length < MIN_ENTRANCES) {
+        problems.push(`dist/entrances.json has ${rows.length} entrances, expected at least ${MIN_ENTRANCES}`);
+    } else if (!rows[0]?.c || !Number.isFinite(rows[0]?.y)) {
+        problems.push('dist/entrances.json rows are missing a complex id or coordinates');
+    }
+} catch (err) {
+    problems.push(`dist/entrances.json unreadable — did prebuild run? (${err.message})`);
+}
+
 if (problems.length) {
     console.error('\nBuild verification failed:\n');
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -69,4 +88,4 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station metadata present`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station and entrance data present`);

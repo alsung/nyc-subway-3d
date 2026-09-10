@@ -5,6 +5,7 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, createThreeLayer, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint, TUBE_ZOOM } from './scene/renderer.js';
+import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, toggleView, currentOverride, attachAutoPitch } from './ui/camera.js';
@@ -12,7 +13,7 @@ import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
-import { loadAndParseGTFS, loadStationMeta, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
+import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors, offsetPoints } from './core/corridors.js';
 import { complexIdIndex } from './core/station-meta.js';
@@ -53,11 +54,13 @@ async function init() {
     const threeLayer = createThreeLayer('subway-3d');
     const mapLoaded = new Promise(resolve => map.on('load', resolve));
 
-    // Fetched together: the metadata is small and independent, and serialising
-    // it behind GTFS would delay the UI for a file that only labels tabs.
-    const [{ stations, routeMap, lineRoutes }, stationMeta] = await Promise.all([
+    // Fetched together: both files are small and independent of the GTFS
+    // parse, and serialising them behind it would delay the UI for data that
+    // only labels tabs and marks entrances.
+    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex] = await Promise.all([
         loadAndParseGTFS(),
         loadStationMeta(),
+        loadEntrances(),
     ]);
 
     // Arrivals name their destination by GTFS id; the popup needs a name.
@@ -66,7 +69,8 @@ async function init() {
     // Grouped by MTA's complex id, not by station name. Name grouping merged
     // the six separate "86 St" stations — 21.8 km apart — into one, which made
     // the popup show a rider on the Upper West Side trains departing Bay Ridge.
-    const complexes = buildStationComplexes(stations, complexIdIndex(stationMeta));
+    const complexOf = complexIdIndex(stationMeta);
+    const complexes = buildStationComplexes(stations, complexOf);
     // Fast stationId → sibling IDs lookup derived from complexes
     const stationGroups = new Map();
     for (const c of complexes) {
@@ -82,6 +86,15 @@ async function init() {
     const withComplex = (station) => station.stationIds
         ? station
         : { ...station, stationIds: stationGroups.get(station.id) ?? [station.id] };
+
+    // Entrances belong to the complex, so a station opened from search and the
+    // same station clicked on the map resolve to the same set. A station with
+    // no entrance data simply clears the layer rather than leaving the previous
+    // station's dots on screen.
+    const showEntrances = (station) => {
+        const complexId = station ? complexOf.get(station.id) : null;
+        setEntrancesFor(map, complexId ? entrancesByComplex.get(complexId) : null);
+    };
 
     // ── UI — built immediately; none of it depends on the map or the 3D scene ──
 
@@ -113,6 +126,7 @@ async function init() {
         (station) => {
             window.location.hash = '';
             lastStation = withComplex(station);
+            showEntrances(lastStation);
             flyToStation(map, lastStation);
             openStationPopup(lastStation);
         },
@@ -127,6 +141,7 @@ async function init() {
     popup.querySelector('.popup-close').addEventListener('click', () => {
         hidePopup(popup);
         if (lineMeshes) clearLineHighlight(lineMeshes);
+        setEntrancesFor(map, null);
         lastStation = null;
     });
 
@@ -172,6 +187,7 @@ async function init() {
 
     buildSearch(stations, document.getElementById('search-bar'), (station) => {
         lastStation = withComplex(station);
+        showEntrances(lastStation);
         flyToStation(map, lastStation);
         openStationPopup(lastStation);
     });
@@ -212,6 +228,10 @@ async function init() {
     // The overview representation. Added after the station layers so it can be
     // inserted beneath them, and after the tubes exist so the two swap cleanly.
     addRouteLines(map, lineRoutes, routeMap, corridors);
+
+    // Empty until a station is selected; added here so the layer exists before
+    // any click can reach it.
+    addEntranceLayer(map);
     applyBasemapRestraint(map);
 
     // Maplibre hides the flat layer by its own maxzoom; the tubes are Three.js
@@ -313,6 +333,7 @@ async function init() {
             lng: feat.geometry.coordinates[0],
             stationIds: ids,
         };
+        showEntrances(lastStation);
         flyToStation(map, lastStation);
         openStationPopup(lastStation);
     });
