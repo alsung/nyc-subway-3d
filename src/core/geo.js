@@ -113,3 +113,20 @@ export function downsample(points, maxPoints = 300) {
     }
     return result;
 }
+
+/**
+ * Inverse of geoToLocalMeters - local meters back to WGS-84.
+ *
+ * Needed by anything that displaces geometry in real-world units and has to
+ * hand the result back as coordinates, such as the parallel-strand offsets in
+ * corridors.js.
+ *
+ * @param {number} x Meters east of MAP_CENTER
+ * @param {number} y Meters south of MAP_CENTER
+ * @returns {{lat: number, lng: number}}
+ */
+export function localMetersToGeo(x, y) {
+    const lng = x / (METERS_PER_DEGREE_LAT * Math.cos(MAP_CENTER.lat * Math.PI / 180)) + MAP_CENTER.lng;
+    const lat = -y / METERS_PER_DEGREE_LAT + MAP_CENTER.lat;
+    return { lat, lng };
+}
