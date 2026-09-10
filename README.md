@@ -1096,12 +1096,11 @@ web does. Pitch becomes a function of zoom rather than a button.
 - Station hierarchy: interchanges as anchors, single-line stops as ticks
 
 **Close treatment**
-- **Building extrusions** from the `building` source-layer Stadia's vector tiles
-  already serve. Without them the tubes float over a flat grid rather than
-  running *under* the city, which undercuts the entire point of the 3D view.
-  This is a style change, not new geometry, and is the single largest upgrade to
-  the close view. See "Buildings versus legibility" below — the naive settings
-  make the map worse, not better.
+- ~~**Building extrusions**~~ — **built, measured and cut.** The tubes still
+  float over a flat grid, which is a real loss, but extrusions cost roughly 40%
+  of the frame rate in their cheapest shippable form. See "Buildings versus
+  legibility" below for both findings: the colour result, which was worth
+  keeping, and the frame-rate result, which ended it.
 - **Complex-aware labels.** At street zoom "Times Sq-42 St" currently renders
   three times, once per platform, because each is a separate GTFS station. The
   popup already collapses complexes; the label layer does not.
@@ -1140,6 +1139,54 @@ dropping toward 0.12 when a route or line is selected — context when scanning,
 clarity when following something. That is the same dimming behaviour Phase 8's
 route highlighting needs, so building it here is earlier work rather than extra
 work.
+
+### Buildings versus frame rate — why they were cut
+
+The colour work solved legibility. It did not survive the frame-rate
+measurement, taken while dragging Midtown at zoom 15.2 and pitch 55 — the exact
+camera the feature exists to serve — by counting Maplibre `render` events:
+
+| Buildings | 4× CPU throttle | unthrottled |
+|---|---|---|
+| none | 27.0–27.5 fps | 36.0–37.4 fps |
+| `render_height > 60` | 17.0–17.5 fps | 21.1–21.8 fps |
+| `render_height > 25` | — | 16.4 fps |
+| every building | 8.0 fps | 10.6 fps |
+
+Height filtering was the planned mitigation and is not enough. The most
+aggressive filter — Manhattan's genuine towers and nothing else — still costs
+**~40%**, and drawing them all costs **~70%**. Those ratios held across repeat
+runs and across throttling, which is what marks this as GPU work rather than
+main-thread work.
+
+**The baseline is the actual finding.** With no extrusions at all the map does
+not reach 60 fps while panning; it sits in the thirties. Three.js and Maplibre
+share one WebGL context and one frame, so the app is GPU-bound *before*
+buildings are added. Extrusions are not paying an ordinary cost — they are
+spending headroom that was already gone. No `fill-extrusion` setting fixes that,
+which is why tuning was abandoned rather than continued.
+
+The implementation is not in the tree. It was about 65 lines, and it worked;
+rebuilding it is an afternoon if the budget ever changes.
+
+**Measuring this correctly required two attempts.** The first counted
+`requestAnimationFrame` callbacks, which fire at the display's refresh rate
+whether or not the map repainted — it reported 119 fps for every configuration,
+including ones that were visibly stuttering. A rAF counter measures the monitor,
+not the app.
+
+### Follow-up: the shared WebGL context
+
+The thirty-something baseline is the open question this phase found and did not
+answer. Three.js and Maplibre share a context, so the custom layer may be
+forcing GL state changes that break Maplibre's batching — a cost paid on every
+frame at every zoom, not only when buildings are on.
+
+This is the highest-leverage frontend performance work left, and it gates
+buildings: at a 60 fps baseline the `height > 60` filter would land near 36 and
+become shippable. It is an investigation with an uncertain payoff rather than a
+ticket — profile a single frame's GL calls first, then decide whether there is
+anything to reclaim.
 
 ### Station entrances — what the data supports, and what it does not
 
@@ -1184,7 +1231,7 @@ wheelchair user a working elevator that is broken is worse than showing nothing.
 ### Sequencing
 
 1. **Overview treatment** — zoom-driven camera, basemap restraint, routes as line layers, station hierarchy. Most of the visual gain.
-2. **Close treatment** — building extrusions, complex-aware labels.
+2. **Close treatment** — complex-aware labels. Building extrusions were built, measured and cut; see above.
 3. **Station entrances** — the X-ray in the form the data supports.
 
 ---
