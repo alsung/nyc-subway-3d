@@ -138,11 +138,28 @@ async function init() {
     });
 
     const popup = buildPopup(document.getElementById('ui'));
-    popup.querySelector('.popup-close').addEventListener('click', () => {
+
+    const dismissPopup = () => {
         hidePopup(popup);
         if (lineMeshes) clearLineHighlight(lineMeshes);
         setEntrancesFor(map, null);
         lastStation = null;
+    };
+
+    popup.querySelector('.popup-close').addEventListener('click', dismissPopup);
+
+    // Escape closes the popup, as it already does for the lines panel, the
+    // alerts panel and the search results. The popup was the only dismissible
+    // surface that ignored it.
+    //
+    // A panel drawn over the popup takes the key first. Both listeners fire —
+    // neither stops propagation — so without this check one Escape would close
+    // the panel and the station behind it at once.
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || popup.classList.contains('hidden')) return;
+        const panelOpen = ['lines-panel', 'alerts-panel']
+            .some(id => document.getElementById(id)?.classList.contains('hidden') === false);
+        if (!panelOpen) dismissPopup();
     });
 
     const highlight = (routeId) => {
@@ -348,7 +365,7 @@ async function init() {
 
     // The buttons no longer set pitch directly — pitch follows zoom. Each is now
     // a sticky override the reader can release by pressing it again, because
-    // automatic behaviour with no way out is worse than a button.
+    // automatic behavior with no way out is worse than a button.
     const btn2d = document.getElementById('btn-2d');
     const btn3d = document.getElementById('btn-3d');
     const syncViewButtons = () => {

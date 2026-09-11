@@ -46,7 +46,7 @@ export function createMap(container) {
 // complex (centroid of same-name stations); at zoom 13+ individual station
 // circles replace them. Both sources store stationIds as a pipe-separated
 // string so the click handler works uniformly across all four layers.
-// Colour of the ring drawn around a station with an active alert. Matches the
+// Color of the ring drawn around a station with an active alert. Matches the
 // incident tone used by the status button and the alerts panel.
 const ALERT_STROKE = '#ffb020';
 const PLAIN_STROKE = '#222222';
@@ -185,7 +185,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         },
     });
 
-    // Labelled from the complex source, not the platform source, and with no
+    // Labeled from the complex source, not the platform source, and with no
     // maxzoom so one name persists at every zoom above the split. Labelling
     // platforms rendered "Times Sq-42 St" three times side by side, once per
     // GTFS station in the complex.
@@ -398,7 +398,7 @@ const BASEMAP_HIDE = [
     'airport_label_gen0',
 ];
 
-// Roads and place names stay, quietly. Neighbourhood names are how a New Yorker
+// Roads and place names stay, quietly. Neighborhood names are how a New Yorker
 // locates themselves on a map — useful context, just not at equal weight with
 // the network. An earlier pass hid them outright and over-corrected.
 const BASEMAP_DIM = [

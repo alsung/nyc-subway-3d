@@ -149,6 +149,6 @@ export function buildLinesPanel(container, routeMap, linesButton, onToggle) {
         });
     }
 
-    // Honour #lines on first load.
+    // Honor #lines on first load.
     syncFromHash();
 }

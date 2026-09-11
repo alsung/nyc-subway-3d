@@ -11,7 +11,7 @@ describe('splitByDirection', () => {
         expect(out.S.map(x => x.minutes)).toEqual([3]);
     });
 
-    // The behaviour the redesign is for: a rider boards whichever train comes
+    // The behavior the redesign is for: a rider boards whichever train comes
     // first, so routes interleave instead of being listed one line at a time.
     it('interleaves routes by arrival time', () => {
         const out = splitByDirection([

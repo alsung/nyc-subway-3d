@@ -61,8 +61,8 @@ html, body {
 
 /* Press feedback. Every control answers on pointer-down rather than waiting for
    the click, which is what makes a surface feel direct; hover alone says
-   nothing on a touchscreen. Scale rather than colour so it reads on the
-   coloured route bullets too. */
+   nothing on a touchscreen. Scale rather than color so it reads on the
+   colored route bullets too. */
 button:active,
 [role="switch"]:active {
     transform: scale(0.97);
@@ -192,7 +192,7 @@ button:active,
 
 /* The arrow-key highlight. Real focus stays in the input (the combobox uses
    aria-activedescendant), so this is the only thing marking the active option —
-   it is tinted with the focus colour rather than a heavier grey so it cannot be
+   it is tinted with the focus color rather than a heavier gray so it cannot be
    mistaken for the hover state sitting underneath the pointer. */
 .search-result--active {
     background: rgba(90, 200, 250, 0.16);
@@ -247,7 +247,7 @@ button:active,
 
 /* Ambient dot: the only alert affordance until station badges land, so it has
    to register without shouting. Hidden entirely when nothing is active, since a
-   permanent grey dot reads as decoration and stops being noticed. */
+   permanent gray dot reads as decoration and stops being noticed. */
 #status-dot {
     width: 7px;
     height: 7px;
@@ -331,7 +331,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .alert-bullets { display: flex; gap: 4px; flex-shrink: 0; }
 
 /* Route bullets sit below the 12px minimum that applies to body text, and
-   deliberately stay there. A bullet is a letterform inside a coloured circle —
+   deliberately stay there. A bullet is a letterform inside a colored circle —
    an icon that happens to contain a glyph, the same construction the MTA prints
    on signage — not running text. Enlarging the type means enlarging the circles,
    which reflows the panel and the popup without making anything easier to read.
@@ -603,7 +603,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 }
 
 /* The switch. A ring that fills with a tick when the trunk is visible, so the
-   row's state survives being read without colour — the dimmed bullets alone
+   row's state survives being read without color — the dimmed bullets alone
    would be the only cue otherwise. */
 .lines-check {
     margin-left: auto;
@@ -715,7 +715,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 
 /* Selection is carried by the pill behind the bullets, never by fading them.
    Dimming a route bullet desaturates it — a 50% red reads as brown — and the
-   bullet's colour is precisely how a rider identifies the line. MTA's own app
+   bullet's color is precisely how a rider identifies the line. MTA's own app
    rings the selected group and leaves every bullet at full strength. */
 .popup-trunk:hover { background: rgba(255, 255, 255, 0.11); }
 
@@ -1003,7 +1003,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     }
 
     /* Grown honestly rather than with an oversized invisible hit area: these sit
-       a few pixels from their neighbours, so a 44px overlay centred on a 15px
+       a few pixels from their neighbors, so a 44px overlay centered on a 15px
        glyph would sit on top of the adjacent control and steal its taps. The
        panel headers get taller instead, which on a touch device is correct. */
     .alerts-close,

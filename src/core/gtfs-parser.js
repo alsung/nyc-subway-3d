@@ -270,7 +270,7 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
  * separate "86 St" stations spanning 21.8 km, from the Upper West Side to Bay
  * Ridge — so grouping by name merged them into a single complex, put its dot at
  * a meaningless centroid, and made the popup fetch and interleave arrivals from
- * all six. Thirty-eight names covered platforms more than a kilometre apart.
+ * all six. Thirty-eight names covered platforms more than a kilometer apart.
  * Under complex ids, nothing spans more than 0.44 km.
  *
  * Falls back to name grouping when no metadata is supplied, because the

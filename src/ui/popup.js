@@ -231,7 +231,7 @@ function renderTrunks(popup, trunks, active, onSelect, routeMap) {
 }
 
 // The two direction tabs. A single tab still renders, so a terminal reads
-// "Manhattan" rather than showing an unlabelled list.
+// "Manhattan" rather than showing an unlabeled list.
 function renderTabs(popup, tabs, activeDir, onSelect) {
     const bar = popup.querySelector('.popup-tabs');
     bar.innerHTML = '';

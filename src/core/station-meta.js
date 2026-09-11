@@ -64,7 +64,7 @@ export function buildStationMeta(rows) {
  * display as F, 6 and 7 — matching on ids finds none of them and silently
  * falls through to whichever platform happens to be listed first.
  *
- * Falls back to the first id present at all, so an unrecognised trunk still
+ * Falls back to the first id present at all, so an unrecognized trunk still
  * gets labels rather than none.
  */
 export function stopIdForTrunk(meta, stationIds, routeLabels) {

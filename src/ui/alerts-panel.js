@@ -406,7 +406,7 @@ export function buildAlertsPanel(container, routeMap, stations, statusButton, on
         if (e.key === 'Escape' && !panel.classList.contains('hidden')) dismiss();
     });
 
-    // Honour #alerts on first load.
+    // Honor #alerts on first load.
     syncFromHash();
 
     // Prime the ambient dot without opening anything. A failure here is silent
