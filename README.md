@@ -1224,41 +1224,78 @@ An earlier version of this section went further and said a station interior
 "cannot be built from open data." That was wrong, and the correction matters
 enough to leave visible rather than quietly edit away.
 
-### OpenStreetMap has what MTA does not
+### OpenStreetMap has some of what MTA does not
 
-Checked rather than assumed, by sampling Overpass across stations of different
-sizes:
+The standard way to get station interiors would be **GTFS-Pathways**
+(`pathways.txt` plus `levels.txt`), which OTP2 consumes for platform-to-platform
+routing. MTA's subway feed is ten files and neither is among them, so OTP2 offers
+nothing here that RAPTOR will not already do.
 
-| Station | platform polygons | indoor ways | carrying a `level` tag |
-|---|---|---|---|
-| Times Sq-42 St | 10 | 78 | 85 |
-| Atlantic Av-Barclays | 9 | 54 | 63 |
-| 14 St-Union Sq | 5 | 37 | 42 |
-| Jackson Hts-Roosevelt Av | 4 | 29 | 33 |
-| 86 St (4/5/6) | 4 | 4 | 4 |
-| 104 St (A, Lefferts) | 2 | 2 | 2 |
-| Bergen St (F/G) | 2 | 0 | 2 |
+OpenStreetMap does carry station geometry, and a spike fetched all of it —
+1,341 platform ways, 2,475 indoor ways and 4,079 stop_area relations across the
+five boroughs — to find out how much.
 
-Two tiers, and both are useful. **Platform polygons with level tags exist at
-every station sampled**, including two-platform outer-borough stops — enough for
-real footprints at real depths. **Full indoor mapping** (corridors, mezzanines,
-rooms) exists at the major complexes, which is exactly where people get lost.
+**Platform geometry is complete.**
 
-The standard way to get this would be **GTFS-Pathways** (`pathways.txt` plus
-`levels.txt`), which OTP2 consumes for platform-to-platform routing. MTA's subway
-feed is ten files and neither is among them, so OTP2 offers nothing here that
-RAPTOR will not already do.
+| | |
+|---|---|
+| stations with at least one platform polygon | **496 / 496** (150 m radius) |
+| stations with a `level` value | 476 / 496 |
+| platforms attached to a station | 972 |
+| asset size | 222 kB raw, **55 kB gzipped** |
 
-Two caveats before anyone builds on this. OSM `level` is a storey index, not
-meters, so depth is a convention rather than a survey. And OSM is volunteer
-maintained: platform polygons are consistent, mezzanine detail is not.
+**Interior mapping is not.** `indoor=yes` turns out to mean furniture — the 100
+"indoor ways" first counted at Huguenot were 98 benches. Filtering to structural
+features only (`corridor`, `room`, `area`, `level`, `wall`):
 
-**This is the basis for the X-ray idea, deferred to its own phase.** It is also
-the only feature identified so far where the third dimension carries information
-rather than atmosphere — a station genuinely is platforms stacked at different
-depths, and no flat rendering shows that. Unlike the building extrusions above,
-the cost profile is trivial: a station is about ten polygons drawn one station at
-a time, against thousands across the viewport.
+| | |
+|---|---|
+| structural indoor ways system-wide | 739, of 2,475 raw |
+| complexes with any | 84 / 445 |
+| complexes with real interior detail (10 or more) | **2** — Grand Central, 34 St-Herald Sq |
+
+An earlier draft of this section claimed full indoor mapping existed at the major
+complexes. It does not. That claim came from sampling seven stations with
+bounding boxes about 550 m wide, which swept in neighboring buildings, and from
+counting `indoor=yes` furniture as structure. Both mistakes inflated the result
+in the same direction, which is the kind of agreement that should have prompted a
+check rather than confidence.
+
+### Depth is not in the data
+
+`level` is a storey index within a station, not a distance below the street:
+
+| Station | `level` | actual |
+|---|---|---|
+| 191 St | −2 | deepest in the system, about 55 m |
+| Clark St | −2 | deep |
+| Wall St | −1, −2 | shallow |
+| Grand Central-42 St | −1, −2, −4 | deep, multi-level |
+
+191 St and Wall St share a value because both have two floors. There is no
+absolute-depth tag to fall back on: `layer` (1,761 occurrences) is a drawing-order
+hint, and `ele` appears exactly once.
+
+Elevated track is the part that reads correctly — Smith-9 Sts at `4` genuinely is
+the highest station in the system, Queensboro Plaza `2,3`, Coney Island `2`.
+
+### What this supports, and what it does not
+
+Not an X-ray of station interiors. What the data supports is **real platform
+geometry stacked by level at every station** — actual shapes, orientation, count,
+and internal ordering, so the shuttle reads as sitting above the 7. With the
+entrances already drawn, that is substantially more than a dot, it uses the third
+dimension for something only the third dimension shows, and unlike the building
+extrusions above the cost is trivial: about ten polygons, one station at a time.
+
+It cannot show corridors, cannot say which stair reaches which platform, and
+cannot show that 191 St is deep.
+
+**Licensing is an open question.** OSM is ODbL. Extracting and redistributing a
+platforms asset creates a derivative database carrying attribution and
+share-alike obligations that the MTA feed does not. The basemap already credits
+OpenStreetMap, so this is probably fine — but it needs reading properly before
+anything ships.
 
 **Live elevator outages are a separate feed.** The existing `subway-alerts` feed
 was searched across 190 alerts and carries essentially none — one passing mention
@@ -1305,6 +1342,11 @@ now match a route.
 - **The shared WebGL context** — see the follow-up section above. Still the
   highest-leverage frontend performance work, and still what gates buildings.
 - **Live elevator outages**, before any accessibility claim is made.
+- **Platform geometry in 3D** — the reduced form of the X-ray idea, sized and
+  de-risked by the OSM spike above. One fetch script, a 55 kB asset, and a render
+  layer alongside the entrances one. Weigh it against Phase 8 rather than
+  assuming it comes first: the idea was compelling partly because it promised the
+  inside of Times Sq, and the spike established that promise cannot be kept.
 
 ---
 
