@@ -41,13 +41,16 @@ function thin(coords) {
 }
 
 const fixture = {};
-for (const [routeId, coords] of Object.entries(lineRoutes)) {
-    if (coords.length > 1) fixture[routeId] = thin(coords);
+for (const [routeId, polylines] of Object.entries(lineRoutes)) {
+    const kept = polylines.filter(c => c.length > 1).map(thin);
+    if (kept.length) fixture[routeId] = kept;
 }
 
-const before = Object.values(lineRoutes).reduce((a, c) => a + c.length, 0);
-const after = Object.values(fixture).reduce((a, c) => a + c.length, 0);
+const count = (obj) => Object.values(obj).flat().reduce((a, c) => a + c.length, 0);
+const before = count(lineRoutes);
+const after = count(fixture);
 
 const path = new URL('../tests/fixtures/line-routes.json', import.meta.url);
 writeFileSync(path, `${JSON.stringify(fixture)}\n`);
-console.log(`${Object.keys(fixture).length} routes, ${before} -> ${after} points`);
+const polylines = Object.values(fixture).reduce((a, c) => a + c.length, 0);
+console.log(`${Object.keys(fixture).length} routes, ${polylines} polylines, ${before} -> ${after} points`);

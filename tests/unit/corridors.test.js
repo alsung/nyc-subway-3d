@@ -24,6 +24,12 @@ const line = (lat, lng, dLat, dLng, n) =>
 const southbound = (metersEast, n = 60) =>
     line(BASE_LAT, BASE_LNG + metersEast / M_PER_DEG_LNG, -300 / M_PER_DEG_LAT / n, 0, n);
 
+/** A route made of one polyline — the shape buildCorridors takes. */
+const one = (coords) => [coords];
+
+/** The segments of a route's first (here, only) polyline. */
+const segs = (corridors, routeId) => corridors.get(routeId)[0];
+
 /** Same track, digitized the other way. */
 const reversed = (coords) => [...coords].reverse();
 
@@ -32,16 +38,16 @@ const meanLng = (coords) => coords.reduce((a, c) => a + c[1], 0) / coords.length
 describe('buildCorridors — a route on its own', () => {
     it('emits one segment at rank 0 covering every point', () => {
         const coords = southbound(0);
-        const c = buildCorridors({ A: coords });
-        const segs = c.get('A');
+        const c = buildCorridors({ A: one(coords) });
+        const segList = segs(c, 'A');
 
-        expect(segs).toHaveLength(1);
-        expect(segs[0]).toMatchObject({ from: 0, to: coords.length - 1, rank: 0, flip: false });
-        expect(segs[0].trunks).toEqual(['ACE']);
+        expect(segList).toHaveLength(1);
+        expect(segList[0]).toMatchObject({ from: 0, to: coords.length - 1, rank: 0, flip: false });
+        expect(segList[0].trunks).toEqual(['ACE']);
     });
 
     it('skips routes with fewer than two points', () => {
-        const c = buildCorridors({ A: [[BASE_LAT, BASE_LNG]], N: southbound(0) });
+        const c = buildCorridors({ A: one([[BASE_LAT, BASE_LNG]]), N: one(southbound(0)) });
         expect(c.has('A')).toBe(false);
         expect(c.has('N')).toBe(true);
     });
@@ -54,42 +60,42 @@ describe('buildCorridors — a route on its own', () => {
 
 describe('buildCorridors — two trunks sharing a right-of-way', () => {
     it('centres their ranks on zero so the ribbon straddles the alignment', () => {
-        const c = buildCorridors({ A: southbound(0), N: southbound(20) });
+        const c = buildCorridors({ A: one(southbound(0)), N: one(southbound(20)) });
 
-        expect(c.get('A')[0].rank).toBe(-0.5);
-        expect(c.get('N')[0].rank).toBe(0.5);
-        expect(c.get('A')[0].trunks).toEqual(['ACE', 'NQRW']);
+        expect(segs(c, 'A')[0].rank).toBe(-0.5);
+        expect(segs(c, 'N')[0].rank).toBe(0.5);
+        expect(segs(c, 'A')[0].trunks).toEqual(['ACE', 'NQRW']);
     });
 
     it('orders strands by the trunk table, so the same pair never crosses', () => {
-        const near = buildCorridors({ A: southbound(0), N: southbound(20) });
-        const swapped = buildCorridors({ A: southbound(20), N: southbound(0) });
+        const near = buildCorridors({ A: one(southbound(0)), N: one(southbound(20)) });
+        const swapped = buildCorridors({ A: one(southbound(20)), N: one(southbound(0)) });
 
         // Geometry swapped, ranks did not: ACE sorts before NQRW either way.
-        expect(near.get('A')[0].rank).toBe(swapped.get('A')[0].rank);
-        expect(near.get('N')[0].rank).toBe(swapped.get('N')[0].rank);
+        expect(segs(near, 'A')[0].rank).toBe(segs(swapped, 'A')[0].rank);
+        expect(segs(near, 'N')[0].rank).toBe(segs(swapped, 'N')[0].rank);
     });
 
     it('gives three trunks ranks of -1, 0 and 1', () => {
-        const c = buildCorridors({ A: southbound(0), N: southbound(20), 1: southbound(40) });
+        const c = buildCorridors({ A: one(southbound(0)), N: one(southbound(20)), 1: one(southbound(40)) });
         // Table order is ACE, NQRW, 123.
-        expect(c.get('A')[0].rank).toBe(-1);
-        expect(c.get('N')[0].rank).toBe(0);
-        expect(c.get('1')[0].rank).toBe(1);
+        expect(segs(c, 'A')[0].rank).toBe(-1);
+        expect(segs(c, 'N')[0].rank).toBe(0);
+        expect(segs(c, '1')[0].rank).toBe(1);
     });
 
     it('gives routes in the same trunk the same rank, so they draw as one strand', () => {
-        const c = buildCorridors({ 4: southbound(0), 5: southbound(15), A: southbound(35) });
-        expect(c.get('4')[0].rank).toBe(c.get('5')[0].rank);
-        expect(c.get('4')[0].trunks).toEqual(['ACE', '456']);
+        const c = buildCorridors({ 4: one(southbound(0)), 5: one(southbound(15)), A: one(southbound(35)) });
+        expect(segs(c, '4')[0].rank).toBe(segs(c, '5')[0].rank);
+        expect(segs(c, '4')[0].trunks).toEqual(['ACE', '456']);
     });
 });
 
 describe('buildCorridors — direction', () => {
     it('marks a segment that runs against its canonical trunk', () => {
-        const c = buildCorridors({ A: southbound(0), N: reversed(southbound(20)) });
-        expect(c.get('A')[0].flip).toBe(false);
-        expect(c.get('N')[0].flip).toBe(true);
+        const c = buildCorridors({ A: one(southbound(0)), N: one(reversed(southbound(20))) });
+        expect(segs(c, 'A')[0].flip).toBe(false);
+        expect(segs(c, 'N')[0].flip).toBe(true);
     });
 
     it('pushes opposite-digitized strands apart instead of onto each other', () => {
@@ -98,10 +104,10 @@ describe('buildCorridors — direction', () => {
         // entirely by the offsets. Here they are exactly coincident.
         const a = southbound(0);
         const n = reversed(southbound(0));
-        const c = buildCorridors({ A: a, N: n });
+        const c = buildCorridors({ A: one(a), N: one(n) });
 
         const gap = Math.abs(
-            meanLng(offsetPoints(n, c.get('N'), 12)) - meanLng(offsetPoints(a, c.get('A'), 12)),
+            meanLng(offsetPoints(n, segs(c, 'N'), 12)) - meanLng(offsetPoints(a, segs(c, 'A'), 12)),
         ) * M_PER_DEG_LNG;
         expect(gap).toBeCloseTo(12, 0);
     });
@@ -112,12 +118,12 @@ describe('buildCorridors — direction', () => {
         // would still pass if offsetPoints stopped honoring flip at all.
         const a = southbound(0);
         const n = reversed(southbound(0));
-        const c = buildCorridors({ A: a, N: n });
+        const c = buildCorridors({ A: one(a), N: one(n) });
         const ignoreFlip = (segs) => segs.map(s => ({ ...s, flip: false }));
 
         const gap = Math.abs(
-            meanLng(offsetPoints(n, ignoreFlip(c.get('N')), 12))
-            - meanLng(offsetPoints(a, ignoreFlip(c.get('A')), 12)),
+            meanLng(offsetPoints(n, ignoreFlip(segs(c, 'N')), 12))
+            - meanLng(offsetPoints(a, ignoreFlip(segs(c, 'A')), 12)),
         ) * M_PER_DEG_LNG;
         expect(gap).toBeCloseTo(0, 0);
     });
@@ -130,9 +136,9 @@ describe('buildCorridors — crossings versus corridors', () => {
         const crossLat = a[30][0];
         const n = line(crossLat, BASE_LNG - 300 / M_PER_DEG_LNG, 0, 10 / M_PER_DEG_LNG, 60);
 
-        const c = buildCorridors({ A: a, N: n });
-        expect(c.get('A')).toHaveLength(1);
-        expect(c.get('A')[0].rank).toBe(0);
+        const c = buildCorridors({ A: one(a), N: one(n) });
+        expect(segs(c, 'A')).toHaveLength(1);
+        expect(segs(c, 'A')[0].rank).toBe(0);
     });
 
     it('keeps the crossing as its own segment when the threshold is removed', () => {
@@ -141,8 +147,8 @@ describe('buildCorridors — crossings versus corridors', () => {
         const crossLat = a[30][0];
         const n = line(crossLat, BASE_LNG - 300 / M_PER_DEG_LNG, 0, 10 / M_PER_DEG_LNG, 60);
 
-        const c = buildCorridors({ A: a, N: n }, { minRunM: 0 });
-        expect(c.get('A').length).toBeGreaterThan(1);
+        const c = buildCorridors({ A: one(a), N: one(n) }, { minRunM: 0 });
+        expect(segs(c, 'A').length).toBeGreaterThan(1);
     });
 
     it('measures the threshold in meters, not in shape points', () => {
@@ -153,8 +159,8 @@ describe('buildCorridors — crossings versus corridors', () => {
         const crossing = (a) => line(a[Math.floor(a.length / 2)][0],
             BASE_LNG - 300 / M_PER_DEG_LNG, 0, 10 / M_PER_DEG_LNG, 60);
 
-        expect(buildCorridors({ A: sparse, N: crossing(sparse) }).get('A')).toHaveLength(1);
-        expect(buildCorridors({ A: dense, N: crossing(dense) }).get('A')).toHaveLength(1);
+        expect(segs(buildCorridors({ A: one(sparse), N: one(crossing(sparse)) }), 'A')).toHaveLength(1);
+        expect(segs(buildCorridors({ A: one(dense), N: one(crossing(dense)) }), 'A')).toHaveLength(1);
     });
 });
 
@@ -244,7 +250,7 @@ const feed = (() => {
 
 /** The longest segment of `routeId` whose membership is exactly `trunks`. */
 const longestWith = (routeId, trunks) =>
-    feed.corridors.get(routeId)
+    feed.corridors.get(routeId).flat()
         .filter(s => s.trunks.length === trunks.length && trunks.every(t => s.trunks.includes(t)))
         .sort((a, b) => (b.to - b.from) - (a.to - a.from))[0];
 
@@ -271,9 +277,9 @@ describe('the real feed', () => {
         // corridor it sits left of Y in every corridor. A violation would show
         // as strands swapping sides mid-system.
         const side = new Map();
-        for (const [routeId, segs] of feed.corridors) {
+        for (const [routeId, perPolyline] of feed.corridors) {
             const own = trunkOf(routeId) ?? 'Other';
-            for (const seg of segs) {
+            for (const seg of perPolyline.flat()) {
                 for (const other of seg.trunks) {
                     if (other === own) continue;
                     const sign = Math.sign(seg.rank - (seg.trunks.indexOf(other) - (seg.trunks.length - 1) / 2));
@@ -287,12 +293,14 @@ describe('the real feed', () => {
     });
 
     it('tiles every route with contiguous segments and no gaps', () => {
-        for (const [routeId, segs] of feed.corridors) {
-            expect(segs[0].from).toBe(0);
-            expect(segs[segs.length - 1].to).toBe(feed.lineRoutes[routeId].length - 1);
-            for (let i = 1; i < segs.length; i++) {
-                expect(segs[i].from).toBe(segs[i - 1].to + 1);
-            }
+        for (const [routeId, perPolyline] of feed.corridors) {
+            perPolyline.forEach((segList, i) => {
+                expect(segList[0].from).toBe(0);
+                expect(segList[segList.length - 1].to).toBe(feed.lineRoutes[routeId][i].length - 1);
+                for (let k = 1; k < segList.length; k++) {
+                    expect(segList[k].from).toBe(segList[k - 1].to + 1);
+                }
+            });
         }
     });
 

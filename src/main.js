@@ -206,8 +206,11 @@ async function init() {
     // sets from one corridor index.
     const corridors = buildCorridors(lineRoutes);
     const offsetRoutes = Object.fromEntries(
-        Object.entries(lineRoutes).map(([id, coords]) =>
-            [id, offsetPoints(coords, corridors.get(id), STRAND_SPACING_M)]),
+        Object.entries(lineRoutes).map(([id, polylines]) => [
+            id,
+            polylines.map((coords, i) =>
+                offsetPoints(coords, corridors.get(id)?.[i], STRAND_SPACING_M)),
+        ]),
     );
 
     const { lineMeshes: meshes, lineCurves } = buildLineMeshes(offsetRoutes, routeMap, threeLayer.scene);

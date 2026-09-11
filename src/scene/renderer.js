@@ -299,34 +299,45 @@ export function createThreeLayer(id) {
  * 6 Av and somewhere else entirely on Queens Blvd. Maplibre's line-offset is
  * one value per feature, so the geometry has to be cut where the rank changes.
  *
+ * A route is several polylines when it has branches, and each is cut
+ * independently.
+ *
  * Exported for its own sake — the layer wiring below needs a live map, this
  * does not, and the interesting part is the cutting.
  *
- * @param {Record<string, [number, number][]>} lineRoutes
- * @param {Map<string, object[]>} corridors from buildCorridors
+ * @param {Record<string, [number, number][][]>} lineRoutes routeId -> polylines
+ * @param {Map<string, object[][]>} corridors from buildCorridors
  * @param {Record<string, {color?: string}>} routeMap
  * @returns {{type: 'FeatureCollection', features: object[]}}
  */
 export function routeLineFeatures(lineRoutes, corridors, routeMap) {
     const features = [];
 
-    for (const [routeId, coords] of Object.entries(lineRoutes ?? {})) {
-        if (!coords || coords.length < 2) continue;
+    for (const [routeId, polylines] of Object.entries(lineRoutes ?? {})) {
+        if (!Array.isArray(polylines)) continue;
         const color = routeMap?.[routeId]?.color ?? UNKNOWN_ROUTE_COLOR;
+        const perPolyline = corridors?.get(routeId) ?? [];
 
-        // A route with no corridor data still has to be drawn, at rank 0 — a
-        // missing entry should cost the line its strand, not its existence.
-        const segments = corridors?.get(routeId) ?? [{ from: 0, to: coords.length - 1, rank: 0, flip: false }];
+        for (let i = 0; i < polylines.length; i++) {
+            const coords = polylines[i];
+            if (!coords || coords.length < 2) continue;
 
-        for (const segment of segments) {
-            const slice = segmentCoords(coords, segment);
-            if (slice.length < 2) continue;
-            features.push({
-                type: 'Feature',
-                properties: { routeId, color, rank: segment.rank },
-                // lineRoutes stores [lat, lng]; GeoJSON wants [lng, lat].
-                geometry: { type: 'LineString', coordinates: slice.map(([lat, lng]) => [lng, lat]) },
-            });
+            // A polyline with no corridor data still has to be drawn, at rank 0
+            // — a missing entry should cost the line its strand, not its
+            // existence.
+            const segments = perPolyline[i]
+                ?? [{ from: 0, to: coords.length - 1, rank: 0, flip: false }];
+
+            for (const segment of segments) {
+                const slice = segmentCoords(coords, segment);
+                if (slice.length < 2) continue;
+                features.push({
+                    type: 'Feature',
+                    properties: { routeId, color, rank: segment.rank },
+                    // lineRoutes stores [lat, lng]; GeoJSON wants [lng, lat].
+                    geometry: { type: 'LineString', coordinates: slice.map(([lat, lng]) => [lng, lat]) },
+                });
+            }
         }
     }
 

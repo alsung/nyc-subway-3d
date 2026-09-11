@@ -71,45 +71,59 @@ function decodeMask(mask) {
 const trunkKeyOf = (routeId) => trunkOf(routeId) ?? OTHER;
 
 /**
- * Projects every route once into local meters, flattened into shared typed
- * arrays with a parallel index of which route each point came from.
+ * Projects every polyline once into local meters, flattened into shared typed
+ * arrays with a parallel index of which polyline each point came from.
  *
- * One flat array rather than per-route arrays because the spatial hash below
+ * The unit is the polyline, not the route: a route with branches is several
+ * polylines, and the A's Rockaway branch is a different corridor from the A's
+ * 8 Av trunk even though both are the A.
+ *
+ * One flat array rather than per-polyline arrays because the spatial hash below
  * stores indices into it: a cell holds numbers, not objects, so building the
  * hash allocates nothing per point.
  */
 function projectAll(lineRoutes) {
-    const routeIds = Object.keys(lineRoutes).filter(id => (lineRoutes[id]?.length ?? 0) > 1);
+    // lines[k] = { routeId, index } — index is the polyline's position within
+    // its route, so a caller can line results up with its own input array.
+    const lines = [];
+    for (const routeId of Object.keys(lineRoutes)) {
+        const polylines = lineRoutes[routeId];
+        if (!Array.isArray(polylines)) continue;
+        for (let i = 0; i < polylines.length; i++) {
+            if ((polylines[i]?.length ?? 0) > 1) lines.push({ routeId, index: i });
+        }
+    }
+
     let total = 0;
-    for (const id of routeIds) total += lineRoutes[id].length;
+    for (const { routeId, index } of lines) total += lineRoutes[routeId][index].length;
 
     const xs = new Float64Array(total);
     const ys = new Float64Array(total);
-    // Distance along each route from its own first point, so a run's length can
-    // be measured without walking its coordinates again.
+    // Distance along each polyline from its own first point, so a run's length
+    // can be measured without walking its coordinates again.
     const along = new Float64Array(total);
     const trunkBit = new Int32Array(total);
-    const routeAt = new Int32Array(total);
+    const lineAt = new Int32Array(total);
     const indexAt = new Int32Array(total);
     const offsets = new Map();
 
     let n = 0;
-    for (let r = 0; r < routeIds.length; r++) {
-        const id = routeIds[r];
-        const coords = lineRoutes[id];
-        const b = bit(trunkKeyOf(id));
-        offsets.set(id, { start: n, length: coords.length });
+    for (let k = 0; k < lines.length; k++) {
+        const { routeId, index } = lines[k];
+        const coords = lineRoutes[routeId][index];
+        const b = bit(trunkKeyOf(routeId));
+        offsets.set(k, { start: n, length: coords.length });
         for (let i = 0; i < coords.length; i++) {
             const { x, y } = geoToLocalMeters(coords[i][0], coords[i][1]);
             xs[n] = x; ys[n] = y;
             along[n] = i === 0 ? 0 : along[n - 1] + Math.hypot(x - xs[n - 1], y - ys[n - 1]);
             trunkBit[n] = b;
-            routeAt[n] = r;
+            lineAt[n] = k;
             indexAt[n] = i;
             n++;
         }
     }
-    return { routeIds, xs, ys, along, trunkBit, routeAt, indexAt, offsets, count: n };
+    return { lines, xs, ys, along, trunkBit, lineAt, indexAt, offsets, count: n };
 }
 
 // Cell coordinates are shifted into the positive range before packing so the
@@ -229,13 +243,15 @@ function nearestOfTrunk(p, grid, cellSize, x, y, trunkBitValue, maxRadius) {
 }
 
 /**
- * Splits every route into segments over which its set of co-running trunks is
- * constant, and assigns each segment a rank and a direction.
+ * Splits every polyline into segments over which its set of co-running trunks
+ * is constant, and assigns each segment a rank and a direction.
  *
- * @param {Record<string, [number, number][]>} lineRoutes routeId -> [lat, lng][]
- * @param {{ radiusM?: number, minRun?: number }} [options]
+ * @param {Record<string, [number, number][][]>} lineRoutes routeId -> polylines
+ * @param {{ radiusM?: number, minRunM?: number }} [options]
  * @returns {Map<string, {from: number, to: number, trunks: string[], rank: number,
- *                       canonical: string, flip: boolean}[]>}
+ *                       canonical: string, flip: boolean}[][]>}
+ *
+ * One segment array per polyline, index-aligned with lineRoutes[routeId].
  *
  * `from` and `to` are inclusive indices into that route's own coordinate array.
  * `rank` is centered on zero, so a corridor's strands straddle the true
@@ -257,8 +273,9 @@ export function buildCorridors(lineRoutes, options = {}) {
     if (!p.count) return result;
     const grid = buildGrid(p, cellSize);
 
-    for (const routeId of p.routeIds) {
-        const { start, length } = p.offsets.get(routeId);
+    for (let k = 0; k < p.lines.length; k++) {
+        const { routeId, index } = p.lines[k];
+        const { start, length } = p.offsets.get(k);
         const ownKey = trunkKeyOf(routeId);
         const ownBit = p.trunkBit[start];
 
@@ -282,7 +299,11 @@ export function buildCorridors(lineRoutes, options = {}) {
                 flip: flipAgainstCanonical(p, grid, cellSize, radius, start, length, run, canonical, ownBit),
             };
         });
-        result.set(routeId, segments);
+
+        // Index-aligned with lineRoutes[routeId], so a caller can pair a
+        // polyline with its segments by position.
+        if (!result.has(routeId)) result.set(routeId, []);
+        result.get(routeId)[index] = segments;
     }
     return result;
 }
@@ -312,7 +333,7 @@ function flipAgainstCanonical(p, grid, cellSize, radius, start, length, run, can
     const window = Math.max(1, Math.min(8, Math.floor((run.to - run.from + 1) / 2)));
     const own = chordAt(p, start, length, mid, window);
 
-    const other = p.offsets.get(p.routeIds[p.routeAt[j]]);
+    const other = p.offsets.get(p.lineAt[j]);
     const ref = chordAt(p, other.start, other.length, p.indexAt[j], window);
 
     return own.dx * ref.dx + own.dy * ref.dy < 0;
