@@ -11,7 +11,7 @@
 //
 // This module keeps the outcome, so the UI can say which one happened.
 
-// How old the server's data may be before arrivals are labelled delayed.
+// How old the server's data may be before arrivals are labeled delayed.
 // Matches the vehicles staleness window in main.js; the API refreshes its feed
 // cache every 30s, so 90s means roughly three missed refreshes.
 export const ARRIVALS_STALE_MS = 90_000;

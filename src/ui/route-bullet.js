@@ -7,13 +7,13 @@
 
 import { contrastColor } from '../core/color.js';
 
-// Falls back to the MTA's own grey for a route the feed does not describe,
+// Falls back to the MTA's own gray for a route the feed does not describe,
 // rather than rendering an invisible or default-black bullet.
 const UNKNOWN_COLOR = '#808183';
 
 /**
- * A bullet for one route id. Label and colour come from routeMap; unknown ids
- * render their raw id on grey so the line is still nameable.
+ * A bullet for one route id. Label and color come from routeMap; unknown ids
+ * render their raw id on gray so the line is still nameable.
  */
 export function routeBullet(routeId, routeMap) {
     const route = routeMap?.[routeId];

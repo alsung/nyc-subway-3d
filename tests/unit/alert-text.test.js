@@ -36,7 +36,7 @@ describe('parseAlertText', () => {
         ]);
     });
 
-    it('recognises multi-character route ids', () => {
+    it('recognizes multi-character route ids', () => {
         expect(parseAlertText('[6X] and [SIR] and [FX]')).toEqual([
             { route: '6X' }, { text: ' and ' },
             { route: 'SIR' }, { text: ' and ' },

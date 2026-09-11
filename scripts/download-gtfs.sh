@@ -28,7 +28,7 @@ FILES=(stops.txt routes.txt shapes.txt trips.txt)
 #
 # complex_id is the one that matters most. Grouping platforms by station name
 # instead merges genuinely different stations: NYC has six separate "86 St"
-# stations spanning 21.8 km, and 38 names cover platforms more than a kilometre
+# stations spanning 21.8 km, and 38 names cover platforms more than a kilometer
 # apart. Under complex_id no complex spans more than 0.44 km.
 #
 # The direction labels are editorial — they cannot be derived from coordinates,

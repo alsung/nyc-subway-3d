@@ -61,7 +61,7 @@ describe('stopIdForTrunk', () => {
     // The bug this signature exists to prevent: matching GTFS route ids against
     // a column that holds display names finds nothing, and the lookup silently
     // falls through to whichever platform is listed first — which is how the
-    // 42 St Shuttle came to be labelled "Uptown / Downtown".
+    // 42 St Shuttle came to be labeled "Uptown / Downtown".
     it('matches the shuttle by its display name, not its route ids', () => {
         const ids = ['127', '902'];
         expect(stopIdForTrunk(meta, ids, ['GS', 'FS', 'H'])).toBe('127');   // ids: wrong

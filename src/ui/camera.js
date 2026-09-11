@@ -32,7 +32,7 @@ export function pitchForZoom(zoom) {
     return VIEW_3D.pitch * eased;
 }
 
-// Flies the map to centre on a station at a closer zoom.
+// Flies the map to center on a station at a closer zoom.
 //
 // Pitch is deliberately not passed. flyTo animates zoom, which fires the zoom
 // handler below, so the camera tilts on the way in as part of the same motion.
@@ -52,7 +52,7 @@ export function flyToStation(map, station, zoom = 16) {
 }
 
 // A user's explicit choice, which outranks the zoom-driven pitch until they
-// release it. Automatic behaviour with no way out is worse than a button: a
+// release it. Automatic behavior with no way out is worse than a button: a
 // reader who wants Brooklyn flat at close zoom should be able to have it.
 let override = null;   // '2d' | '3d' | null
 

@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { buildStationTByRoute } from '../../src/scene/trains.js';
 import { geoToLocalMeters, MAP_CENTER } from '../../src/core/geo.js';
 
-// buildStationTByRoute works in the local metre space geoToLocalMeters produces,
-// so the fixtures are built by going the other way: pick a metre offset, and
+// buildStationTByRoute works in the local meter space geoToLocalMeters produces,
+// so the fixtures are built by going the other way: pick a meter offset, and
 // derive the lat/lng that lands there. That keeps the tests readable in the
 // units the matching radius is expressed in.
 const METERS_PER_DEGREE_LAT = 111_320;

@@ -727,7 +727,7 @@ P6-2 precedes the alerts work because the generic states stand on their own, and
 alert data then enriches them — instead of "No trains scheduled," an affected station
 can say *why*.
 
-**Deferred to a follow-up:** map-level treatment of alerts (recolouring or pulsing
+**Deferred to a follow-up:** map-level treatment of alerts (recoloring or pulsing
 affected line segments). Deliberately not in the initial pass — with 142 active alerts
 observed in a single sample, map-wide highlighting risks becoming visual noise. Revisit
 once the subtle treatment shows how dense real alert data actually is.
@@ -946,7 +946,7 @@ informed: routeId=""   stopId="705"   ← station-level
 ```
 
 Stop IDs are parent station IDs (`705`, no N/S suffix), so they key directly against the
-existing arrival index with no normalisation. Alerts refresh on a slower interval than
+existing arrival index with no normalization. Alerts refresh on a slower interval than
 train positions (~60s) — they change far less often and the payload is roughly five times
 larger than a single real-time feed.
 
@@ -1000,10 +1000,10 @@ lines dim, and affected stations pulse. This is the feature worth building: it m
 cannot do.
 
 **Entry point** — a button beside the 2D/3D controls showing a live count tinted by worst
-active severity (`⚠ 12`), fading to neutral grey when nothing is wrong. It doubles as an
+active severity (`⚠ 12`), fading to neutral gray when nothing is wrong. It doubles as an
 ambient system-health signal without anything being opened. A drawer rather than a
 full-page takeover, because keeping the map visible is what makes the map-driving
-behaviour work at all; on small viewports it becomes a bottom sheet, aligning with P6-6.
+behavior work at all; on small viewports it becomes a bottom sheet, aligning with P6-6.
 
 **Density caveat** — a single sample of the live feed carried 142 active alerts, most of
 them routine planned work. Without severity grouping and route filtering the panel
@@ -1035,12 +1035,12 @@ Below 640px viewport width, the popup switches from a floating card to a bottom 
 
 ---
 
-## 14. Phase 7 — Map Legibility + Station Detail
+## 14. Phase 7 — Map Legibility + Station Detail ✅
 
 ### Goal
 
 Make the subway the subject of its own map, and make the 3D view earn its place
-rather than being a toggle. Phase 6 finished the app's *behaviour*; this phase is
+rather than being a toggle. Phase 6 finished the app's *behavior*; this phase is
 about what a visitor sees in the first three seconds.
 
 ### Why this comes before the trip planner
@@ -1064,7 +1064,7 @@ runtime, rather than drawn:
 2. **Flat + basemap suppressed** — shields, POIs and out-of-city labels hidden,
    roads at 25% opacity, pitch zeroed.
 3. **Routes as the subject** — the same, plus routes drawn as flat lines in their
-   own colours, interchanges enlarged, local stops reduced to ticks.
+   own colors, interchanges enlarged, local stops reduced to ticks.
 4. **Street zoom, tilted** — tube geometry running under the Midtown grid.
 
 **The finding that changed the plan: restraint alone does almost nothing.** Frame
@@ -1092,14 +1092,14 @@ web does. Pitch becomes a function of zoom rather than a button.
 **Overview treatment**
 - Zoom-driven pitch; the 2D/3D buttons become an override rather than the mechanism
 - Hide highway shields, POIs, airport and out-of-city place labels; roads to ~25% opacity
-- Routes as Maplibre line layers below the tube threshold, 2.2–5px, real route colours
+- Routes as Maplibre line layers below the tube threshold, 2.2–5px, real route colors
 - Station hierarchy: interchanges as anchors, single-line stops as ticks
 
 **Close treatment**
 - ~~**Building extrusions**~~ — **built, measured and cut.** The tubes still
   float over a flat grid, which is a real loss, but extrusions cost roughly 40%
   of the frame rate in their cheapest shippable form. See "Buildings versus
-  legibility" below for both findings: the colour result, which was worth
+  legibility" below for both findings: the color result, which was worth
   keeping, and the frame-rate result, which ended it.
 - **Complex-aware labels.** At street zoom "Times Sq-42 St" currently renders
   three times, once per platform, because each is a separate GTFS station. The
@@ -1111,38 +1111,38 @@ web does. Pitch becomes a function of zoom rather than a button.
 ### Buildings versus legibility
 
 Extrusions were mocked before being specified, and the first attempt made the map
-worse. At `fill-extrusion-opacity: 0.72` on a mid-grey `#2a2d34`, the translucent
+worse. At `fill-extrusion-opacity: 0.72` on a mid-gray `#2a2d34`, the translucent
 massing sits on top of the tubes and desaturates them: the blue 8 Avenue trunk
-and the red 7 Avenue trunk both lose most of their colour. The 3D got better and
+and the red 7 Avenue trunk both lose most of their color. The 3D got better and
 the subject got worse — which is the wrong trade for a subway map.
 
 Four variants were rendered from the same camera:
 
-| Opacity | Colour | Result |
+| Opacity | Color | Result |
 |---|---|---|
 | 0.72 | `#2a2d34` | Buildings dominate; the red trunk nearly vanishes into the massing |
 | 0.40 | `#2a2d34` | Lines recover somewhat, but the buildings go *milky* — the skyline reads as fog rather than towers |
 | **0.55** | **`#15171c`** | **Towers keep their silhouette and the lines keep their saturation** |
 | 0.12 | `#15171c` | Buildings nearly gone; every line at full strength |
 
-**The colour matters more than the opacity, and that was not the expected
+**The color matters more than the opacity, and that was not the expected
 result.** The obvious lever is transparency, and lowering it only replaced one
-problem with another: a light-grey extrusion at low alpha becomes a haze over
+problem with another: a light-gray extrusion at low alpha becomes a haze over
 everything instead of receding. A dark material absorbs light rather than
 scattering it back at the camera, so at `#15171c` the buildings hold their shape
-at *higher* opacity than the grey ones could manage while the route colours stay
+at *higher* opacity than the gray ones could manage while the route colors stay
 clean. Anyone tuning this later will reach for opacity first, as this attempt
-did; the fix is the colour.
+did; the fix is the color.
 
 **Opacity is therefore a state, not a constant.** Roughly 0.55 while browsing,
 dropping toward 0.12 when a route or line is selected — context when scanning,
-clarity when following something. That is the same dimming behaviour Phase 8's
+clarity when following something. That is the same dimming behavior Phase 8's
 route highlighting needs, so building it here is earlier work rather than extra
 work.
 
 ### Buildings versus frame rate — why they were cut
 
-The colour work solved legibility. It did not survive the frame-rate
+The color work solved legibility. It did not survive the frame-rate
 measurement, taken while dragging Midtown at zoom 15.2 and pitch 55 — the exact
 camera the feature exists to serve — by counting Maplibre `render` events:
 
@@ -1213,14 +1213,52 @@ uses, so it joins directly:
 It also carries `entry_allowed` and `exit_allowed`, so **exit-only stairs are
 marked** — genuinely useful, and something the major mapping apps surface poorly.
 
-**What does not exist as published data: internal layout.** There are no floor
-plans, no mezzanines, no "this stair connects the uptown platform to the
-mezzanine." A cutaway of a station interior cannot be built from open data and is
-out of scope.
+**What MTA does not publish: internal layout.** No floor plans, no mezzanines,
+nothing that says "this stair connects the uptown platform to the mezzanine."
+That ruled a cutaway out of *this* dataset, and the entrance points are what it
+does support: standing on the street, which stair do I take, and is it an
+entrance? At street zoom a station becomes six to twelve labeled points instead
+of one dot.
 
-The buildable version is arguably the more useful one anyway: standing on the
-street, *which* stair do I take, and is it an entrance? At street zoom a station
-becomes six to twelve labelled points instead of one dot.
+An earlier version of this section went further and said a station interior
+"cannot be built from open data." That was wrong, and the correction matters
+enough to leave visible rather than quietly edit away.
+
+### OpenStreetMap has what MTA does not
+
+Checked rather than assumed, by sampling Overpass across stations of different
+sizes:
+
+| Station | platform polygons | indoor ways | carrying a `level` tag |
+|---|---|---|---|
+| Times Sq-42 St | 10 | 78 | 85 |
+| Atlantic Av-Barclays | 9 | 54 | 63 |
+| 14 St-Union Sq | 5 | 37 | 42 |
+| Jackson Hts-Roosevelt Av | 4 | 29 | 33 |
+| 86 St (4/5/6) | 4 | 4 | 4 |
+| 104 St (A, Lefferts) | 2 | 2 | 2 |
+| Bergen St (F/G) | 2 | 0 | 2 |
+
+Two tiers, and both are useful. **Platform polygons with level tags exist at
+every station sampled**, including two-platform outer-borough stops — enough for
+real footprints at real depths. **Full indoor mapping** (corridors, mezzanines,
+rooms) exists at the major complexes, which is exactly where people get lost.
+
+The standard way to get this would be **GTFS-Pathways** (`pathways.txt` plus
+`levels.txt`), which OTP2 consumes for platform-to-platform routing. MTA's subway
+feed is ten files and neither is among them, so OTP2 offers nothing here that
+RAPTOR will not already do.
+
+Two caveats before anyone builds on this. OSM `level` is a storey index, not
+meters, so depth is a convention rather than a survey. And OSM is volunteer
+maintained: platform polygons are consistent, mezzanine detail is not.
+
+**This is the basis for the X-ray idea, deferred to its own phase.** It is also
+the only feature identified so far where the third dimension carries information
+rather than atmosphere — a station genuinely is platforms stacked at different
+depths, and no flat rendering shows that. Unlike the building extrusions above,
+the cost profile is trivial: a station is about ten polygons drawn one station at
+a time, against thousands across the viewport.
 
 **Live elevator outages are a separate feed.** The existing `subway-alerts` feed
 was searched across 190 alerts and carries essentially none — one passing mention
@@ -1228,11 +1266,45 @@ of an entrance closure. MTA publishes ADA outages separately, and that feed must
 be verified before the UI claims an elevator is out of service. Showing a
 wheelchair user a working elevator that is broken is worse than showing nothing.
 
-### Sequencing
+### What shipped
 
-1. **Overview treatment** — zoom-driven camera, basemap restraint, routes as line layers, station hierarchy. Most of the visual gain.
-2. **Close treatment** — complex-aware labels. Building extrusions were built, measured and cut; see above.
-3. **Station entrances** — the X-ray in the form the data supports.
+| PR | |
+|---|---|
+| #43 | Overview treatment — zoom-driven camera, basemap restraint, routes as Maplibre line layers, station hierarchy |
+| #44 | One station size at every zoom; fixed `setPitch` cancelling an in-flight `flyTo` |
+| #45 | Station complexes grouped by MTA `complex_id` rather than name — 38 wrongly merged stations to 0 |
+| #46 | Building extrusions measured at 40–70% of frame rate and cut; findings recorded above |
+| #47 | Corridor detection — where routes share a right-of-way |
+| #48 | Co-running routes drawn as parallel strands |
+| #49 | Street entrances for the selected station |
+| #50 | A route became several polylines (plumbing, no behavior change) |
+| #51 | Every branch of a route drawn — 51 stations with no line reaching them, to 0 |
+
+Complex-aware labels landed inside #43 rather than as their own ticket.
+
+### The branches were not in the plan
+
+#50 and #51 exist because the parallel strands exposed them. Drawing one shape
+per route had left **51 stations with no line reaching them** — every stop on the
+A's Rockaway branch, the 5's White Plains Rd, the 2's Nostrand Av, the W's Sea
+Beach, the N/Q's Second Avenue, the R's 4 Av locals. They still rendered as dots,
+so the map looked complete while missing track, and a Rockaway-bound A could not
+be positioned at all because there was no curve to put it on.
+
+Selecting a *different* single shape does not fix it: the most-frequent pattern
+is usually a short-turn, and the M's busiest shape is 9.5 km against the line's
+29.6. The fix was to stop selecting one — a greedy cover that keeps adding shapes
+while they contribute new ground. 29 polylines became 38, and all 496 stations
+now match a route.
+
+### Still open
+
+- **Tube appearance at street zoom.** Lit `MeshStandardMaterial` against a dark
+  ground reads dimmer than the flat layer's raw color, and the zoom-14 handoff
+  now invites the comparison.
+- **The shared WebGL context** — see the follow-up section above. Still the
+  highest-leverage frontend performance work, and still what gates buildings.
+- **Live elevator outages**, before any accessibility claim is made.
 
 ---
 

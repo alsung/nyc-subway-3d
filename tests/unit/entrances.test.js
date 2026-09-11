@@ -139,9 +139,9 @@ describe.skipIf(!raw)('the real dataset', () => {
 
     it('labels only the entrances that tell a rider something', () => {
         const parsed = parseEntrances(raw);
-        const labelled = parsed.filter(entranceLabel);
-        expect(labelled.length).toBeGreaterThan(100);
-        expect(labelled.length).toBeLessThan(parsed.length / 5);
+        const labeled = parsed.filter(entranceLabel);
+        expect(labeled.length).toBeGreaterThan(100);
+        expect(labeled.length).toBeLessThan(parsed.length / 5);
     });
 
     it('normalizes every source type it actually encounters', () => {
