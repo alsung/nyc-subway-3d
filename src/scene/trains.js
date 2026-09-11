@@ -42,7 +42,13 @@ function disposeTrainMesh(mesh, scene) {
 export function buildSimulatedTrains(lineCurves, routeMap, scene) {
     const trainMeshes = [];
 
-    for (const [routeId, curve] of lineCurves) {
+    for (const [routeId, curves] of lineCurves) {
+        // One fallback train per route, not per branch. It stands in for "this
+        // line is running" when the feed has nothing, and three dots crawling
+        // the A's three branches would overstate what is actually known.
+        const curve = curves[0];
+        if (!curve) continue;
+
         const mesh = createTrainMesh(routeId, routeMap, scene);
         const t = Math.random();
         mesh.position.copy(curve.getPoint(t));
@@ -85,6 +91,15 @@ export function tickTrains(trainMeshes, delta) {
 // lies on it (within STATION_MATCH_RADIUS_M of the sampled curve). Built once
 // at scene-build time so live vehicle positions can be resolved by stopId
 // without per-frame geometry search.
+/**
+ * For each route, the t-parameter of every station on each of its curves.
+ *
+ * One map per curve rather than one per route: a branching route has stations
+ * that exist on one branch and not another, and a vehicle has to be placed on
+ * the branch it is actually running.
+ *
+ * @returns {Map<string, Map<string, number>[]>} index-aligned with lineCurves
+ */
 export function buildStationTByRoute(lineCurves, stations) {
     const SAMPLE_COUNT = 2000;
     const R = STATION_MATCH_RADIUS_M;
@@ -99,7 +114,9 @@ export function buildStationTByRoute(lineCurves, stations) {
         return { id: st.id, x, y };
     });
 
-    for (const [routeId, curve] of lineCurves) {
+    for (const [routeId, curves] of lineCurves) {
+      const perCurve = [];
+      for (const curve of curves ?? []) {
         // getPointAt(u) is arc-length-uniform (calls getUtoTmapping internally).
         // getSpacedPoints is t-uniform and gives uneven coverage on long routes.
         curve.arcLengthDivisions = SAMPLE_COUNT;
@@ -156,7 +173,10 @@ export function buildStationTByRoute(lineCurves, stations) {
             }
         }
 
-        stationTByRoute.set(routeId, stationT);
+        perCurve.push(stationT);
+      }
+
+      stationTByRoute.set(routeId, perCurve);
     }
 
     return stationTByRoute;
@@ -167,31 +187,57 @@ export function buildStationTByRoute(lineCurves, stations) {
 // "transfer hub" importance signal for station LOD (see main.js).
 export function countRoutesPerStation(stationTByRoute) {
     const counts = new Map();
-    for (const stationT of stationTByRoute.values()) {
-        for (const stationId of stationT.keys()) {
+    for (const perCurve of stationTByRoute.values()) {
+        // A station served by two branches of the same route is served by one
+        // route. Counting per curve would make Broadway Junction look like a
+        // bigger interchange than Times Sq.
+        const seen = new Set();
+        for (const stationT of perCurve) {
+            for (const stationId of stationT.keys()) seen.add(stationId);
+        }
+        for (const stationId of seen) {
             counts.set(stationId, (counts.get(stationId) ?? 0) + 1);
         }
     }
     return counts;
 }
 
-// Derives a t-position on the route curve for a live vehicle from its
-// stop-relative status. STOPPED_AT snaps exactly to the stop. Otherwise the
-// position is nudged backward from the target stop along the curve, with
-// direction determined empirically from the next predicted stop (rather than
-// assumed from the curve's arbitrary parameterization, which may not match
-// this trip's direction of travel). Returns null if the target stop can't be
-// resolved to a point on this route's curve.
-export function deriveVehicleT(vehicle, stationT) {
+// Derives which of a route's curves a live vehicle is on, and where along it,
+// from the vehicle's stop-relative status. STOPPED_AT snaps exactly to the
+// stop. Otherwise the position is nudged backward from the target stop along
+// the curve, with direction determined empirically from the next predicted stop
+// (rather than assumed from the curve's arbitrary parameterization, which may
+// not match this trip's direction of travel).
+//
+// Branch selection is what the curve index is for. A Rockaway-bound A and a
+// Lefferts-bound A share a route id and diverge at Rockaway Blvd, so the stop
+// the train is heading to is the only thing that says which track it is on.
+// Curves carrying both the target and the next stop are preferred, since a stop
+// shared by two branches (everything before the split) says nothing on its own.
+//
+// Returns { curveIndex, t }, or null if the target stop is on none of them.
+export function deriveVehicleT(vehicle, stationTs) {
     const targetId = normalizeStopId(vehicle.stopId);
+    const next = vehicle.stopTimeUpdate?.find(s => normalizeStopId(s.stopId) !== targetId);
+    const nextId = next ? normalizeStopId(next.stopId) : null;
+
+    let chosen = -1;
+    for (let i = 0; i < stationTs.length; i++) {
+        if (stationTs[i].get(targetId) == null) continue;
+        if (chosen === -1) chosen = i;
+        // A curve that knows where the train is going next describes this trip
+        // better than one that merely contains its current stop.
+        if (nextId != null && stationTs[i].get(nextId) != null) { chosen = i; break; }
+    }
+    if (chosen === -1) return null;
+
+    const stationT = stationTs[chosen];
     const targetT = stationT.get(targetId);
-    if (targetT == null) return null;
 
-    if (vehicle.currentStatus === VEHICLE_STATUS.STOPPED_AT) return targetT;
+    if (vehicle.currentStatus === VEHICLE_STATUS.STOPPED_AT) return { curveIndex: chosen, t: targetT };
 
-    const next = vehicle.stopTimeUpdate.find(s => normalizeStopId(s.stopId) !== targetId);
-    const nextT = next ? stationT.get(normalizeStopId(next.stopId)) : null;
-    if (nextT == null) return targetT;
+    const nextT = nextId != null ? stationT.get(nextId) : null;
+    if (nextT == null) return { curveIndex: chosen, t: targetT };
 
     const forwardSign = Math.sign(nextT - targetT) || 1;
     const span = Math.abs(nextT - targetT);
@@ -199,7 +245,7 @@ export function deriveVehicleT(vehicle, stationT) {
         ? INCOMING_FRACTION
         : IN_TRANSIT_FRACTION;
 
-    return Math.min(1, Math.max(0, targetT - forwardSign * fraction * span));
+    return { curveIndex: chosen, t: Math.min(1, Math.max(0, targetT - forwardSign * fraction * span)) };
 }
 
 // Syncs real-mode train meshes to the latest vehicle snapshot: updates
@@ -213,17 +259,20 @@ export function syncRealTrains(trainMeshes, vehicles, lineCurves, stationTByRout
     const now = performance.now();
 
     for (const vehicle of vehicles) {
-        const curve = lineCurves.get(vehicle.routeId);
-        const stationT = stationTByRoute.get(vehicle.routeId);
-        if (!curve || !stationT) continue;
+        const curves = lineCurves.get(vehicle.routeId);
+        const stationTs = stationTByRoute.get(vehicle.routeId);
+        if (!curves?.length || !stationTs?.length) continue;
 
-        const t = deriveVehicleT(vehicle, stationT);
-        if (t == null) continue;
+        const placed = deriveVehicleT(vehicle, stationTs);
+        if (placed == null) continue;
+
+        const curve = curves[placed.curveIndex];
+        if (!curve) continue;
 
         routesWithReal.add(vehicle.routeId);
         seenTripIds.add(vehicle.tripId);
 
-        const targetPos = curve.getPoint(t);
+        const targetPos = curve.getPoint(placed.t);
         let mesh = trainMeshes.find(m => m.userData.mode === 'real' && m.userData.tripId === vehicle.tripId);
 
         if (!mesh) {

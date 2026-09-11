@@ -40,20 +40,25 @@ describe('test fixtures', () => {
 });
 
 describe('buildStationTByRoute', () => {
-    const curves = new Map([['A', straightCurve(-5000, 5000)]]);
+    // A route's curves are an array — one per polyline — because a branching
+    // route is several curves. These fixtures use a single branch.
+    const curves = new Map([['A', [straightCurve(-5000, 5000)]]]);
+
+    /** The station-t map for a route's first curve. */
+    const tOf = (out, routeId) => out.get(routeId)[0];
 
     it('matches a station sitting on the curve', () => {
         const out = buildStationTByRoute(curves, [stationAt('on', 0, 0)]);
-        expect(out.get('A').has('on')).toBe(true);
+        expect(tOf(out, 'A').has('on')).toBe(true);
         // Mid-curve, so t is near the middle of the parameter range.
-        expect(out.get('A').get('on')).toBeCloseTo(0.5, 1);
+        expect(tOf(out, 'A').get('on')).toBeCloseTo(0.5, 1);
     });
 
     it('reports t increasing along the curve', () => {
         const out = buildStationTByRoute(curves, [
             stationAt('early', -4000, 0), stationAt('mid', 0, 0), stationAt('late', 4000, 0),
         ]);
-        const t = out.get('A');
+        const t = tOf(out, 'A');
         expect(t.get('early')).toBeLessThan(t.get('mid'));
         expect(t.get('mid')).toBeLessThan(t.get('late'));
     });
@@ -62,42 +67,62 @@ describe('buildStationTByRoute', () => {
     // a route at all, and every optimisation has to preserve it exactly.
     it('includes a station just inside the 150m match radius', () => {
         const out = buildStationTByRoute(curves, [stationAt('near', 0, 140)]);
-        expect(out.get('A').has('near')).toBe(true);
+        expect(tOf(out, 'A').has('near')).toBe(true);
     });
 
     it('excludes a station just outside it', () => {
         const out = buildStationTByRoute(curves, [stationAt('far', 0, 160)]);
-        expect(out.get('A').has('far')).toBe(false);
+        expect(tOf(out, 'A').has('far')).toBe(false);
     });
 
     it('excludes a station far from every curve', () => {
         const out = buildStationTByRoute(curves, [stationAt('elsewhere', 0, 9000)]);
-        expect(out.get('A').size).toBe(0);
+        expect(tOf(out, 'A').size).toBe(0);
     });
 
     it('excludes a station beyond the end of the curve', () => {
         const out = buildStationTByRoute(curves, [stationAt('past-end', 9000, 0)]);
-        expect(out.get('A').has('past-end')).toBe(false);
+        expect(tOf(out, 'A').has('past-end')).toBe(false);
     });
 
     it('lists a station on two routes in both', () => {
         const two = new Map([
-            ['A', straightCurve(-5000, 5000, 0)],
-            ['B', straightCurve(-5000, 5000, 100)],   // 100m away, inside the radius
+            ['A', [straightCurve(-5000, 5000, 0)]],
+            ['B', [straightCurve(-5000, 5000, 100)]],   // 100m away, inside the radius
         ]);
         const out = buildStationTByRoute(two, [stationAt('shared', 0, 50)]);
-        expect(out.get('A').has('shared')).toBe(true);
-        expect(out.get('B').has('shared')).toBe(true);
+        expect(tOf(out, 'A').has('shared')).toBe(true);
+        expect(tOf(out, 'B').has('shared')).toBe(true);
     });
 
     it('returns an entry for every route, even one with no stations', () => {
         const out = buildStationTByRoute(curves, [stationAt('elsewhere', 0, 9000)]);
         expect(out.has('A')).toBe(true);
-        expect(out.get('A').size).toBe(0);
+        expect(tOf(out, 'A').size).toBe(0);
+    });
+
+    it('keeps a branching route\'s curves separate', () => {
+        // The A's Rockaway and Lefferts branches share track to Rockaway Blvd
+        // and diverge after it. A station on one branch belongs to that curve
+        // only, which is what lets a vehicle be placed on the branch it is
+        // actually running.
+        const branching = new Map([['A', [
+            straightCurve(-5000, 5000, 0),
+            straightCurve(-5000, 5000, 4000),
+        ]]]);
+        const out = buildStationTByRoute(branching, [
+            stationAt('trunk', 0, 0), stationAt('branch', 0, 4000),
+        ]);
+
+        expect(out.get('A')).toHaveLength(2);
+        expect(out.get('A')[0].has('trunk')).toBe(true);
+        expect(out.get('A')[0].has('branch')).toBe(false);
+        expect(out.get('A')[1].has('branch')).toBe(true);
+        expect(out.get('A')[1].has('trunk')).toBe(false);
     });
 
     it('handles empty inputs', () => {
         expect(buildStationTByRoute(new Map(), []).size).toBe(0);
-        expect(buildStationTByRoute(curves, []).get('A').size).toBe(0);
+        expect(tOf(buildStationTByRoute(curves, []), 'A').size).toBe(0);
     });
 });

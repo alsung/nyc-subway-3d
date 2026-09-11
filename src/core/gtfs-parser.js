@@ -143,11 +143,27 @@ export function parseShapes(shapesText) {
     return shapes;
 }
 
+/**
+ * Route geometry, as one or more polylines per route.
+ *
+ * An array rather than a single polyline because a route with branches cannot
+ * be drawn as one line without either inventing track between the branches or
+ * dropping one of them. The A has Rockaway and Lefferts, the 5 has White Plains
+ * Rd, the 2 has Nostrand Av.
+ *
+ * This still selects a single shape — the longest — so the array holds exactly
+ * one entry and the map is unchanged. Everything downstream is written for the
+ * general case first, so that turning the selection into a real cover is a
+ * change to this function alone rather than to the whole scene layer.
+ *
+ * @param {string} tripsText
+ * @param {Record<string, {lat: number, lng: number}[]>} shapePoints
+ * @returns {Record<string, [number, number][][]>} routeId -> polylines
+ */
 export function parseTripsToRouteShapes(tripsText, shapePoints) {
-    // parseCSV -> rows
     const rows = parseCSV(tripsText);
 
-    // build routeToShapes: { [routeId]: Set of shapeIds }
+    // { [routeId]: Set of shapeIds }
     const routeToShapes = {};
     rows.forEach(r => {
         if (!r.route_id || !r.shape_id) return;
@@ -155,8 +171,6 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
         routeToShapes[r.route_id].add(r.shape_id);
     });
 
-    // for each route, find the shape with the most points
-    // return { [routeId]: [[lat, lng], ...] }
     const lineRoutes = {};
     for (const routeId in routeToShapes) {
         let bestShape = null;
@@ -169,7 +183,7 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
             }
         }
         if (bestShape) {
-            lineRoutes[routeId] = shapePoints[bestShape].map(p => [p.lat, p.lng]);
+            lineRoutes[routeId] = [shapePoints[bestShape].map(p => [p.lat, p.lng])];
         }
     }
     return lineRoutes;

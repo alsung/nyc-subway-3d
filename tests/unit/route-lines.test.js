@@ -16,7 +16,9 @@ describe('routeLineFeatures', () => {
     it('emits one feature per corridor segment, not per route', () => {
         const fc = routeLineFeatures(lineRoutes, corridors, routeMap);
         let segments = 0;
-        for (const segs of corridors.values()) segments += segs.length;
+        for (const perPolyline of corridors.values()) {
+            for (const segList of perPolyline) segments += segList.length;
+        }
 
         expect(fc.type).toBe('FeatureCollection');
         expect(fc.features).toHaveLength(segments);
@@ -35,7 +37,7 @@ describe('routeLineFeatures', () => {
     it('carries the rank of the segment it came from', () => {
         const fc = routeLineFeatures({ M: lineRoutes.M }, corridors, routeMap);
         expect(fc.features.map(f => f.properties.rank))
-            .toEqual(corridors.get('M').map(s => s.rank));
+            .toEqual(corridors.get('M').flat().map(s => s.rank));
     });
 
     it('writes GeoJSON lng/lat, not the lat/lng lineRoutes stores', () => {
@@ -46,13 +48,16 @@ describe('routeLineFeatures', () => {
     });
 
     it('reverses a flipped segment so positive ranks stay on one side', () => {
-        const routeId = [...corridors.keys()].find(id => corridors.get(id).some(s => s.flip));
-        const segment = corridors.get(routeId).find(s => s.flip);
-        const index = corridors.get(routeId).indexOf(segment);
+        const routeId = [...corridors.keys()].find(id => corridors.get(id).flat().some(s => s.flip));
+        const flat = corridors.get(routeId).flat();
+        const segment = flat.find(s => s.flip);
+        const index = flat.indexOf(segment);
 
         const fc = routeLineFeatures({ [routeId]: lineRoutes[routeId] }, corridors, routeMap);
         const first = fc.features[index].geometry.coordinates[0];
-        const [lat, lng] = lineRoutes[routeId][segment.to];
+        // Single-polyline routes today, so the flat index lines up with the
+        // feature order; both walk polylines then segments within them.
+        const [lat, lng] = lineRoutes[routeId][0][segment.to];
 
         expect(first).toEqual([lng, lat]);
     });
@@ -70,13 +75,15 @@ describe('routeLineFeatures', () => {
         const fc = routeLineFeatures({ A: lineRoutes.A }, new Map(), routeMap);
         expect(fc.features).toHaveLength(1);
         expect(fc.features[0].properties.rank).toBe(0);
-        expect(fc.features[0].geometry.coordinates).toHaveLength(lineRoutes.A.length);
+        expect(fc.features[0].geometry.coordinates).toHaveLength(lineRoutes.A[0].length);
     });
 
     it('survives missing or degenerate input', () => {
         expect(routeLineFeatures(null, corridors, routeMap).features).toEqual([]);
-        expect(routeLineFeatures({ A: [[40.7, -74]] }, corridors, routeMap).features).toEqual([]);
+        expect(routeLineFeatures({ A: [[[40.7, -74]]] }, corridors, routeMap).features).toEqual([]);
         expect(routeLineFeatures({ A: lineRoutes.A }, null, routeMap).features).toHaveLength(1);
+        // A route value that is not an array of polylines at all.
+        expect(routeLineFeatures({ A: null }, corridors, routeMap).features).toEqual([]);
     });
 
     it('shares a vertex between neighboring segments, so the ribbon has no gaps', () => {
@@ -84,7 +91,7 @@ describe('routeLineFeatures', () => {
         // features meet at a common vertex instead of leaving a hairline gap
         // where the rank changes.
         const fc = routeLineFeatures({ M: lineRoutes.M }, corridors, routeMap);
-        const segs = corridors.get('M');
+        const segs = corridors.get('M').flat();
         let checked = 0;
         for (let i = 1; i < segs.length; i++) {
             if (segs[i].flip || segs[i - 1].flip) continue;   // reversed, so the shared point is at the far end

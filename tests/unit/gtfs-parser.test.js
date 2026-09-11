@@ -233,7 +233,20 @@ describe('parseTripsToRouteShapes', () => {
             makeTrips('A,Weekday,trip1,A_LONG', 'A,Weekday,trip2,A_SHORT'),
             shapePoints,
         );
-        expect(result['A']).toHaveLength(3);
+        expect(result['A'][0]).toHaveLength(3);
+    });
+
+    it('returns one polyline per route, as an array', () => {
+        // A route with branches is several polylines. Only one is selected
+        // today, but every consumer is written for the general case so that
+        // changing the selection stays a change to this function alone.
+        const result = parseTripsToRouteShapes(
+            makeTrips('A,Weekday,trip1,A_LONG'),
+            shapePoints,
+        );
+        expect(Array.isArray(result['A'])).toBe(true);
+        expect(result['A']).toHaveLength(1);
+        expect(Array.isArray(result['A'][0])).toBe(true);
     });
 
     it('returns coordinates as [lat, lng] pairs', () => {
@@ -241,7 +254,7 @@ describe('parseTripsToRouteShapes', () => {
             makeTrips('G,Weekday,trip1,G_MAIN'),
             shapePoints,
         );
-        expect(result['G'][0]).toEqual([40.5, -73.9]);
+        expect(result['G'][0][0]).toEqual([40.5, -73.9]);
     });
 
     it('skips rows with missing route_id or shape_id', () => {
