@@ -225,10 +225,29 @@ describe('parseTripsToRouteShapes', () => {
         ],
         G_MAIN: [
             { lat: 40.5, lng: -73.9, seq: 1 },
+            { lat: 40.6, lng: -73.8, seq: 2 },
+        ],
+        // A trunk and a branch that diverge, both long enough to clear
+        // MIN_COVER_GAIN_CELLS. The gain is counted in occupied cells, so a
+        // two-point shape in new territory still earns nothing.
+        TRUNK: Array.from({ length: 20 }, (_, i) => ({
+            lat: 41.0 + i * 0.01, lng: -72.0, seq: i + 1,
+        })),
+        BRANCH: Array.from({ length: 16 }, (_, i) => ({
+            lat: 41.0 + i * 0.01, lng: -71.5, seq: i + 1,
+        })),
+        // Runs along TRUNK's first half, so it covers nothing new.
+        TRUNK_SHORT: Array.from({ length: 10 }, (_, i) => ({
+            lat: 41.0 + i * 0.01, lng: -72.0, seq: i + 1,
+        })),
+        // A shape too short to draw. Nothing downstream can render a single
+        // point, so it should not produce a polyline at all.
+        STUB: [
+            { lat: 40.7, lng: -73.7, seq: 1 },
         ],
     };
 
-    it('picks the shape with the most points for each route', () => {
+    it('starts from the shape with the most points', () => {
         const result = parseTripsToRouteShapes(
             makeTrips('A,Weekday,trip1,A_LONG', 'A,Weekday,trip2,A_SHORT'),
             shapePoints,
@@ -236,10 +255,7 @@ describe('parseTripsToRouteShapes', () => {
         expect(result['A'][0]).toHaveLength(3);
     });
 
-    it('returns one polyline per route, as an array', () => {
-        // A route with branches is several polylines. Only one is selected
-        // today, but every consumer is written for the general case so that
-        // changing the selection stays a change to this function alone.
+    it('returns polylines per route, as an array', () => {
         const result = parseTripsToRouteShapes(
             makeTrips('A,Weekday,trip1,A_LONG'),
             shapePoints,
@@ -247,6 +263,33 @@ describe('parseTripsToRouteShapes', () => {
         expect(Array.isArray(result['A'])).toBe(true);
         expect(result['A']).toHaveLength(1);
         expect(Array.isArray(result['A'][0])).toBe(true);
+    });
+
+    it('drops a short-turn that covers no new ground', () => {
+        // This is what stops every short-turn pattern in the feed from becoming
+        // its own overlapping polyline.
+        const result = parseTripsToRouteShapes(
+            makeTrips('A,Weekday,trip1,TRUNK', 'A,Weekday,trip2,TRUNK_SHORT'),
+            shapePoints,
+        );
+        expect(result['A']).toHaveLength(1);
+        expect(result['A'][0]).toHaveLength(20);
+    });
+
+    it('keeps a branch that goes somewhere the trunk does not', () => {
+        const result = parseTripsToRouteShapes(
+            makeTrips('A,Weekday,trip1,TRUNK', 'A,Weekday,trip2,BRANCH'),
+            shapePoints,
+        );
+        expect(result['A']).toHaveLength(2);
+        // Longest first, so the branch is second.
+        expect(result['A'][0]).toHaveLength(20);
+        expect(result['A'][1]).toHaveLength(16);
+    });
+
+    it('drops a shape too short to draw', () => {
+        const result = parseTripsToRouteShapes(makeTrips('S,Weekday,trip1,STUB'), shapePoints);
+        expect(result['S']).toBeUndefined();
     });
 
     it('returns coordinates as [lat, lng] pairs', () => {
@@ -274,7 +317,7 @@ describe('parseGTFS', () => {
     it('returns all expected keys', () => {
         const stops  = 'stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n127,Times Sq,40.755,-73.987,1,';
         const routes = 'route_id,route_short_name,route_long_name,route_color,route_text_color\n1,1,Broadway Local,EE352E,FFFFFF';
-        const shapes = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n1N04R,40.867,-73.925,1';
+        const shapes = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n1N04R,40.867,-73.925,1\n1N04R,40.855,-73.930,2';
         const trips  = 'route_id,service_id,trip_id,shape_id\n1,Weekday,trip1,1N04R';
 
         const result = parseGTFS(stops, routes, shapes, trips);
@@ -287,7 +330,7 @@ describe('parseGTFS', () => {
     it('wires parsers together correctly — station and route appear in output', () => {
         const stops  = 'stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n127,Times Sq,40.755,-73.987,1,';
         const routes = 'route_id,route_short_name,route_long_name,route_color,route_text_color\n1,1,Broadway Local,EE352E,FFFFFF';
-        const shapes = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n1N04R,40.867,-73.925,1';
+        const shapes = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n1N04R,40.867,-73.925,1\n1N04R,40.855,-73.930,2';
         const trips  = 'route_id,service_id,trip_id,shape_id\n1,Weekday,trip1,1N04R';
 
         const { stations, routeMap, lineRoutes } = parseGTFS(stops, routes, shapes, trips);

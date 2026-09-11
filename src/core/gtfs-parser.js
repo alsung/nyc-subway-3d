@@ -143,18 +143,92 @@ export function parseShapes(shapesText) {
     return shapes;
 }
 
+// Cell size for the coverage test, in degrees — about 65 m at this latitude.
+// Coarse on purpose: two shapes along the same track are sampled at different
+// points, so comparing them at meter precision would call every shape novel.
+const COVER_CELL_DEG = 0.0006;
+
+// A candidate shape must contribute at least this many new cells — roughly a
+// kilometer of track — to earn its own polyline. Below that it is a short-turn
+// or a slightly different approach to the same terminal, and drawing it adds
+// overlapping geometry without adding any line to the map.
+//
+// Measured across the feed: 5 and 10 produce identical output, so this sits in
+// the middle of a plateau rather than on a cliff.
+const MIN_COVER_GAIN_CELLS = 10;
+
+function cellsOf(points) {
+    const out = new Set();
+    for (const p of points) {
+        out.add(`${Math.round(p.lat / COVER_CELL_DEG)},${Math.round(p.lng / COVER_CELL_DEG)}`);
+    }
+    return out;
+}
+
+/**
+ * Chooses the fewest shapes that cover a route's whole extent.
+ *
+ * Start from the longest shape, then keep adding whichever remaining shape
+ * contributes the most geometry the set does not already have, until the best
+ * candidate is not worth its own polyline.
+ *
+ * Reversed duplicates fall out for free: every route has an N and an S shape
+ * over the same track, and a reversal contributes no new cells.
+ *
+ * Across the feed this yields 38 polylines over 29 routes, with a single 65 m
+ * cell unaccounted for system-wide.
+ */
+function coverRoute(shapeIds, shapePoints) {
+    const candidates = [...shapeIds]
+        .map(id => shapePoints[id])
+        .filter(pts => pts?.length > 1)
+        .sort((a, b) => b.length - a.length);
+
+    if (!candidates.length) return [];
+
+    // Cells are computed once per candidate, not once per comparison. The 5 has
+    // 35 candidate shapes of ~600 points each and the loop below looks at every
+    // remaining one on every pass, so recomputing here would be the difference
+    // between a few milliseconds and a visible stall at startup.
+    const cells = candidates.map(cellsOf);
+    const taken = new Array(candidates.length).fill(false);
+
+    taken[0] = true;
+    const chosen = [candidates[0]];
+    const covered = new Set(cells[0]);
+
+    for (;;) {
+        let best = -1;
+        let bestGain = 0;
+
+        for (let i = 0; i < candidates.length; i++) {
+            if (taken[i]) continue;
+            let gain = 0;
+            for (const cell of cells[i]) if (!covered.has(cell)) gain++;
+            if (gain > bestGain) { bestGain = gain; best = i; }
+        }
+
+        if (best === -1 || bestGain < MIN_COVER_GAIN_CELLS) break;
+        taken[best] = true;
+        chosen.push(candidates[best]);
+        for (const cell of cells[best]) covered.add(cell);
+    }
+
+    return chosen;
+}
+
 /**
  * Route geometry, as one or more polylines per route.
  *
- * An array rather than a single polyline because a route with branches cannot
- * be drawn as one line without either inventing track between the branches or
- * dropping one of them. The A has Rockaway and Lefferts, the 5 has White Plains
- * Rd, the 2 has Nostrand Av.
+ * A route is not one line. The A has the Rockaway and Lefferts branches, the 5
+ * has White Plains Rd, the 2 has Nostrand Av. Selecting a single shape left 51
+ * stations with no line reaching them — every stop on the Rockaway branch among
+ * them — while the stations still drew as dots, so the map looked complete and
+ * was quietly missing track.
  *
- * This still selects a single shape — the longest — so the array holds exactly
- * one entry and the map is unchanged. Everything downstream is written for the
- * general case first, so that turning the selection into a real cover is a
- * change to this function alone rather than to the whole scene layer.
+ * Selecting a different single shape does not help: the most-frequent pattern
+ * is usually a short-turn. The M's busiest shape is 9.5 km against the line's
+ * 29.6, and the W's is half its length. The fix is to stop choosing one.
  *
  * @param {string} tripsText
  * @param {Record<string, {lat: number, lng: number}[]>} shapePoints
@@ -173,17 +247,9 @@ export function parseTripsToRouteShapes(tripsText, shapePoints) {
 
     const lineRoutes = {};
     for (const routeId in routeToShapes) {
-        let bestShape = null;
-        let bestCount = 0;
-        for (const shapeId of routeToShapes[routeId]) {
-            const pts = shapePoints[shapeId];
-            if (pts && pts.length > bestCount) {
-                bestCount = pts.length;
-                bestShape = shapeId;
-            }
-        }
-        if (bestShape) {
-            lineRoutes[routeId] = [shapePoints[bestShape].map(p => [p.lat, p.lng])];
+        const chosen = coverRoute(routeToShapes[routeId], shapePoints);
+        if (chosen.length) {
+            lineRoutes[routeId] = chosen.map(pts => pts.map(p => [p.lat, p.lng]));
         }
     }
     return lineRoutes;

@@ -13,6 +13,15 @@ const corridors = buildCorridors(lineRoutes);
 const routeMap = Object.fromEntries(Object.keys(lineRoutes).map(id => [id, { color: '#111111' }]));
 
 describe('routeLineFeatures', () => {
+    it('draws every polyline of a branching route', () => {
+        // The A has Rockaway and Lefferts; before the cover it had one line and
+        // those branches were simply absent from the map.
+        expect(lineRoutes.A.length).toBeGreaterThan(1);
+        const fc = routeLineFeatures({ A: lineRoutes.A }, corridors, routeMap);
+        const segments = corridors.get('A').reduce((a, l) => a + l.length, 0);
+        expect(fc.features).toHaveLength(segments);
+    });
+
     it('emits one feature per corridor segment, not per route', () => {
         const fc = routeLineFeatures(lineRoutes, corridors, routeMap);
         let segments = 0;
@@ -48,16 +57,23 @@ describe('routeLineFeatures', () => {
     });
 
     it('reverses a flipped segment so positive ranks stay on one side', () => {
-        const routeId = [...corridors.keys()].find(id => corridors.get(id).flat().some(s => s.flip));
-        const flat = corridors.get(routeId).flat();
-        const segment = flat.find(s => s.flip);
-        const index = flat.indexOf(segment);
+        // Features are emitted polyline by polyline, then segment by segment
+        // within each, so the flat position of a segment is its feature index.
+        let found = null;
+        outer: for (const [routeId, perPolyline] of corridors) {
+            let featureIndex = 0;
+            for (let i = 0; i < perPolyline.length; i++) {
+                for (const segment of perPolyline[i]) {
+                    if (segment.flip) { found = { routeId, polyline: i, segment, featureIndex }; break outer; }
+                    featureIndex++;
+                }
+            }
+        }
+        expect(found).not.toBeNull();
 
-        const fc = routeLineFeatures({ [routeId]: lineRoutes[routeId] }, corridors, routeMap);
-        const first = fc.features[index].geometry.coordinates[0];
-        // Single-polyline routes today, so the flat index lines up with the
-        // feature order; both walk polylines then segments within them.
-        const [lat, lng] = lineRoutes[routeId][0][segment.to];
+        const fc = routeLineFeatures({ [found.routeId]: lineRoutes[found.routeId] }, corridors, routeMap);
+        const first = fc.features[found.featureIndex].geometry.coordinates[0];
+        const [lat, lng] = lineRoutes[found.routeId][found.polyline][found.segment.to];
 
         expect(first).toEqual([lng, lat]);
     });
@@ -73,15 +89,17 @@ describe('routeLineFeatures', () => {
     it('still draws a route the corridor index does not know', () => {
         // A missing entry should cost the line its strand, not its existence.
         const fc = routeLineFeatures({ A: lineRoutes.A }, new Map(), routeMap);
-        expect(fc.features).toHaveLength(1);
-        expect(fc.features[0].properties.rank).toBe(0);
+        // One feature per polyline — the A has branches — each undivided.
+        expect(fc.features).toHaveLength(lineRoutes.A.length);
+        for (const f of fc.features) expect(f.properties.rank).toBe(0);
         expect(fc.features[0].geometry.coordinates).toHaveLength(lineRoutes.A[0].length);
     });
 
     it('survives missing or degenerate input', () => {
         expect(routeLineFeatures(null, corridors, routeMap).features).toEqual([]);
         expect(routeLineFeatures({ A: [[[40.7, -74]]] }, corridors, routeMap).features).toEqual([]);
-        expect(routeLineFeatures({ A: lineRoutes.A }, null, routeMap).features).toHaveLength(1);
+        expect(routeLineFeatures({ A: lineRoutes.A }, null, routeMap).features)
+            .toHaveLength(lineRoutes.A.length);
         // A route value that is not an array of polylines at all.
         expect(routeLineFeatures({ A: null }, corridors, routeMap).features).toEqual([]);
     });
