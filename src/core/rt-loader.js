@@ -42,3 +42,13 @@ export async function fetchAlerts(includeUpcoming = false) {
     if (!res.ok) throw new Error(`alerts request failed: ${res.status}`);
     return res.json();
 }
+
+// Fetches itineraries between two stations. Station ids, not names — the search
+// box already yields station objects, so nothing here has to guess.
+// Returns { from, to, journeys: [...], feedAgeSeconds }.
+export async function fetchPlan(fromId, toId) {
+    const url = `${API_BASE}/api/plan?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`plan request failed: ${res.status}`);
+    return res.json();
+}
