@@ -59,26 +59,49 @@ export function buildLineMeshes(lineRoutes, routeMap, scene) {
     return { lineMeshes, lineCurves };
 }
 
+// How far a route recedes when something else is highlighted. Faint enough to
+// read as background, present enough that the network's shape survives.
+const DIMMED_OPACITY = 0.08;
+const DIMMED_LINE_OPACITY = 0.12;
+
 /**
- * Dims every route except one, for the popup's line highlight.
+ * Dims every route except the given ones, in **both** representations.
  *
- * Deliberately touches only the tubes. The highlight is driven by a station
- * popup, which is opened at close zoom where the flat line layer is already
- * hidden — so reaching it would be work with no visible effect. That stops being
- * true the moment anything highlights a route from the overview, which is
- * exactly what the trip planner will do: a selected itinerary has to read at
- * city zoom. Extend this then, rather than assuming it already works.
+ * This used to touch only the tubes, which was correct while the only caller was
+ * the station popup: that opens at close zoom, where the flat line layer is
+ * already hidden. The trip planner broke that assumption exactly as the old
+ * comment here predicted it would — an itinerary is framed at city zoom, where
+ * the tubes are hidden and the flat layer is the only thing drawn. Highlighting
+ * only the meshes produced no visible change at all.
+ *
+ * @param {Map<string, THREE.Mesh[]>} lineMeshes
+ * @param {string|string[]} routeIds
+ * @param {object} [map] Maplibre map; omit to leave the flat layer alone
  */
-export function highlightLine(lineMeshes, routeId) {
+export function highlightLine(lineMeshes, routeIds, map) {
+    const wanted = new Set(Array.isArray(routeIds) ? routeIds : [routeIds]);
+
     for (const [id, meshes] of lineMeshes) {
-        const opacity = id === routeId ? 1 : 0.08;
+        const opacity = wanted.has(id) ? 1 : DIMMED_OPACITY;
         for (const mesh of meshes) mesh.material.opacity = opacity;
     }
+
+    if (!map?.getLayer?.('route-lines')) return;
+    // Every feature carries routeId, from the corridor work — so the flat layer
+    // can be dimmed by expression without touching its geometry.
+    map.setPaintProperty('route-lines', 'line-opacity', [
+        'case',
+        ['in', ['get', 'routeId'], ['literal', [...wanted]]], 0.95,
+        DIMMED_LINE_OPACITY,
+    ]);
 }
 
-export function clearLineHighlight(lineMeshes) {
+export function clearLineHighlight(lineMeshes, map) {
     for (const meshes of lineMeshes.values()) {
         for (const mesh of meshes) mesh.material.opacity = 1;
+    }
+    if (map?.getLayer?.('route-lines')) {
+        map.setPaintProperty('route-lines', 'line-opacity', 0.95);
     }
 }
 

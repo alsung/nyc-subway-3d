@@ -1176,3 +1176,184 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .hidden {
     display: none;
 }
+
+/* ── Trip planner ─────────────────────────────────────────────────────────
+   Left-anchored rather than right, where the Lines and Status panels sit: an
+   itinerary is read alongside the route drawn on the map, and putting it
+   opposite the other panels means it never has to fight one for space. */
+#trip-panel {
+    position: absolute;
+    top: 68px;
+    left: 20px;
+    width: min(380px, calc(100vw - 40px));
+    max-height: calc(100vh - 110px);
+    display: flex;
+    flex-direction: column;
+    background: rgba(12, 15, 22, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    pointer-events: auto;
+    z-index: 30;
+    overflow: hidden;
+}
+
+#trip-panel.hidden { display: none; }
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 13px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.panel-title { font-size: 15px; font-weight: 650; color: #fff; }
+
+.panel-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    /* 44px of hit area without 44px of visible button — the target rule from
+       P6-6 applies to what a finger must find, not to what the eye sees.
+       Padding alone gave 32x40: the height came out right because the glyph is
+       tall, and the width did not because it is narrow. Both dimensions have to
+       be stated. */
+    min-width: 44px;
+    min-height: 44px;
+    margin: -12px -12px -12px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.panel-close:hover { color: #fff; }
+
+.trip-fields {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "from swap" "to swap";
+    gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.trip-field[data-role="from"] { grid-area: from; }
+.trip-field[data-role="to"] { grid-area: to; }
+
+/* The planner's own search boxes are inside the panel, so they size to it
+   rather than to the map's floating search bar. */
+.trip-field .search-wrapper { position: relative; width: 100%; }
+.trip-field .search-input { width: 100%; }
+
+.trip-swap {
+    grid-area: swap;
+    align-self: center;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    min-width: 44px;
+    min-height: 44px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.trip-swap:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+.trip-results { overflow-y: auto; padding: 6px 0; }
+
+.trip-message {
+    margin: 0;
+    padding: 14px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.trip-message--error { color: #ffb4a8; }
+
+.trip-journey { border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.trip-journey:last-child { border-bottom: none; }
+
+.trip-summary {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "bullets meta" "times times";
+    gap: 6px 10px;
+    width: 100%;
+    padding: 12px 14px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+}
+
+.trip-summary:hover { background: rgba(255, 255, 255, 0.05); }
+
+.trip-bullets { grid-area: bullets; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.trip-meta { grid-area: meta; font-size: 14px; font-weight: 650; color: #fff; white-space: nowrap; }
+.trip-times {
+    grid-area: times;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Marks an itinerary informed by live predictions. Earned rather than
+   decorative: most planners route on schedule alone, and a rider has no way to
+   tell the difference unless it is said. */
+.trip-live {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #4caf7d;
+    border: 1px solid rgba(76, 175, 125, 0.4);
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+
+.trip-legs { list-style: none; margin: 0; padding: 0 14px 12px 14px; }
+.trip-legs.hidden { display: none; }
+
+.trip-leg {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.trip-leg--walk { color: rgba(255, 255, 255, 0.5); font-style: italic; }
+/* Only the description span, not the route bullet — which is also a direct
+   span child, and was getting its own " · live" appended beneath it. */
+.trip-leg--live > span:last-child::after {
+    content: " · live";
+    color: #4caf7d;
+    font-style: normal;
+}
+
+@media (max-width: 620px) {
+    /* Bottom sheet, matching the alerts panel: on a phone the map is the point,
+       and a left-anchored panel would cover most of it. */
+    #trip-panel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        max-height: 70vh;
+        border-radius: 14px 14px 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+    }
+}

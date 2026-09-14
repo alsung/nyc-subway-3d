@@ -12,6 +12,7 @@ import { flyToStation, toggleView, currentOverride, attachAutoPitch } from './ui
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
+import { buildTripPlanner } from './ui/trip-planner.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
@@ -91,6 +92,8 @@ async function init() {
     // same station clicked on the map resolve to the same set. A station with
     // no entrance data simply clears the layer rather than leaving the previous
     // station's dots on screen.
+    const stationById = new Map(stations.map(st => [st.id, st]));
+
     const showEntrances = (station) => {
         const complexId = station ? complexOf.get(station.id) : null;
         setEntrancesFor(map, complexId ? entrancesByComplex.get(complexId) : null);
@@ -141,7 +144,7 @@ async function init() {
 
     const dismissPopup = () => {
         hidePopup(popup);
-        if (lineMeshes) clearLineHighlight(lineMeshes);
+        if (lineMeshes) clearLineHighlight(lineMeshes, map);
         setEntrancesFor(map, null);
         lastStation = null;
     };
@@ -163,7 +166,7 @@ async function init() {
     });
 
     const highlight = (routeId) => {
-        if (lineMeshes) highlightLine(lineMeshes, routeId);
+        if (lineMeshes) highlightLine(lineMeshes, routeId, map);
     };
 
     buildLinesPanel(
@@ -171,6 +174,36 @@ async function init() {
         (routeId, active) => {
             filterState.set(routeId, active);
             if (lineMeshes) setLineVisibility(lineMeshes, map, routeId, active);
+        },
+    );
+
+    buildTripPlanner(
+        document.getElementById('ui'), stations, routeMap, document.getElementById('btn-trip'),
+        {
+            // Frames the whole journey and dims everything it does not use.
+            // Deliberately flat: an itinerary spans the city, and pitch at that
+            // distance costs legibility for nothing — the same finding that put
+            // the overview on a flat camera in the first place.
+            onPlan: (journey) => {
+                if (lineMeshes) highlightLine(lineMeshes, journey.rides, map);
+
+                const coords = journey.legs
+                    .flatMap(leg => leg.stops ?? [leg.fromStop, leg.toStop])
+                    .map(id => stationById.get(String(id).replace(/[NS]$/, '')))
+                    .filter(Boolean)
+                    .map(st => [st.lng, st.lat]);
+                if (coords.length < 2) return;
+
+                const lngs = coords.map(c => c[0]);
+                const lats = coords.map(c => c[1]);
+                map.fitBounds(
+                    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+                    { padding: { top: 80, bottom: 80, left: 420, right: 80 }, pitch: 0, duration: 900 },
+                );
+            },
+            onClear: () => {
+                if (lineMeshes) clearLineHighlight(lineMeshes, map);
+            },
         },
     );
 
