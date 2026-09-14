@@ -1353,17 +1353,36 @@ now match a route.
 ## 15. Phase 8 — Trip Planner + Car Positioning
 
 ### Goal
-User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the 3D map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
+User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
+
+### Status — routing shipped, car positioning did not
+
+| PR | |
+|---|---|
+| #54 | Timetable loaded into memory — 218 patterns over 20,621 trips and 989 platforms, 9.9 MB retained |
+| #55 | RAPTOR — a Pareto set over arrival time and transfers |
+| #56 | `GET /api/plan` with a realtime overlay |
+| #57 | Fix: the overlay shipped doing nothing (see below) |
+| #58 | Search parameterised so a page can hold more than one box |
+| #59 | The trip planner UI |
+
+A rider can open the app, name two stations, and get an itinerary planned partly on live train predictions. Measured in production: 218 patterns, 20,621 trips, 989 platforms, 7 services, **881 ms** to build the timetable at startup and roughly **11 ms** per query.
+
+**What has not shipped from this phase's scope:**
+
+- **Car positioning.** No `car-positions.json`, no front/middle/back recommendation. The routing half turned out to be the whole of four PRs plus a fix, and car positioning is independent of it — it needs hand-assembled data about exits rather than anything in the GTFS feed.
+- **Direction in the turn-by-turn panel.** Legs name the line and the destination stop, not "uptown" or "Manhattan-bound". The station popup already resolves direction labels from MTA's editorial dataset, so this is reuse rather than new work.
 
 ### Scope
-- Extend the GTFS download to include `stop_times.txt`, `transfers.txt` and the calendar files
-- Implement RAPTOR in the Go API — time-dependent, bicriteria over arrival time and transfers
-- Use live GTFS-RT predictions inside the realtime horizon, scheduled times beyond it
-- Highlight route segments on the 3D map (selected lines brighten, others dim)
-- Fly camera to frame the route
-- Show turn-by-turn panel: line, direction, stops, transfer instructions
-- Recommend front/middle/back of train based on destination exit
-- Car positioning data stored as static JSON: `{ [stopId + direction]: { optimal_car, exit_name, notes } }`
+
+- ~~Extend the GTFS download to include `stop_times.txt`, `transfers.txt` and the calendar files~~ — done, parsed and discarded rather than served
+- ~~Implement RAPTOR in the Go API~~ — done, bicriteria over arrival time and transfers
+- ~~Use live GTFS-RT predictions inside the realtime horizon~~ — done, keyed on platform and route
+- ~~Highlight route segments on the map~~ — done, both representations
+- ~~Fly camera to frame the route~~ — done, flat
+- ~~Show turn-by-turn panel: line, stops, transfer instructions~~ — done, except direction
+- Recommend front/middle/back of train based on destination exit — **not built**
+- Car positioning data as static JSON — **not built**
 
 ### Key Implementation Notes
 
@@ -1420,21 +1439,33 @@ Routing additionally needs:
 | `transfers.txt` | small | station-to-station transfer rules and minimum times |
 | `calendar.txt`, `calendar_dates.txt` | small | which services run on which dates |
 
-**Measured, not assumed.** A Go prototype parsed the real feed into the compact
-representation and reported:
+**Measured, not assumed.** A Go prototype was written first; the shipped
+implementation was then measured on a developer machine and again in production:
 
-| | |
-|---|---|
-| parse time | **547 ms** for 565,093 stop-time rows |
-| pattern grouping | **32 ms** |
-| compact arrays | **10.8 MB** |
-| peak heap | **35.6 MB** |
-| trips / platforms / patterns | 20,621 / 989 / **218** |
+| | prototype | shipped, local | shipped, on Fly |
+|---|---|---|---|
+| build time | 547 ms | **227 ms** | **881 ms** |
+| retained | 10.8 MB | **9.9 MB** | — |
+| allocated during build | — | 270 MB | — |
+| trips / platforms / patterns | 20,621 / 989 / **218** | same | same |
 
 So the 512 MB machine is not a constraint, and the parse is a one-off cost at
-startup alongside the GTFS download the API already performs. **218 patterns is
-the number that matters for RAPTOR** — the algorithm scans routes per round, and
-218 is small enough that round count, not route count, will dominate.
+startup alongside the GTFS download the API already performs, comfortably inside
+the 30 s health-check grace period `fly.toml` already grants for it. **218
+patterns is the number that matters for RAPTOR** — the algorithm scans routes per
+round, and 218 is small enough that round count, not route count, dominates.
+Queries measure about 3 ms locally and 11 ms on Fly.
+
+**Fly runs roughly 3.4× slower than a developer machine** on this work — one
+shared CPU with `GOMAXPROCS=1`, also decoding eight protobuf feeds every 30
+seconds. Any timing measured locally should be read with that multiplier before
+anyone calls it acceptable.
+
+An earlier draft of this section reported a 92.6 MB "peak heap". That number was
+meaningless: reading `HeapAlloc` immediately after a build measures whether the
+collector happened to run, and the identical code reported 150.6 MB on the next
+run. Cumulative `TotalAlloc` is deterministic and reads 270 MB across repeated
+runs.
 
 The API already downloads and extracts the GTFS ZIP, keeping 4 of 10 files, so
 this extends existing machinery rather than adding a pipeline. The 34.8 MB of raw
@@ -1470,6 +1501,64 @@ so a delayed train produces a different itinerary, not just a different countdow
 Realtime covers only currently-active trips, roughly the next 30–60 minutes, so
 the design has to fall back to schedule beyond that horizon and be explicit in the
 UI about which is which.
+
+#### What production taught us
+
+Two bugs reached production. Neither errored, both returned answers that looked
+right, and both were found by probing behavior rather than by trusting a green
+deploy.
+
+**Every plan was nearly shifted four hours.** The timetable's times are seconds
+from local midnight in New York; the server runs UTC on Fly. Reading `time.Now()`
+directly would have offset every query by the UTC offset. It was invisible during
+development because a developer machine in New York already agrees with the feed,
+and it was caught only by asking what the *server's* clock would do. The fix is
+`feedLocation()`, plus embedding the timezone database in the binary — the
+runtime image is debian-slim and ships none, so `LoadLocation` would have failed
+in production and silently succeeded everywhere else.
+
+**The realtime overlay shipped doing nothing at all.** Same root cause, in the
+file written alongside the fix for the first one. `buildDepartureIndex` anchored
+midnight to the server's zone, so live predictions sat four hours from the
+schedule they were meant to correct, every computed delay exceeded the clamp that
+rejects implausible shifts, and every one was discarded. `/api/plan` kept
+returning correct-looking itineraries with every leg marked `scheduled` and a
+sixteen-second-old feed sitting unused.
+
+The lesson is not about timezones. Fixing the path in front of you rather than
+auditing every instance of the same conversion is what let the second bug exist.
+The audit is now recorded in `api/timezone.go`: three places in the package turn
+a wall clock into a service-day offset, and every other `time.Now()` measures a
+duration or compares epoch seconds, neither of which cares about the zone.
+
+Both are guarded by tests that construct both zones themselves rather than
+depending on the machine's, so CI's UTC runner exercises them.
+
+#### Two assumptions worth watching
+
+**Trips do not overtake within a service.** RAPTOR's inner loop binary-searches
+for the earliest catchable trip instead of scanning a pattern's trips, which is
+only correct if a later-departing trip never arrives earlier. Measured across the
+feed: **0 of 20,228 adjacent same-service pairs**.
+
+The same check *across* services reports 3,067 apparent overtakes, because a
+Saturday trip and a weekday trip share a pattern and never run on the same day.
+Trips are filtered by service before the scan for exactly this reason. Nothing in
+the repository watches whether a future feed breaks this — a weekly job asserting
+it would be cheap insurance, since the failure is silent and wrong rather than
+loud.
+
+**Live trip ids share no format with static ones.** Measured at **0% exact
+overlap** across 746 trip updates: the feed writes `070550_N..S34R` where
+`trips.txt` writes `BSP26GEN-R097-Weekday-00_070200_R..S71R`. A suffix join
+recovers 73.3% and leaves 22.5% with no static counterpart — the live-only
+reroute variants. That is why the departure index keys on `(platform, route)`
+rather than on trip: it needs no join and reaches every running train, at the
+cost of not knowing which scheduled trip a prediction describes.
+
+The consequence is honest but real: a train that falls behind *after* you board
+does not shift the rest of the journey. Every leg reports `realtime` or
+`scheduled` so the UI never implies precision it does not have.
 
 #### Alternatives considered
 
