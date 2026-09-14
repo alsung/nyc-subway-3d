@@ -104,4 +104,12 @@ func TestPlanEndpointLive(t *testing.T) {
 		}
 	}
 	t.Logf("legs using live predictions: %d of %d", realtimeLegs, totalLegs)
+
+	// At least one leg must be planned on live data. The overlay failing open —
+	// discarding every prediction and quietly returning schedule-only plans —
+	// is invisible otherwise, and is exactly how the departure index shipped
+	// four hours out of frame.
+	if realtimeLegs == 0 {
+		t.Error("no leg used a live prediction; the realtime overlay is doing nothing")
+	}
 }

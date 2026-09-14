@@ -40,7 +40,15 @@ func buildDepartureIndex(feeds []*gtfs.FeedMessage, now time.Time) *DepartureInd
 
 	// Seconds from the start of *today's* service day, so predictions land in
 	// the same frame as the timetable's scheduled times.
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	//
+	// Anchored to midnight in the feed's zone, not the server's. Fly runs UTC,
+	// so taking now.Location() put every prediction four hours away from the
+	// schedule it was meant to correct. Nothing failed: the difference exceeded
+	// the delay clamp, every shift was discarded, and the realtime overlay
+	// quietly did nothing while the endpoint kept returning correct-looking
+	// scheduled plans.
+	local := now.In(feedLocation())
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
 	horizon := now.Add(realtimeHorizon).Unix()
 
 	for _, feed := range feeds {
@@ -72,7 +80,7 @@ func buildDepartureIndex(feeds []*gtfs.FeedMessage, now time.Time) *DepartureInd
 				if epoch > horizon {
 					continue
 				}
-				secs := int32(time.Unix(epoch, 0).In(now.Location()).Sub(midnight).Seconds())
+				secs := int32(time.Unix(epoch, 0).Sub(midnight).Seconds())
 				if idx.byStop[stop] == nil {
 					idx.byStop[stop] = map[string][]int32{}
 				}

@@ -29,6 +29,11 @@ var (
 // summer, five in winter. The failure is invisible locally, since a developer
 // machine in New York already agrees with the feed, and only appears in
 // production.
+// Anything that turns a wall clock into a service-day offset must go through
+// here first. As of this writing that is secondsSinceMidnight and candidateDays
+// in raptor.go, both fed an already-converted time by Plan, and the midnight
+// anchor in departures.go. Every other time.Now() in the package measures a
+// duration or compares epoch seconds, and neither cares about the zone.
 func feedLocation() *time.Location {
 	feedLocOnce.Do(func() {
 		loc, err := time.LoadLocation(feedTimezone)
