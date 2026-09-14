@@ -191,6 +191,7 @@ func newMux() http.Handler {
 	mux.HandleFunc("GET /api/vehicles", handleVehicles)
 	mux.HandleFunc("GET /api/alerts", handleAlerts)
 	mux.HandleFunc("GET /api/alerts/summary", handleAlertsSummary)
+	mux.HandleFunc("GET /api/plan", handlePlan)
 
 	// /metrics is mounted outside both gzipMiddleware and metricsMiddleware.
 	// promhttp negotiates its own content encoding, so wrapping it in ours

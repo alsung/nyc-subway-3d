@@ -39,6 +39,7 @@ var (
 	feedsMu     sync.RWMutex
 	feedCache   = map[string]feedEntry{}
 	lastRefresh time.Time
+	departures  *DepartureIndex
 )
 
 var feedHTTPClient = &http.Client{Timeout: 20 * time.Second}
@@ -115,11 +116,27 @@ func refreshFeeds(ctx context.Context) {
 		ok++
 	}
 	lastRefresh = now
+	// Built once per refresh rather than once per request. Routing consults it
+	// on every pattern scan, and rebuilding it inside a query would cost more
+	// than the query itself.
+	all := make([]*gtfs.FeedMessage, 0, len(feedCache))
+	for _, e := range feedCache {
+		all = append(all, e.msg)
+	}
+	departures = buildDepartureIndex(all, now)
 	feedsMu.Unlock()
 
 	metricFeedLastRefresh.Set(float64(now.Unix()))
 
 	slog.Info("feeds refreshed", "ok", ok, "total", len(feedURLs))
+}
+
+// cachedDepartures returns the departure index built at the last refresh, or
+// nil before the first one completes.
+func cachedDepartures() *DepartureIndex {
+	feedsMu.RLock()
+	defer feedsMu.RUnlock()
+	return departures
 }
 
 // cachedFeeds returns a snapshot of the currently cached decoded feeds plus the
