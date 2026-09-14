@@ -3,32 +3,92 @@
 // Filters the full stations list on every keystroke and calls onSelect
 // when the user picks a result, so main.js can fly the camera and open the popup.
 
-// Creates the search input and results dropdown, appends them to container,
-// and wires up all input/keyboard/blur events internally.
-// onSelect(station) is called with the full station object on result click or Enter.
-//
-// The dropdown is an ARIA combobox driven by aria-activedescendant: arrow keys
-// move a highlight through the options while DOM focus stays in the input. The
-// alternative — moving real focus onto each <li> — would fire the input's blur
-// handler and collapse the list on the first ArrowDown.
-export function buildSearch(stations, container, onSelect) {
+// How many matches the dropdown shows. Enough to find what you meant, few
+// enough to scan without scrolling.
+export const MAX_RESULTS = 8;
+
+/**
+ * The stations whose name contains the query, case-insensitively.
+ *
+ * Separated from the DOM so the matching itself can be tested: everything else
+ * in this file is event wiring.
+ */
+export function filterStations(stations, query, limit = MAX_RESULTS) {
+    const q = String(query ?? '').trim().toLowerCase();
+    if (!q) return [];
+    return (stations ?? [])
+        .filter(s => s?.name?.toLowerCase().includes(q))
+        .slice(0, limit);
+}
+
+// Every instance gets its own id namespace. Two search boxes on one page — the
+// map's and the trip planner's origin and destination fields — would otherwise
+// both claim id="search-results", and aria-controls would point at whichever
+// the browser resolved first. A duplicate id does not throw; it just quietly
+// aims a screen reader at the wrong list.
+let instanceCount = 0;
+
+/**
+ * The DOM ids one search instance owns.
+ *
+ * Exported so the uniqueness can be asserted without a DOM.
+ */
+export function idsFor(prefix) {
+    return {
+        listbox: `${prefix}-results`,
+        option: (i) => `${prefix}-result-${i}`,
+    };
+}
+
+/**
+ * Creates the search input and results dropdown, appends them to container,
+ * and wires up all input/keyboard/blur events internally.
+ *
+ * onSelect(station) is called with the full station object on result click or
+ * Enter.
+ *
+ * The dropdown is an ARIA combobox driven by aria-activedescendant: arrow keys
+ * move a highlight through the options while DOM focus stays in the input. The
+ * alternative — moving real focus onto each <li> — would fire the input's blur
+ * handler and collapse the list on the first ArrowDown.
+ *
+ * @param {object[]} stations
+ * @param {HTMLElement} container
+ * @param {(station: object) => void} onSelect
+ * @param {{idPrefix?: string, placeholder?: string, ariaLabel?: string,
+ *          clearOnSelect?: boolean}} [options]
+ * @returns {{input: HTMLInputElement, wrapper: HTMLElement,
+ *            setValue: (text: string) => void, clear: () => void}}
+ */
+export function buildSearch(stations, container, onSelect, options = {}) {
+    const {
+        idPrefix = `search-${++instanceCount}`,
+        placeholder = 'Search stations...',
+        ariaLabel = 'Station results',
+        // The map's search empties itself after a pick, because the query was a
+        // means to an end. A trip planner field is the opposite: the chosen
+        // station is the value, and clearing it would erase what you just set.
+        clearOnSelect = true,
+    } = options;
+    const ids = idsFor(idPrefix);
+
     const wrapper = document.createElement('div');
     wrapper.className = 'search-wrapper';
 
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'search-input';
-    input.placeholder = 'Search stations...';
+    input.placeholder = placeholder;
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
     input.setAttribute('aria-expanded', 'false');
-    input.setAttribute('aria-controls', 'search-results');
+    input.setAttribute('aria-controls', ids.listbox);
 
     const results = document.createElement('ul');
     results.className = 'search-results hidden';
-    results.id = 'search-results';
+    results.id = ids.listbox;
     results.setAttribute('role', 'listbox');
-    results.setAttribute('aria-label', 'Station results');
+    results.setAttribute('aria-label', ariaLabel);
 
     wrapper.appendChild(input);
     wrapper.appendChild(results);
@@ -72,7 +132,7 @@ export function buildSearch(stations, container, onSelect) {
     }
 
     function select(station) {
-        input.value = '';
+        input.value = clearOnSelect ? '' : station.name;
         closeResults();
         onSelect(station);
     }
@@ -87,10 +147,7 @@ export function buildSearch(stations, container, onSelect) {
             return;
         }
 
-        const q = query.toLowerCase();
-        matches = stations
-            .filter(s => s.name.toLowerCase().includes(q))
-            .slice(0, 8);
+        matches = filterStations(stations, query);
 
         if (matches.length === 0) {
             closeResults();
@@ -100,7 +157,7 @@ export function buildSearch(stations, container, onSelect) {
         matches.forEach((station, i) => {
             const li = document.createElement('li');
             li.className = 'search-result';
-            li.id = `search-result-${i}`;
+            li.id = ids.option(i);
             li.setAttribute('role', 'option');
             li.setAttribute('aria-selected', 'false');
             li.textContent = station.name;
@@ -155,4 +212,17 @@ export function buildSearch(stations, container, onSelect) {
                 break;
         }
     });
+
+    return {
+        input,
+        wrapper,
+        setValue(text) {
+            input.value = text ?? '';
+            closeResults();
+        },
+        clear() {
+            input.value = '';
+            closeResults();
+        },
+    };
 }
