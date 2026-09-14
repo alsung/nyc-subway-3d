@@ -30,6 +30,12 @@ type Timetable struct {
 	// transfers.txt, which is written in parent stations.
 	Transfers [][]Transfer
 
+	// For each stop, the patterns that serve it and where in each pattern it
+	// sits. RAPTOR's round loop starts from "which patterns touch a stop I
+	// improved last round", so without this index every round would scan all
+	// 218 patterns looking for one.
+	StopPatterns [][]PatternStop
+
 	// Which service ids run on which dates.
 	Services map[string]Service
 }
@@ -48,6 +54,12 @@ type Trip struct {
 	ServiceID  string
 	Arrivals   []int32
 	Departures []int32
+}
+
+// A pattern passing through a stop, and the stop's position along it.
+type PatternStop struct {
+	Pattern int // index into Timetable.Patterns
+	Index   int // position within that pattern's Stops
 }
 
 // A walk between two platforms, in seconds.
@@ -466,10 +478,25 @@ func BuildTimetable(stopTimes, trips, transfers, calendar, calendarDates []byte)
 		return nil, err
 	}
 
-	return &Timetable{
+	tt := &Timetable{
 		Stops: stops, StopIndex: stopIndex,
 		Patterns: patterns, Transfers: tr, Services: svc,
-	}, nil
+	}
+	tt.buildStopPatterns()
+	return tt, nil
+}
+
+// buildStopPatterns inverts Patterns into a stop -> patterns index.
+//
+// A stop can appear more than once in one pattern (the feed has none today, but
+// a loop route would), so every occurrence gets an entry rather than the first.
+func (t *Timetable) buildStopPatterns() {
+	t.StopPatterns = make([][]PatternStop, len(t.Stops))
+	for pi := range t.Patterns {
+		for si, stop := range t.Patterns[pi].Stops {
+			t.StopPatterns[stop] = append(t.StopPatterns[stop], PatternStop{Pattern: pi, Index: si})
+		}
+	}
 }
 
 // TripCount is the number of trips across every pattern.
