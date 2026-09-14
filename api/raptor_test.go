@@ -32,8 +32,16 @@ func toyTimetable(t *testing.T) *Timetable {
 }
 
 // A Wednesday, inside the toy calendar's date range.
+//
+// Built in the feed's zone, not the parser's default UTC. Planning reads the
+// query time in New York, so a naive UTC 10:15 is 06:15 to the timetable —
+// before the first train of the day, which is how this helper first gave the
+// wrong answer.
 func at(hhmm string) time.Time {
-	d, _ := time.Parse("2006-01-02 15:04", "2026-09-09 "+hhmm)
+	d, err := time.ParseInLocation("2006-01-02 15:04", "2026-09-09 "+hhmm, feedLocation())
+	if err != nil {
+		panic(err)
+	}
 	return d
 }
 
@@ -43,7 +51,7 @@ func hhmmss(secs int32) string {
 
 func TestPlanDirectRide(t *testing.T) {
 	tt := toyTimetable(t)
-	js := tt.Plan(PlanRequest{From: "A", To: "C", DepartAt: at("09:50")})
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: at("09:50")})
 	if len(js) == 0 {
 		t.Fatal("expected a journey")
 	}
@@ -66,7 +74,7 @@ func TestPlanWaitsForTheNextTrip(t *testing.T) {
 	// Arriving after the 10:00 departure must catch the 10:30, not report the
 	// earlier train.
 	tt := toyTimetable(t)
-	js := tt.Plan(PlanRequest{From: "A", To: "C", DepartAt: at("10:15")})
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: at("10:15")})
 	if len(js) == 0 {
 		t.Fatal("expected a journey")
 	}
@@ -82,7 +90,7 @@ func TestPlanWaitsForTheNextTrip(t *testing.T) {
 
 func TestPlanTransfersAcrossAFootpath(t *testing.T) {
 	tt := toyTimetable(t)
-	js := tt.Plan(PlanRequest{From: "A", To: "E", DepartAt: at("09:50")})
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"E"}, DepartAt: at("09:50")})
 	if len(js) == 0 {
 		t.Fatal("expected a journey from A to E")
 	}
@@ -116,7 +124,7 @@ func TestPlanRespectsTransferTime(t *testing.T) {
 	// earliest boardable Y is the 10:12. A zero-cost transfer would be a lie
 	// riders notice the first time they miss a train because of it.
 	tt := toyTimetable(t)
-	js := tt.Plan(PlanRequest{From: "A", To: "E", DepartAt: at("09:50")})
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"E"}, DepartAt: at("09:50")})
 	if len(js) == 0 {
 		t.Fatal("expected a journey")
 	}
@@ -129,13 +137,13 @@ func TestPlanRespectsTransferTime(t *testing.T) {
 
 func TestPlanUnknownOrIdenticalStops(t *testing.T) {
 	tt := toyTimetable(t)
-	if js := tt.Plan(PlanRequest{From: "A", To: "ZZ", DepartAt: at("10:00")}); js != nil {
+	if js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"ZZ"}, DepartAt: at("10:00")}); js != nil {
 		t.Error("unknown destination should yield no journey")
 	}
-	if js := tt.Plan(PlanRequest{From: "ZZ", To: "C", DepartAt: at("10:00")}); js != nil {
+	if js := tt.Plan(PlanRequest{From: []string{"ZZ"}, To: []string{"C"}, DepartAt: at("10:00")}); js != nil {
 		t.Error("unknown origin should yield no journey")
 	}
-	if js := tt.Plan(PlanRequest{From: "A", To: "A", DepartAt: at("10:00")}); js != nil {
+	if js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"A"}, DepartAt: at("10:00")}); js != nil {
 		t.Error("origin equal to destination should yield no journey")
 	}
 }
@@ -143,8 +151,8 @@ func TestPlanUnknownOrIdenticalStops(t *testing.T) {
 func TestPlanNoServiceOnThatDay(t *testing.T) {
 	tt := toyTimetable(t)
 	// A Saturday: the toy calendar runs weekdays only.
-	sat, _ := time.Parse("2006-01-02 15:04", "2026-09-12 09:50")
-	if js := tt.Plan(PlanRequest{From: "A", To: "C", DepartAt: sat}); len(js) != 0 {
+	sat, _ := time.ParseInLocation("2006-01-02 15:04", "2026-09-12 09:50", feedLocation())
+	if js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: sat}); len(js) != 0 {
 		t.Errorf("expected no service on a Saturday, got %d journeys", len(js))
 	}
 }
@@ -172,5 +180,71 @@ func TestStopPatternsIndex(t *testing.T) {
 	}
 	if tt.StopPatterns[b][0].Index != 1 {
 		t.Errorf("B is the second stop of route X; got index %d", tt.StopPatterns[b][0].Index)
+	}
+}
+
+// ── timezone ────────────────────────────────────────────────────────────────
+
+func TestPlanReadsTheQueryInTheFeedsZone(t *testing.T) {
+	// The server runs in UTC on Fly; the timetable is in New York. Planning has
+	// to convert, or every query shifts by the UTC offset — four hours in
+	// summer, five in winter. The bug is invisible on a developer machine in
+	// New York, which already agrees with the feed, and appears only in
+	// production.
+	tt := toyTimetable(t)
+
+	// 09:50 in New York, expressed as the same instant in UTC.
+	ny := at("09:50")
+	utc := ny.UTC()
+	if ny.Hour() == utc.Hour() {
+		t.Skip("this machine runs on UTC; the conversion cannot be observed here")
+	}
+
+	fromNY := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: ny})
+	fromUTC := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: utc})
+
+	if len(fromNY) == 0 || len(fromUTC) == 0 {
+		t.Fatal("expected a journey from both representations of the same instant")
+	}
+	if fromNY[0].ArriveSecs != fromUTC[0].ArriveSecs {
+		t.Errorf("the same instant gave different plans: %s vs %s",
+			hhmmss(fromNY[0].ArriveSecs), hhmmss(fromUTC[0].ArriveSecs))
+	}
+}
+
+// ── journey shape ───────────────────────────────────────────────────────────
+
+func TestWalkLegsCarryADepartureTime(t *testing.T) {
+	// A walk with no departure time made a journey beginning with one report
+	// its duration as the time of day — 809 minutes for a four-minute ride,
+	// because the arrival was divided against a zero departure.
+	tt := toyTimetable(t)
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"E"}, DepartAt: at("09:50")})
+	if len(js) == 0 {
+		t.Fatal("expected a journey")
+	}
+	j := js[len(js)-1]
+	for i, l := range j.Legs {
+		if l.IsTransfer && l.DepartSecs == 0 {
+			t.Errorf("leg %d is a walk with no departure time", i)
+		}
+		if l.ArriveSecs < l.DepartSecs {
+			t.Errorf("leg %d arrives before it departs", i)
+		}
+	}
+	if mins := (j.ArriveSecs - j.DepartSecs) / 60; mins <= 0 || mins > 120 {
+		t.Errorf("implausible duration: %d minutes", mins)
+	}
+}
+
+func TestJourneyDepartsWhenTheRiderBoards(t *testing.T) {
+	tt := toyTimetable(t)
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"C"}, DepartAt: at("09:50")})
+	if len(js) == 0 {
+		t.Fatal("expected a journey")
+	}
+	// Not 09:50, when the query was made — 10:00, when the train leaves.
+	if got := hhmmss(js[0].DepartSecs); got != "10:00:00" {
+		t.Errorf("expected to depart at 10:00:00, got %s", got)
 	}
 }

@@ -33,7 +33,7 @@ func TestPlanAgainstRealFeed(t *testing.T) {
 	}
 
 	// A Wednesday at 09:00.
-	depart, _ := time.Parse("2006-01-02 15:04", "2026-09-09 09:00")
+	depart, _ := time.ParseInLocation("2006-01-02 15:04", "2026-09-09 09:00", feedLocation())
 
 	cases := []struct {
 		name     string
@@ -50,7 +50,7 @@ func TestPlanAgainstRealFeed(t *testing.T) {
 	var total time.Duration
 	for _, c := range cases {
 		start := time.Now()
-		js := tt.Plan(PlanRequest{From: c.from, To: c.to, DepartAt: depart})
+		js := tt.Plan(PlanRequest{From: []string{c.from}, To: []string{c.to}, DepartAt: depart})
 		elapsed := time.Since(start)
 		total += elapsed
 

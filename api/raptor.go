@@ -43,6 +43,8 @@ type Leg struct {
 	Stops []string
 	// True when this leg is a walk rather than a ride.
 	IsTransfer bool
+	// True when a live prediction moved this leg's times off the schedule.
+	Realtime bool
 }
 
 // One complete journey.
@@ -63,15 +65,24 @@ type label struct {
 	tripIndex  int
 	boardStop  int
 	isTransfer bool
+	shift      int32 // seconds the boarded trip is running late, 0 when scheduled
 	set        bool
 }
 
 // PlanRequest is one origin-to-destination query.
 type PlanRequest struct {
-	From      string    // platform stop id
-	To        string    // platform stop id
-	DepartAt  time.Time // wall clock, in the feed's local zone
-	MaxRounds int       // 0 uses MaxRounds
+	// Platform stop ids. Several of each, because a rider names a station and
+	// a station is several platforms: "Times Sq" is 127N and 127S, and which
+	// one you want depends on where you are going. RAPTOR takes multiple
+	// origins natively — they are just several initial labels.
+	From     []string
+	To       []string
+	DepartAt time.Time // wall clock, in the feed's local zone
+
+	MaxRounds int // 0 uses MaxRounds
+
+	// Live predictions, or nil to plan on the schedule alone.
+	Realtime *DepartureIndex
 }
 
 // serviceDay is one candidate day a journey could belong to, with the offset
@@ -97,6 +108,8 @@ func candidateDays(at time.Time) []serviceDay {
 }
 
 // secondsSinceMidnight of the query time, in its own service day's frame.
+//
+// Takes the time in the feed's zone. The caller converts; see feedLocation.
 func secondsSinceMidnight(at time.Time) int32 {
 	return int32(at.Hour()*3600 + at.Minute()*60 + at.Second())
 }
@@ -136,21 +149,31 @@ func (t *Timetable) earliestTrip(pattern int, index int, after int32, day servic
 // "fewest changes" are different answers, and a rider wants to choose between
 // them rather than be handed one.
 func (t *Timetable) Plan(req PlanRequest) []Journey {
-	from, ok := t.StopIndex[req.From]
-	if !ok {
+	origins := t.resolve(req.From)
+	targets := t.resolve(req.To)
+	if len(origins) == 0 || len(targets) == 0 {
 		return nil
 	}
-	to, ok := t.StopIndex[req.To]
-	if !ok || from == to {
-		return nil
+	isTarget := map[int]bool{}
+	for _, s := range targets {
+		isTarget[s] = true
+	}
+	for _, s := range origins {
+		if isTarget[s] {
+			return nil // already there
+		}
 	}
 
 	rounds := req.MaxRounds
 	if rounds <= 0 {
 		rounds = MaxRounds
 	}
-	depart := secondsSinceMidnight(req.DepartAt)
-	days := candidateDays(req.DepartAt)
+	// The feed's times are seconds from local midnight in New York, so the
+	// query has to be read in that zone regardless of where the server runs —
+	// Fly runs UTC, which would shift every plan by four or five hours.
+	at := req.DepartAt.In(feedLocation())
+	depart := secondsSinceMidnight(at)
+	days := candidateDays(at)
 
 	n := len(t.Stops)
 	// best[k][stop] — arrival using at most k trips. best[0] is walking only.
@@ -167,17 +190,22 @@ func (t *Timetable) Plan(req PlanRequest) []Journey {
 		starBest[i] = maxInt32
 	}
 
-	best[0][from] = label{arrival: depart, fromStop: -1, pattern: -1, set: true}
-	starBest[from] = depart
-	marked := map[int]bool{from: true}
+	marked := map[int]bool{}
+	for _, origin := range origins {
+		best[0][origin] = label{arrival: depart, fromStop: -1, pattern: -1, set: true}
+		starBest[origin] = depart
+		marked[origin] = true
+	}
 
-	// Walking from the origin before boarding anything.
-	for _, f := range t.Transfers[from] {
-		arr := depart + int32(f.Seconds)
-		if arr < starBest[f.To] {
-			best[0][f.To] = label{arrival: arr, fromStop: from, pattern: -1, isTransfer: true, set: true}
-			starBest[f.To] = arr
-			marked[f.To] = true
+	// Walking from the origin platforms before boarding anything.
+	for _, origin := range origins {
+		for _, f := range t.Transfers[origin] {
+			arr := depart + int32(f.Seconds)
+			if arr < starBest[f.To] {
+				best[0][f.To] = label{arrival: arr, fromStop: origin, pattern: -1, isTransfer: true, set: true}
+				starBest[f.To] = arr
+				marked[f.To] = true
+			}
 		}
 	}
 
@@ -206,16 +234,20 @@ func (t *Timetable) Plan(req PlanRequest) []Journey {
 			for _, day := range days {
 				trip := -1
 				boardIdx := -1
+				// Seconds this trip is running late, observed once where it was
+				// boarded and carried through the leg. See realtimeShift.
+				shift := int32(0)
 
 				for i := startIdx; i < len(p.Stops); i++ {
 					stop := p.Stops[i]
 
 					if trip >= 0 {
-						arr := p.Trips[trip].Arrivals[i] + day.offset
+						arr := p.Trips[trip].Arrivals[i] + day.offset + shift
 						if arr < starBest[stop] && arr < best[k][stop].arrival {
 							best[k][stop] = label{
 								arrival: arr, fromStop: p.Stops[boardIdx],
-								pattern: pattern, tripIndex: trip, boardStop: boardIdx, set: true,
+								pattern: pattern, tripIndex: trip, boardStop: boardIdx,
+								shift: shift, set: true,
 							}
 							starBest[stop] = arr
 							nextMarked[stop] = true
@@ -228,10 +260,11 @@ func (t *Timetable) Plan(req PlanRequest) []Journey {
 					if !best[k-1][stop].set {
 						continue
 					}
-					if trip < 0 || ready <= p.Trips[trip].Departures[i]+day.offset {
+					if trip < 0 || ready <= p.Trips[trip].Departures[i]+day.offset+shift {
 						if cand := t.earliestTrip(pattern, i, ready, day); cand >= 0 {
 							if trip < 0 || cand != trip {
 								trip, boardIdx = cand, i
+								shift = t.realtimeShift(req.Realtime, p, cand, i, day)
 							}
 						}
 					}
@@ -256,8 +289,15 @@ func (t *Timetable) Plan(req PlanRequest) []Journey {
 
 		marked = nextMarked
 
-		if best[k][to].set && (len(results) == 0 || best[k][to].arrival < results[len(results)-1].ArriveSecs) {
-			if j := t.reconstruct(best, k, from, to, depart); j != nil {
+		// The best of the destination platforms this round.
+		bestTarget, bestArr := -1, maxInt32
+		for _, target := range targets {
+			if best[k][target].set && best[k][target].arrival < bestArr {
+				bestTarget, bestArr = target, best[k][target].arrival
+			}
+		}
+		if bestTarget >= 0 && (len(results) == 0 || bestArr < results[len(results)-1].ArriveSecs) {
+			if j := t.reconstruct(best, k, origins, bestTarget); j != nil {
 				results = append(results, *j)
 			}
 		}
@@ -267,23 +307,88 @@ func (t *Timetable) Plan(req PlanRequest) []Journey {
 
 const maxInt32 = int32(1<<31 - 1)
 
+// realtimeShift returns how many seconds late a trip is, judged from the live
+// prediction for its route at the stop it was boarded.
+//
+// The prediction is looked up by (platform, route) rather than by trip, because
+// live trip ids share no format with static ones — 0% exact overlap, and a
+// suffix join still leaves 22.5% of running trains unmatched. So this does not
+// know *which* scheduled trip a prediction describes; it takes the next
+// predicted departure of that route from that platform and treats the
+// difference from schedule as the delay.
+//
+// One observed delay, applied to the whole leg. That captures waiting for a
+// train that has not come, which is what dominates a journey. It does not
+// capture a train that falls behind *after* you board — for that, predictions
+// would have to be tied to trips, which this feed does not support today.
+//
+// Clamped: a prediction far from any scheduled departure is more likely a
+// mismatch than a two-hour delay, and acting on it would produce itineraries
+// that are confidently wrong.
+func (t *Timetable) realtimeShift(rt *DepartureIndex, p *Pattern, trip, index int, day serviceDay) int32 {
+	if rt == nil || day.offset != 0 {
+		return 0 // previous service day: predictions do not reach back there
+	}
+	scheduled := p.Trips[trip].Departures[index]
+	predicted, ok := rt.NextDeparture(t.Stops[p.Stops[index]], p.RouteID, scheduled-maxEarlySeconds)
+	if !ok {
+		return 0
+	}
+	shift := predicted - scheduled
+	if shift > maxShiftSeconds || shift < -maxEarlySeconds {
+		return 0
+	}
+	return shift
+}
+
+// A train may legitimately be a little early; beyond this a "prediction" is
+// almost certainly for a different train.
+const maxEarlySeconds = 120
+
+// Past this, treat the prediction as a mismatch rather than a delay. Twenty
+// minutes is already a severe subway delay; an hour is a bad join.
+const maxShiftSeconds = 20 * 60
+
+// resolve maps stop ids to indices, dropping any the timetable does not know.
+func (t *Timetable) resolve(ids []string) []int {
+	var out []int
+	for _, id := range ids {
+		if i, ok := t.StopIndex[id]; ok {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // reconstruct walks the labels backwards from the destination to build the
 // journey a rider actually reads.
-func (t *Timetable) reconstruct(best [][]label, k, from, to int, depart int32) *Journey {
+func (t *Timetable) reconstruct(best [][]label, k int, origins []int, to int) *Journey {
+	isOrigin := map[int]bool{}
+	for _, o := range origins {
+		isOrigin[o] = true
+	}
+
 	var legs []Leg
 	stop := to
 	round := k
 
-	for round >= 0 && stop != from {
+	for round >= 0 && !isOrigin[stop] {
 		l := best[round][stop]
 		if !l.set || l.fromStop < 0 {
 			break
 		}
 
 		if l.isTransfer {
+			// A walk departs when the rider reached the stop it starts from.
+			// Leaving this zero made a journey beginning with a walk report its
+			// departure as midnight, and its duration as the time of day.
+			departed := int32(0)
+			if prev := best[round][l.fromStop]; prev.set {
+				departed = prev.arrival
+			}
 			legs = append(legs, Leg{
 				FromStop: t.Stops[l.fromStop], ToStop: t.Stops[stop],
-				ArriveSecs: l.arrival, IsTransfer: true,
+				DepartSecs: departed, ArriveSecs: l.arrival, IsTransfer: true,
 			})
 			stop = l.fromStop
 			continue
@@ -307,19 +412,31 @@ func (t *Timetable) reconstruct(best [][]label, k, from, to int, depart int32) *
 			RouteID:    p.RouteID,
 			FromStop:   t.Stops[p.Stops[l.boardStop]],
 			ToStop:     t.Stops[stop],
-			DepartSecs: trip.Departures[l.boardStop],
-			ArriveSecs: trip.Arrivals[endIdx],
+			DepartSecs: trip.Departures[l.boardStop] + l.shift,
+			ArriveSecs: trip.Arrivals[endIdx] + l.shift,
 			Stops:      ridden,
+			Realtime:   l.shift != 0,
 		})
 		stop = p.Stops[l.boardStop]
 		round--
 	}
 
-	if stop != from || len(legs) == 0 {
+	if !isOrigin[stop] || len(legs) == 0 {
 		return nil
 	}
 	for i, j := 0, len(legs)-1; i < j; i, j = i+1, j-1 {
 		legs[i], legs[j] = legs[j], legs[i]
+	}
+
+	// Walking between two platforms of your own starting station is not a leg.
+	// The search seeds every platform of the origin, so it can reach a train via
+	// a footpath from a sibling platform; the rider simply walks into the right
+	// entrance and would find "walk from 127N to 127S" baffling.
+	for len(legs) > 0 && legs[0].IsTransfer && isOrigin[t.StopIndex[legs[0].ToStop]] {
+		legs = legs[1:]
+	}
+	if len(legs) == 0 {
+		return nil
 	}
 
 	rides := 0
@@ -328,9 +445,19 @@ func (t *Timetable) reconstruct(best [][]label, k, from, to int, depart int32) *
 			rides++
 		}
 	}
+	// The journey departs when the rider boards, not when they start walking to
+	// a platform they are already standing in.
+	depart := legs[0].DepartSecs
+	for _, l := range legs {
+		if !l.IsTransfer {
+			depart = l.DepartSecs
+			break
+		}
+	}
+
 	return &Journey{
 		Legs:       legs,
-		DepartSecs: legs[0].DepartSecs,
+		DepartSecs: depart,
 		ArriveSecs: best[k][to].arrival,
 		Transfers:  rides - 1,
 	}
