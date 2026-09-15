@@ -8,6 +8,7 @@
 import { buildSearch } from './search.js';
 import { routeBullet } from './route-bullet.js';
 import { fetchPlan } from '../core/rt-loader.js';
+import { searchEntryLabel } from '../core/station-meta.js';
 import {
     normalizePlan, formatClock, formatDuration, formatTransfers, describeLeg,
 } from '../core/plan.js';
@@ -16,12 +17,13 @@ import {
  * Builds the trip planner panel.
  *
  * @param {HTMLElement} container
- * @param {object[]} stations
+ * @param {object[]} entries station complexes, for the two search boxes
+ * @param {object[]} stations GTFS stations, for naming stops in leg text
  * @param {object} routeMap
  * @param {HTMLElement} toggleButton
  * @param {{onPlan: (journey, stations) => void, onClear: () => void}} handlers
  */
-export function buildTripPlanner(container, stations, routeMap, toggleButton, handlers = {}) {
+export function buildTripPlanner(container, entries, stations, routeMap, toggleButton, handlers = {}) {
     const nameById = new Map(stations.map(s => [s.id, s.name]));
     // Platform ids come back from the API (127N); the rider knows the station.
     const nameOf = (stopId) => nameById.get(stopId)
@@ -51,13 +53,15 @@ export function buildTripPlanner(container, stations, routeMap, toggleButton, ha
     let from = null;
     let to = null;
 
-    const fromSearch = buildSearch(stations, panel.querySelector('[data-role="from"]'),
+    const fromSearch = buildSearch(entries, panel.querySelector('[data-role="from"]'),
         (station) => { from = station; plan(); },
-        { idPrefix: 'trip-from', placeholder: 'From station…', ariaLabel: 'Origin results', clearOnSelect: false });
+        { idPrefix: 'trip-from', placeholder: 'From station…', ariaLabel: 'Origin results',
+          clearOnSelect: false, routeMap, labelFor: searchEntryLabel });
 
-    const toSearch = buildSearch(stations, panel.querySelector('[data-role="to"]'),
+    const toSearch = buildSearch(entries, panel.querySelector('[data-role="to"]'),
         (station) => { to = station; plan(); },
-        { idPrefix: 'trip-to', placeholder: 'To station…', ariaLabel: 'Destination results', clearOnSelect: false });
+        { idPrefix: 'trip-to', placeholder: 'To station…', ariaLabel: 'Destination results',
+          clearOnSelect: false, routeMap, labelFor: searchEntryLabel });
 
     function message(text, tone = '') {
         results.innerHTML = '';
@@ -130,6 +134,9 @@ export function buildTripPlanner(container, stations, routeMap, toggleButton, ha
         return row;
     }
 
+    // Every GTFS station in a complex, as the API's comma-separated list.
+    const stopsOf = (entry) => (entry?.stationIds?.length ? entry.stationIds : [entry.id]).join(',');
+
     async function plan() {
         if (!from || !to) return;
         if (from.id === to.id) {
@@ -139,7 +146,11 @@ export function buildTripPlanner(container, stations, routeMap, toggleButton, ha
         message('Planning…');
 
         try {
-            const raw = await fetchPlan(from.id, to.id);
+            // Every platform group of the complex, not just the first. Planning
+            // from Times Sq's 1/2/3 platform alone returns 14 min via the E,
+            // where the whole complex finds 13 via the Q — the rider picked the
+            // station, so the router should see all of it.
+            const raw = await fetchPlan(stopsOf(from), stopsOf(to));
             const { journeys } = normalizePlan(raw);
             results.innerHTML = '';
 

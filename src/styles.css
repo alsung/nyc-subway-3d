@@ -1357,3 +1357,69 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         border-bottom: none;
     }
 }
+
+/* ── Search result rows ───────────────────────────────────────────────────
+   Two lines: the station name, then the lines it serves and its borough.
+   Search lists complexes rather than GTFS stations, so "Times Sq-42 St" is one
+   row instead of four — but 55 names are still duplicated afterwards, and
+   borough resolves only nine of them. Four different 125 Sts are all in
+   Manhattan and are told apart only by their bullets. */
+.search-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.search-row-name {
+    /* A long complex name should not push the bullets out of the row. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-row-detail {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.search-row-bullets {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow: hidden;
+}
+
+/* Smaller than the popup's bullets: twelve of them share a 330px dropdown with
+   a station name, and at full size they would outweigh it. */
+.search-row-bullets .alert-bullet {
+    width: 15px;
+    height: 15px;
+    font-size: 9px;
+    flex: 0 0 auto;
+}
+
+.search-row-bullets .alert-bullet--wide {
+    width: auto;
+    min-width: 15px;
+    padding: 0 3px;
+}
+
+.search-row-more {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    padding-left: 2px;
+    flex: 0 0 auto;
+}
+
+.search-row-borough {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+    flex: 0 0 auto;
+}

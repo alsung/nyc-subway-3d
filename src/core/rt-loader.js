@@ -43,8 +43,10 @@ export async function fetchAlerts(includeUpcoming = false) {
     return res.json();
 }
 
-// Fetches itineraries between two stations. Station ids, not names — the search
-// box already yields station objects, so nothing here has to guess.
+// Fetches itineraries between two stations. Takes station ids, not names — the
+// search box already yields station objects, so nothing here has to guess.
+// Either argument may be a comma-separated list, which is how a complex asks the
+// router to consider all of its platform groups.
 // Returns { from, to, journeys: [...], feedAgeSeconds }.
 export async function fetchPlan(fromId, toId) {
     const url = `${API_BASE}/api/plan?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`;

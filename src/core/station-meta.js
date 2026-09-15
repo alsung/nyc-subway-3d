@@ -9,6 +9,7 @@
 // derived from coordinates either: Inwood-207 St sits north and east of Bronx
 // stations, since the border is the Harlem River rather than a latitude.
 
+import { TRUNKS } from './trunks.js';
 const BOROUGH_NAME = {
     M:  'Manhattan',
     Bk: 'Brooklyn',
@@ -137,4 +138,98 @@ export function complexIdIndex(meta) {
 /** Human-readable borough for a station, or '' when unknown. */
 export function boroughName(meta, stopId) {
     return BOROUGH_NAME[meta?.get(stopId)?.borough] ?? '';
+}
+
+/**
+ * The rows the search box lists: one per station complex, not one per GTFS
+ * station.
+ *
+ * Search previously listed all 496 GTFS stations, which put four identical
+ * "Times Sq-42 St" rows in the dropdown — one per platform group in the
+ * complex. Collapsing to complexes cuts that to 445 rows and makes Times Sq a
+ * single result.
+ *
+ * That alone is not enough. 55 names are still duplicated afterwards, and
+ * borough resolves only 9 of them: four different 125 Sts are all in Manhattan,
+ * distinguishable only as [1], [2 3], [4 5 6] and [A B C D]. So each row also
+ * carries the routes it serves, which is what a rider actually recognises — the
+ * same thing MTA's own app uses, where two "34 St-Penn Station" labels are told
+ * apart by their bullets and no borough appears at all.
+ *
+ * Borough still earns its place: 36 St is Queens [M R] and Brooklyn [D N R],
+ * and both carry the R, so the bullets alone are ambiguous there.
+ *
+ * Routes are ordered by trunk rather than alphabetically, so Times Sq reads
+ * A C E · N Q R W · 1 2 3 · 7 · S the way the bullets are grouped on a station
+ * sign.
+ *
+ * @param {{name: string, lat: number, lng: number, stationIds: string[]}[]} complexes
+ * @param {Map<string, object>} meta from buildStationMeta
+ * @returns {{id: string, name: string, lat: number, lng: number,
+ *            stationIds: string[], routes: string[], borough: string}[]}
+ */
+export function buildSearchEntries(complexes, meta) {
+    return (complexes ?? []).map(complex => {
+        const ids = complex.stationIds ?? [];
+
+        const routes = new Set();
+        let borough = '';
+        for (const id of ids) {
+            const row = meta?.get(id);
+            if (!row) continue;
+            for (const route of row.routes ?? []) routes.add(route);
+            if (!borough) borough = BOROUGH_NAME[row.borough] ?? '';
+        }
+
+        return {
+            // The first member station. Everything downstream that expects a
+            // station id — the entrance lookup, the popup — resolves from it,
+            // and stationIds carries the rest.
+            id: ids[0] ?? '',
+            name: complex.name,
+            lat: complex.lat,
+            lng: complex.lng,
+            stationIds: ids,
+            routes: orderByTrunk([...routes]),
+            borough,
+        };
+    });
+}
+
+/**
+ * Route display names in trunk order.
+ *
+ * daytime_routes holds display names ("1", "FX" never appears), so this matches
+ * on those rather than on GTFS route ids. Anything the trunk table does not
+ * know sorts to the end rather than being dropped — an unfamiliar line should
+ * still show a bullet.
+ */
+function orderByTrunk(routes) {
+    const rank = new Map();
+    let i = 0;
+    for (const trunk of TRUNKS) {
+        for (const id of trunk.routeIds) {
+            if (!rank.has(id)) rank.set(id, i++);
+        }
+    }
+    return routes.sort((a, b) => {
+        const ra = rank.has(a) ? rank.get(a) : Number.MAX_SAFE_INTEGER;
+        const rb = rank.has(b) ? rank.get(b) : Number.MAX_SAFE_INTEGER;
+        return ra === rb ? a.localeCompare(b) : ra - rb;
+    });
+}
+
+/**
+ * The accessible name for one search result.
+ *
+ * An option's accessible name is its text content, and once route bullets are
+ * inside the row that reads as "Times Sq-42 St123 7ACE...Manhattan". Screen
+ * readers get this instead.
+ */
+export function searchEntryLabel(entry) {
+    if (!entry?.name) return '';
+    const parts = [entry.name];
+    if (entry.routes?.length) parts.push(`lines ${entry.routes.join(' ')}`);
+    if (entry.borough) parts.push(entry.borough);
+    return parts.join(', ');
 }

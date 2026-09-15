@@ -182,3 +182,55 @@ func TestPlatformsForExpandsDirectionalIDs(t *testing.T) {
 		t.Errorf("expected a directional id to pass through, got %v", one)
 	}
 }
+
+func TestPlatformsForAllExpandsAComplex(t *testing.T) {
+	// A complex is several GTFS stations. Times Sq is five, and which platform
+	// you should start from depends on where you are going — so the endpoint
+	// takes them all and lets RAPTOR choose.
+	st := "trip_id,stop_id,stop_sequence,arrival_time,departure_time\n" +
+		"a,127N,1,10:00:00,10:00:00\na,128N,2,10:04:00,10:04:00\n" +
+		"b,127S,1,10:00:00,10:00:00\nb,126S,2,10:04:00,10:04:00\n" +
+		"c,R16N,1,10:00:00,10:00:00\nc,R17N,2,10:04:00,10:04:00\n"
+	trips := "route_id,trip_id,service_id\n1,a,Weekday\n1,b,Weekday\nN,c,Weekday\n"
+	cal := "service_id,sunday,monday,tuesday,wednesday,thursday,friday,saturday,start_date,end_date\n" +
+		"Weekday,0,1,1,1,1,1,0,20260101,20261231\n"
+	tt, err := BuildTimetable([]byte(st), []byte(trips), []byte("from_stop_id,to_stop_id\n"), []byte(cal), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	got := platformsForAll(tt, "127,R16")
+	want := map[string]bool{"127N": true, "127S": true, "R16N": true}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d platforms, got %v", len(want), got)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected platform %q", p)
+		}
+	}
+}
+
+func TestPlatformsForAllDropsDuplicatesAndBlanks(t *testing.T) {
+	st := "trip_id,stop_id,stop_sequence,arrival_time,departure_time\n" +
+		"a,127N,1,10:00:00,10:00:00\na,128N,2,10:04:00,10:04:00\n"
+	trips := "route_id,trip_id,service_id\n1,a,Weekday\n"
+	cal := "service_id,sunday,monday,tuesday,wednesday,thursday,friday,saturday,start_date,end_date\n" +
+		"Weekday,0,1,1,1,1,1,0,20260101,20261231\n"
+	tt, err := BuildTimetable([]byte(st), []byte(trips), []byte("from_stop_id,to_stop_id\n"), []byte(cal), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// Seeding RAPTOR twice from one platform is wasted work, not a wrong answer,
+	// but the list is also what the response echoes back.
+	if got := platformsForAll(tt, "127,127,127N"); len(got) != 1 || got[0] != "127N" {
+		t.Errorf("expected one platform, got %v", got)
+	}
+	if got := platformsForAll(tt, " , ,127"); len(got) != 1 {
+		t.Errorf("blank entries should be skipped, got %v", got)
+	}
+	if got := platformsForAll(tt, "ZZ,YY"); got != nil {
+		t.Errorf("unknown ids should yield nothing, got %v", got)
+	}
+}

@@ -17,7 +17,7 @@ import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors, offsetPoints } from './core/corridors.js';
-import { complexIdIndex } from './core/station-meta.js';
+import { complexIdIndex, buildSearchEntries, searchEntryLabel } from './core/station-meta.js';
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
 import { alertedStationIds } from './core/station-alerts.js';
@@ -72,6 +72,12 @@ async function init() {
     // the popup show a rider on the Upper West Side trains departing Bay Ridge.
     const complexOf = complexIdIndex(stationMeta);
     const complexes = buildStationComplexes(stations, complexOf);
+
+    // Search lists complexes, not the 496 GTFS stations: four of those are
+    // named "Times Sq-42 St", one per platform group. Each entry carries the
+    // lines it serves and its borough, because 55 names are still duplicated
+    // after collapsing and borough alone resolves only nine of them.
+    const searchEntries = buildSearchEntries(complexes, stationMeta);
     // Fast stationId → sibling IDs lookup derived from complexes
     const stationGroups = new Map();
     for (const c of complexes) {
@@ -178,7 +184,8 @@ async function init() {
     );
 
     buildTripPlanner(
-        document.getElementById('ui'), stations, routeMap, document.getElementById('btn-trip'),
+        document.getElementById('ui'), searchEntries, stations, routeMap,
+        document.getElementById('btn-trip'),
         {
             // Frames the whole journey and dims everything it does not use.
             // Deliberately flat: an itinerary spans the city, and pitch at that
@@ -235,12 +242,16 @@ async function init() {
             () => openStationPopup(station), alerts, stationMeta);
     }
 
-    buildSearch(stations, document.getElementById('search-bar'), (station) => {
-        lastStation = withComplex(station);
-        showEntrances(lastStation);
-        flyToStation(map, lastStation);
-        openStationPopup(lastStation);
-    });
+    buildSearch(
+        searchEntries, document.getElementById('search-bar'),
+        (station) => {
+            lastStation = withComplex(station);
+            showEntrances(lastStation);
+            flyToStation(map, lastStation);
+            openStationPopup(lastStation);
+        },
+        { routeMap, labelFor: searchEntryLabel },
+    );
 
     // ── 3D scene — the only work that genuinely needs the map's style loaded ──
 

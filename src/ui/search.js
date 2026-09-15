@@ -1,11 +1,19 @@
 // src/ui/search.js
 // Station name search box with live-filter dropdown.
+
+import { routeBullet } from './route-bullet.js';
+
 // Filters the full stations list on every keystroke and calls onSelect
 // when the user picks a result, so main.js can fly the camera and open the popup.
 
 // How many matches the dropdown shows. Enough to find what you meant, few
 // enough to scan without scrolling.
 export const MAX_RESULTS = 8;
+
+// Bullets shown before the row overflows to "+N". Times Sq serves twelve lines
+// and a dropdown is roughly 330px wide; past this the name stops being the
+// thing your eye lands on.
+export const MAX_BULLETS = 8;
 
 /**
  * The stations whose name contains the query, case-insensitively.
@@ -41,6 +49,59 @@ export function idsFor(prefix) {
 }
 
 /**
+ * One result row: the name, then the lines it serves and its borough.
+ *
+ * Two lines rather than one because twelve bullets will not sit beside a
+ * station name in a dropdown this narrow, and because the name has to stay the
+ * thing you scan for.
+ *
+ * Everything below the name is aria-hidden: the row already carries an
+ * aria-label composed for speech, and letting a screen reader also read a row
+ * of single-letter spans would say the lines twice, badly.
+ */
+function renderRow(entry, routeMap) {
+    const row = document.createElement('span');
+    row.className = 'search-row';
+
+    const name = document.createElement('span');
+    name.className = 'search-row-name';
+    name.textContent = entry.name;
+    row.appendChild(name);
+
+    const routes = entry.routes ?? [];
+    if (!routes.length && !entry.borough) return row;
+
+    const detail = document.createElement('span');
+    detail.className = 'search-row-detail';
+    detail.setAttribute('aria-hidden', 'true');
+
+    if (routes.length && routeMap) {
+        const bullets = document.createElement('span');
+        bullets.className = 'search-row-bullets';
+        for (const routeId of routes.slice(0, MAX_BULLETS)) {
+            bullets.appendChild(routeBullet(routeId, routeMap));
+        }
+        if (routes.length > MAX_BULLETS) {
+            const more = document.createElement('span');
+            more.className = 'search-row-more';
+            more.textContent = `+${routes.length - MAX_BULLETS}`;
+            bullets.appendChild(more);
+        }
+        detail.appendChild(bullets);
+    }
+
+    if (entry.borough) {
+        const borough = document.createElement('span');
+        borough.className = 'search-row-borough';
+        borough.textContent = entry.borough;
+        detail.appendChild(borough);
+    }
+
+    row.appendChild(detail);
+    return row;
+}
+
+/**
  * Creates the search input and results dropdown, appends them to container,
  * and wires up all input/keyboard/blur events internally.
  *
@@ -65,6 +126,12 @@ export function buildSearch(stations, container, onSelect, options = {}) {
         idPrefix = `search-${++instanceCount}`,
         placeholder = 'Search stations...',
         ariaLabel = 'Station results',
+        // Supplies bullet colors. Omit it and rows render as plain names, which
+        // is what every caller did before search listed complexes.
+        routeMap = null,
+        // Builds the option's accessible name. Without it a row containing
+        // bullets announces as "Times Sq-42 St123 7ACE...Manhattan".
+        labelFor = (entry) => entry?.name ?? '',
         // The map's search empties itself after a pick, because the query was a
         // means to an end. A trip planner field is the opposite: the chosen
         // station is the value, and clearing it would erase what you just set.
@@ -160,7 +227,8 @@ export function buildSearch(stations, container, onSelect, options = {}) {
             li.id = ids.option(i);
             li.setAttribute('role', 'option');
             li.setAttribute('aria-selected', 'false');
-            li.textContent = station.name;
+            li.setAttribute('aria-label', labelFor(station));
+            li.appendChild(renderRow(station, routeMap));
             // mousedown rather than click, and preventDefault, so the selection
             // lands before the input's blur handler can hide the list.
             li.addEventListener('mousedown', (e) => {
