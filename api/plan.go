@@ -64,6 +64,30 @@ func platformsFor(tt *Timetable, id string) []string {
 	return out
 }
 
+// platformsForAll expands a comma-separated list of station ids.
+//
+// A station complex is several GTFS stations — Times Sq is five — and which one
+// you should start from depends on where you are going. Measured: planning from
+// the 1/2/3 platform alone returns 14 minutes via the E, while the whole complex
+// finds 13 via the Q. The rider chose the station, so the router is given all of
+// it and picks.
+//
+// Duplicates are dropped rather than seeding RAPTOR twice from one platform.
+func platformsForAll(tt *Timetable, ids string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, id := range strings.Split(ids, ",") {
+		for _, platform := range platformsFor(tt, id) {
+			if seen[platform] {
+				continue
+			}
+			seen[platform] = true
+			out = append(out, platform)
+		}
+	}
+	return out
+}
+
 func secsToClock(secs int32) string {
 	if secs < 0 {
 		return ""
@@ -90,8 +114,8 @@ func handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from := platformsFor(tt, fromID)
-	to := platformsFor(tt, toID)
+	from := platformsForAll(tt, fromID)
+	to := platformsForAll(tt, toID)
 	if len(from) == 0 {
 		http.Error(w, "unknown origin station "+fromID, http.StatusNotFound)
 		return
