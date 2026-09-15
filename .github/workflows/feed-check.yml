@@ -1,0 +1,82 @@
+# Weekly assertions about MTA's feed, not about this code.
+#
+# The router depends on properties of data nobody here controls. The load-bearing
+# one is that trips never overtake within a service: RAPTOR binary-searches a
+# pattern's trips rather than scanning them, and if that stops holding it returns
+# a trip that is not the best one. Every itinerary still looks reasonable and
+# nothing errors — the same silent shape as the two bugs that reached production.
+#
+# Deliberately NOT part of the PR pipeline. A third-party data change should fail
+# on its own schedule rather than blocking someone's unrelated branch, which is
+# the lesson this project already recorded from the Stadia incident.
+#
+# Weekly rather than nightly: MTA republishes on roughly that cadence, and a job
+# that cries wolf gets muted. workflow_dispatch is there for running it on demand.
+
+name: Feed invariants
+
+on:
+  schedule:
+    # Mondays at 08:00 UTC — after the weekend republish, before the week starts.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  invariants:
+    name: Feed invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      # The feed is 43 MB and not in the repo. Downloaded here rather than
+      # reusing scripts/download-gtfs.sh, which keeps only the four files the
+      # frontend serves and discards stop_times.
+      - name: Download the GTFS feed
+        run: |
+          mkdir -p /tmp/gtfs
+          curl -fsSL --retry 3 --retry-delay 10 \
+            "http://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip" -o /tmp/gtfs.zip
+          unzip -o -q /tmp/gtfs.zip -d /tmp/gtfs
+          ls -la /tmp/gtfs
+
+      - name: Check invariants
+        id: check
+        run: cd api && GTFS_DIR=/tmp/gtfs go test -count=1 -run TestFeed -v ./... 2>&1 | tee /tmp/feed-check.log
+
+      # A red scheduled run is invisible unless someone happens to look, which
+      # makes it a decoration rather than a guard. This puts the finding somewhere
+      # it will be seen.
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "The weekly feed invariant check failed against MTA's current feed."
+            echo
+            echo "This checks properties of the data, not of our code, so a failure"
+            echo "usually means the feed changed rather than that something here broke."
+            echo "The one that matters most is trips not overtaking within a service:"
+            echo "RAPTOR's binary search in \`earliestTrip\` is unsound without it, and"
+            echo "the failure is silent — itineraries stay plausible and nothing errors."
+            echo
+            echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo
+            echo '```'
+            tail -60 /tmp/feed-check.log 2>/dev/null || echo "(no log captured)"
+            echo '```'
+          } > /tmp/issue.md
+
+          # No label: a feed change is not necessarily a bug in this code, and
+          # mislabelling it would be worse than leaving it unlabelled.
+          gh issue create \
+            --title "Feed invariant check failed ($(date -u +%Y-%m-%d))" \
+            --body-file /tmp/issue.md || true
