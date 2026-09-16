@@ -142,6 +142,66 @@ func TestParseVehicleMissingStopTimes(t *testing.T) {
 	}
 }
 
+// The sequence is trimmed to the window the consumer can use, anchored on the
+// vehicle's own stop rather than on the head of the trip.
+func TestParseVehicleTrimsStopSequence(t *testing.T) {
+	ids := []string{"127N", "126N", "125N", "124N", "123N", "122N"}
+
+	t.Run("vehicle at the head", func(t *testing.T) {
+		feeds := []*gtfs.FeedMessage{
+			vehicleFeed("trip-1", "1", "127N", statusPtr(vehicleStatusStoppedAt), stopsAt(1_700_000_000, 90, ids...)),
+		}
+		got := parseVehiclePositions(feeds)[0].StopTimeUpdate
+		if len(got) != maxStopsPerVehicle {
+			t.Fatalf("kept %d stops, want %d", len(got), maxStopsPerVehicle)
+		}
+		if got[0].StopID != "127N" || got[3].StopID != "124N" {
+			t.Errorf("unexpected window: %+v", got)
+		}
+	})
+
+	t.Run("vehicle partway down its own sequence", func(t *testing.T) {
+		// The feed does this for roughly 6% of vehicles: the trip's sequence
+		// still lists stops the train has already left.
+		feeds := []*gtfs.FeedMessage{
+			vehicleFeed("trip-1", "1", "125N", statusPtr(vehicleStatusStoppedAt), stopsAt(1_700_000_000, 90, ids...)),
+		}
+		got := parseVehiclePositions(feeds)[0].StopTimeUpdate
+		if len(got) != maxStopsPerVehicle {
+			t.Fatalf("kept %d stops, want %d", len(got), maxStopsPerVehicle)
+		}
+		if got[0].StopID != "125N" {
+			t.Errorf("window should start at the vehicle's own stop, got %+v", got)
+		}
+		// The times must travel with the window, not be re-indexed.
+		if got[0].Arrival != 1_700_000_180 {
+			t.Errorf("arrival at 125N = %d, want 1700000180", got[0].Arrival)
+		}
+	})
+
+	t.Run("vehicle stop absent from its sequence", func(t *testing.T) {
+		// ~9% of vehicles. Keeping the head preserves what the consumer already
+		// resolved to before any trimming existed.
+		feeds := []*gtfs.FeedMessage{
+			vehicleFeed("trip-1", "1", "999N", statusPtr(vehicleStatusStoppedAt), stopsAt(1_700_000_000, 90, ids...)),
+		}
+		got := parseVehiclePositions(feeds)[0].StopTimeUpdate
+		if len(got) != maxStopsPerVehicle || got[0].StopID != "127N" {
+			t.Errorf("expected the head of the sequence, got %+v", got)
+		}
+	})
+
+	t.Run("sequence shorter than the cap", func(t *testing.T) {
+		feeds := []*gtfs.FeedMessage{
+			vehicleFeed("trip-1", "1", "126N", statusPtr(vehicleStatusStoppedAt), stopsAt(1_700_000_000, 90, "127N", "126N")),
+		}
+		got := parseVehiclePositions(feeds)[0].StopTimeUpdate
+		if len(got) != 1 || got[0].StopID != "126N" {
+			t.Errorf("expected the tail of a short sequence, got %+v", got)
+		}
+	})
+}
+
 func TestParseVehicleSkipsIncomplete(t *testing.T) {
 	feed := &gtfs.FeedMessage{
 		Header: &gtfs.FeedHeader{GtfsRealtimeVersion: proto.String("2.0")},
