@@ -5,14 +5,15 @@
 
 // Strips the trailing N/S direction suffix from a GTFS stop ID to get the parent
 // station ID. MTA uses directional IDs (127N, 127S) in real-time feeds; stops.txt
-// uses parent IDs (127). Used by scene/trains.js to map a vehicle's stop onto the
-// route curve.
+// uses parent IDs (127). Used by scene/train-layer.js to map a vehicle's stop
+// onto the route polyline.
 export function normalizeStopId(stopId) {
     return stopId.replace(/[NS]$/, '');
 }
 
 // VehicleStopStatus enum from the GTFS-RT spec. The API returns currentStatus as
-// a plain number; scene/trains.js compares against these to position vehicles.
+// a plain number; scene/train-layer.js compares against these to position
+// vehicles.
 export const VEHICLE_STATUS = {
     INCOMING_AT: 0,
     STOPPED_AT: 1,

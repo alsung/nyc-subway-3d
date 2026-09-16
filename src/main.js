@@ -1,15 +1,15 @@
 // src/main.js
 // Application entry point. Wires every module together:
-// GTFS data → Maplibre map + Three.js custom layer → UI controls → RT refresh loop.
+// GTFS data → Maplibre map → UI controls → RT refresh loop.
 // No business logic lives here — only coordination.
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { createMap, createThreeLayer, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint, TUBE_ZOOM } from './scene/renderer.js';
+import { createMap, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint } from './scene/renderer.js';
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
-import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
-import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
-import { flyToStation, toggleView, currentOverride, attachAutoPitch } from './ui/camera.js';
+import { setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
+import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, startTrainLoop } from './scene/train-layer.js';
+import { flyToStation } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
@@ -18,8 +18,8 @@ import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { loadPlatforms } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
-import { buildCorridors, offsetPoints } from './core/corridors.js';
-import { complexIdIndex, buildSearchEntries, searchEntryLabel } from './core/station-meta.js';
+import { buildCorridors } from './core/corridors.js';
+import { complexIdIndex, buildSearchEntries, searchEntryLabel, routeCountByStation } from './core/station-meta.js';
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
 import { alertedStationIds } from './core/station-alerts.js';
@@ -28,22 +28,11 @@ import { inject as injectAnalytics } from '@vercel/analytics';
 const RT_REFRESH_MS = 30_000;
 const RT_STALE_MS   = 90_000;
 
-// Spacing between parallel strands in the 3D view, in meters. Twice the tube
-// radius, so tubes sit edge to edge the way the flat strands do rather than
-// leaving gaps between them.
-//
-// Not physically truthful, and cannot be: the tubes are already 12 m across
-// where a real track is about 4, so honest spacing would just interpenetrate
-// them. Consistency with the tube radius is the real constraint. Measured safe
-// up to about 16 m — beyond that it starts costing station matches against
-// STATION_MATCH_RADIUS_M.
-const STRAND_SPACING_M = 12;
-
 // Bootstraps the entire application. Startup is ordered so nothing waits on a
 // dependency it doesn't actually have: the map begins fetching tiles before the
 // GTFS download starts, and the search / filter / popup UI renders as soon as
 // GTFS resolves rather than waiting for the map's tiles to finish arriving.
-// Only the 3D scene itself is gated on the map's 'load' event.
+// Only the map layers themselves are gated on the map's 'load' event.
 async function init() {
     // Page-view analytics. Cookieless, and a no-op outside Vercel deployments,
     // so local development is unaffected. Fired before the awaits below because
@@ -54,7 +43,6 @@ async function init() {
     // Created first so Maplibre's tile requests overlap the GTFS download below
     // rather than queueing behind it.
     const map = createMap(document.getElementById('map'));
-    const threeLayer = createThreeLayer('subway-3d');
     const mapLoaded = new Promise(resolve => map.on('load', resolve));
 
     // Fetched together: both files are small and independent of the GTFS
@@ -109,12 +97,15 @@ async function init() {
         setPlatformsFor(map, complexId ? platformsByComplex.get(complexId) : null);
     };
 
-    // ── UI — built immediately; none of it depends on the map or the 3D scene ──
+    // ── UI — built immediately; none of it depends on the map's layers ──
 
-    // Assigned once the map loads. Everything that touches line geometry must
-    // null-check it, since the UI below is live before the scene exists.
-    let lineMeshes = null;
-    // Chip toggles made before the meshes exist are recorded here and applied
+    // Assigned once the map loads. Everything that touches trains must
+    // null-check it, since the UI below is live before the layers exist.
+    let trainState = null;
+    // Whether the route layer exists yet. The line helpers are no-ops without
+    // it, but the filter state still has to be replayed once it does.
+    let layersReady = false;
+    // Chip toggles made before the layers exist are recorded here and applied
     // once they do. Storing state rather than queueing events keeps it idempotent.
     const filterState = new Map();
 
@@ -154,7 +145,7 @@ async function init() {
 
     const dismissPopup = () => {
         hidePopup(popup);
-        if (lineMeshes) clearLineHighlight(lineMeshes, map);
+        clearLineHighlight(map);
         setEntrancesFor(map, null);
         lastStation = null;
     };
@@ -176,14 +167,19 @@ async function init() {
     });
 
     const highlight = (routeId) => {
-        if (lineMeshes) highlightLine(lineMeshes, routeId, map);
+        highlightLine(map, routeId);
     };
 
     buildLinesPanel(
         document.getElementById('ui'), routeMap, document.getElementById('btn-lines'),
         (routeId, active) => {
             filterState.set(routeId, active);
-            if (lineMeshes) setLineVisibility(lineMeshes, map, routeId, active);
+            if (!layersReady) return;
+            setLineVisibility(map, routeId, active);
+            // Trains follow their route: a filtered-out line whose trains kept
+            // running would be the same half-applied filter the two-representation
+            // split used to produce.
+            if (trainState) setTrainVisibility(trainState, routeId, active);
         },
     );
 
@@ -192,11 +188,8 @@ async function init() {
         document.getElementById('btn-trip'),
         {
             // Frames the whole journey and dims everything it does not use.
-            // Deliberately flat: an itinerary spans the city, and pitch at that
-            // distance costs legibility for nothing — the same finding that put
-            // the overview on a flat camera in the first place.
             onPlan: (journey) => {
-                if (lineMeshes) highlightLine(lineMeshes, journey.rides, map);
+                highlightLine(map, journey.rides);
 
                 const coords = journey.legs
                     .flatMap(leg => leg.stops ?? [leg.fromStop, leg.toStop])
@@ -209,11 +202,11 @@ async function init() {
                 const lats = coords.map(c => c[1]);
                 map.fitBounds(
                     [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-                    { padding: { top: 80, bottom: 80, left: 420, right: 80 }, pitch: 0, duration: 900 },
+                    { padding: { top: 80, bottom: 80, left: 420, right: 80 }, duration: 900 },
                 );
             },
             onClear: () => {
-                if (lineMeshes) clearLineHighlight(lineMeshes, map);
+                clearLineHighlight(map);
             },
         },
     );
@@ -257,32 +250,20 @@ async function init() {
         { routeMap, labelFor: searchEntryLabel },
     );
 
-    // ── 3D scene — the only work that genuinely needs the map's style loaded ──
+    // ── Map layers — the only work that genuinely needs the map's style loaded ──
 
     await mapLoaded;
 
-    map.addLayer(threeLayer);
-
     // Where routes share a right-of-way, so each gets its own strand instead of
-    // stacking on one polyline. Both representations need it, and they need it
-    // in different units: the flat layer offsets in pixels via line-offset, so
-    // the ribbon holds its width on screen at overview zoom, while the tubes are
-    // real geometry and have to be displaced in meters. Hence two coordinate
-    // sets from one corridor index.
+    // stacking on one polyline. The layer offsets in pixels via line-offset, so
+    // the ribbon holds its width on screen at every zoom rather than spreading
+    // as you approach.
     const corridors = buildCorridors(lineRoutes);
-    const offsetRoutes = Object.fromEntries(
-        Object.entries(lineRoutes).map(([id, polylines]) => [
-            id,
-            polylines.map((coords, i) =>
-                offsetPoints(coords, corridors.get(id)?.[i], STRAND_SPACING_M)),
-        ]),
-    );
 
-    const { lineMeshes: meshes, lineCurves } = buildLineMeshes(offsetRoutes, routeMap, threeLayer.scene);
-    lineMeshes = meshes;
-    const stationTByRoute = buildStationTByRoute(lineCurves, stations);
-    const routeCounts = countRoutesPerStation(stationTByRoute);
-    const trainMeshes = buildSimulatedTrains(lineCurves, routeMap, threeLayer.scene);
+    // Station level-of-detail, straight from the dataset. It used to be counted
+    // off the route curves, which meant sampling every route to rediscover what
+    // daytime_routes already says.
+    const routeCounts = routeCountByStation(stationMeta);
 
     // Sum constituent station route counts for each complex to determine LOD
     const complexRouteCounts = new Map();
@@ -293,45 +274,39 @@ async function init() {
 
     addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts);
 
-    // The overview representation. Added after the station layers so it can be
-    // inserted beneath them, and after the tubes exist so the two swap cleanly.
+    // Added after the station layers so it can be inserted beneath them: the
+    // dots are the anchor and the lines run behind them.
     addRouteLines(map, lineRoutes, routeMap, corridors);
 
     // Empty until a station is selected; added here so the layer exists before
     // any click can reach it.
     addEntranceLayer(map);
     addPlatformLayer(map);
+    addTrainLayer(map, routeMap);
     applyBasemapRestraint(map);
+    layersReady = true;
 
-    // Maplibre hides the flat layer by its own maxzoom; the tubes are Three.js
-    // objects it knows nothing about, so their half of the swap is manual. Both
-    // read TUBE_ZOOM so the two halves cannot drift apart.
-    const syncRouteRepresentation = () => {
-        const showTubes = map.getZoom() >= TUBE_ZOOM;
-        for (const [routeId, mesh] of lineMeshes) {
-            // A route the reader has filtered out stays hidden at every zoom.
-            mesh.visible = showTubes && (filterState.get(routeId) ?? true);
-        }
-        threeLayer.map?.triggerRepaint?.();
-    };
-    map.on('zoom', syncRouteRepresentation);
-    syncRouteRepresentation();
+    // Where each station falls along each of a route's lines. Built once: a
+    // vehicle's position is resolved by stop id against this rather than by
+    // searching geometry every time a snapshot lands.
+    const routeIndex = buildRouteIndex(lineRoutes, stations);
+    trainState = createTrainState(map);
+    startTrainLoop(trainState);
 
-    threeLayer.onTick = (delta) => tickTrains(trainMeshes, delta);
-
-    // Replay any chip toggles made while the meshes were still being built.
+    // Replay any chip toggles made while the layers were still being built.
     for (const [routeId, active] of filterState) {
-        setLineVisibility(lineMeshes, map, routeId, active);
+        setLineVisibility(map, routeId, active);
+        setTrainVisibility(trainState, routeId, active);
     }
 
-    // Fetches fresh vehicle data from the API, syncs the 3D trains, updates the
+    // Fetches fresh vehicle data from the API, syncs the trains, updates the
     // staleness indicator (driven by the server's last-refresh time), and quietly
     // re-fetches arrivals for the popup if it's currently open.
     async function refreshRT() {
         const staleEl = document.getElementById('staleness');
         try {
             const { vehicles, updatedAt } = await fetchVehicles();
-            syncRealTrains(trainMeshes, vehicles, lineCurves, stationTByRoute, routeMap, threeLayer.scene);
+            syncTrains(trainState, vehicles, routeIndex);
 
             const serverTime = updatedAt ? Date.parse(updatedAt) : NaN;
             const isStale = Number.isNaN(serverTime) || Date.now() - serverTime > RT_STALE_MS;
@@ -411,27 +386,6 @@ async function init() {
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     }
-
-    // The buttons no longer set pitch directly — pitch follows zoom. Each is now
-    // a sticky override the reader can release by pressing it again, because
-    // automatic behavior with no way out is worse than a button.
-    const btn2d = document.getElementById('btn-2d');
-    const btn3d = document.getElementById('btn-3d');
-    const syncViewButtons = () => {
-        const mode = currentOverride();
-        btn2d.setAttribute('aria-pressed', String(mode === '2d'));
-        btn3d.setAttribute('aria-pressed', String(mode === '3d'));
-        btn2d.classList.toggle('view-btn--active', mode === '2d');
-        btn3d.classList.toggle('view-btn--active', mode === '3d');
-    };
-    btn2d.addEventListener('click', () => { toggleView(map, '2d'); syncViewButtons(); });
-    btn3d.addEventListener('click', () => { toggleView(map, '3d'); syncViewButtons(); });
-    syncViewButtons();
-
-    // Pitch follows zoom from here on. There is no opening tilt animation any
-    // more: the app opens at the overview zoom, where flat is the correct
-    // camera, so the tilt now happens when the reader zooms in.
-    attachAutoPitch(map);
 }
 
 init();

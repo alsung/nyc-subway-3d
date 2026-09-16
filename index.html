@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Express — NYC Subway 3D</title>
-    <meta name="description" content="Live NYC subway trains, arrivals and service alerts on a 3D map, built from the MTA's realtime GTFS feeds." />
+    <title>Local Express — Live NYC Subway Map</title>
+    <meta name="description" content="Live NYC subway trains, arrivals, service alerts and trip planning on one map, built from the MTA's realtime GTFS feeds." />
 
     <!-- Two drawings, not one asset scaled: the detailed mark collapses into a
          smudge at favicon size, so favicon.svg is a simplified symmetric
@@ -27,8 +27,8 @@
          scraper picks whatever it can find, which for a canvas app is nothing. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Local Express" />
-    <meta property="og:title" content="Local Express — NYC Subway 3D" />
-    <meta property="og:description" content="Live NYC subway trains, arrivals and service alerts on a 3D map." />
+    <meta property="og:title" content="Local Express — Live NYC Subway Map" />
+    <meta property="og:description" content="Live NYC subway trains, arrivals and service alerts, system-wide." />
     <meta property="og:url" content="https://localexpress.nyc/" />
     <meta property="og:image" content="https://localexpress.nyc/og-card.png" />
     <meta property="og:image:width" content="1200" />
@@ -53,8 +53,6 @@
             <button id="btn-status" aria-label="Service status" data-tone="none">
                 Status<span id="status-dot"></span>
             </button>
-            <button id="btn-3d">3D</button>
-            <button id="btn-2d">2D</button>
         </div>
         <div id="staleness" class="hidden">
             <span id="staleness-dot"></span>
