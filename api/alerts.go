@@ -84,7 +84,7 @@ type alertsResponse struct {
 	UpdatedAt string  `json:"updatedAt"`
 }
 
-// TrunkStatus is one row of the status list: a colour-grouped set of routes and
+// TrunkStatus is one row of the status list: a color-grouped set of routes and
 // how many alerts currently touch it.
 type TrunkStatus struct {
 	Trunk    string   `json:"trunk"`
@@ -107,7 +107,7 @@ type summaryResponse struct {
 }
 
 // Trunk grouping mirrors how the system is signed and how riders think about
-// it: by colour, not by individual route.
+// it: by color, not by individual route.
 var trunkOrder = []string{"ACE", "BDFM", "G", "JZ", "L", "NQRW", "123", "456", "7", "S", "SIR"}
 
 var trunkRoutes = map[string][]string{

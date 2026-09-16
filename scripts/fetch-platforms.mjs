@@ -34,8 +34,8 @@ const ROWS = 4;
 const COLS = 4;
 
 // A platform this far from a station's coordinates belongs to it. Wide enough to
-// reach the far end of a long platform from the station's centre point, narrow
-// enough not to capture a neighbouring station's.
+// reach the far end of a long platform from the station's center point, narrow
+// enough not to capture a neighboring station's.
 const JOIN_RADIUS_M = 150;
 
 const M_PER_DEG_LAT = 111320;

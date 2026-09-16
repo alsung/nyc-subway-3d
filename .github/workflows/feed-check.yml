@@ -1,7 +1,13 @@
-# Weekly assertions about MTA's feed, not about this code.
+# Weekly assertions about MTA's feeds, not about this code.
 #
-# The router depends on properties of data nobody here controls. The load-bearing
-# one is that trips never overtake within a service: RAPTOR binary-searches a
+# Two sets. The static feed's invariants back the router; the real-time feed's
+# back train positioning, which now depends on the predicted arrival and
+# departure times published per stop — current_status is absent on 45% of
+# vehicles, so those times are the only thing that says where a train is between
+# two stations. If they stop arriving, every train silently parks at a station.
+#
+# On the static side the load-bearing property is that trips never overtake
+# within a service: RAPTOR binary-searches a
 # pattern's trips rather than scanning them, and if that stops holding it returns
 # a trip that is not the best one. Every itinerary still looks reasonable and
 # nothing errors — the same silent shape as the two bugs that reached production.
@@ -47,9 +53,15 @@ jobs:
           unzip -o -q /tmp/gtfs.zip -d /tmp/gtfs
           ls -la /tmp/gtfs
 
-      - name: Check invariants
+      - name: Check static feed invariants
         id: check
         run: cd api && GTFS_DIR=/tmp/gtfs go test -count=1 -run TestFeed -v ./... 2>&1 | tee /tmp/feed-check.log
+
+      # always(), so a static-feed failure does not hide a real-time one. They
+      # are independent data sources and either can change on its own.
+      - name: Check real-time feed invariants
+        if: always()
+        run: cd api && RT_LIVE=1 go test -count=1 -run TestRTFeed -v ./... 2>&1 | tee /tmp/rt-check.log
 
       # A red scheduled run is invisible unless someone happens to look, which
       # makes it a decoration rather than a guard. This puts the finding somewhere
@@ -60,23 +72,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
-            echo "The weekly feed invariant check failed against MTA's current feed."
+            echo "The weekly feed invariant check failed against MTA's current feeds."
             echo
             echo "This checks properties of the data, not of our code, so a failure"
-            echo "usually means the feed changed rather than that something here broke."
-            echo "The one that matters most is trips not overtaking within a service:"
-            echo "RAPTOR's binary search in \`earliestTrip\` is unsound without it, and"
-            echo "the failure is silent — itineraries stay plausible and nothing errors."
+            echo "usually means a feed changed rather than that something here broke."
+            echo
+            echo "On the static feed, the one that matters most is trips not overtaking"
+            echo "within a service: RAPTOR's binary search in \`earliestTrip\` is unsound"
+            echo "without it, and the failure is silent — itineraries stay plausible and"
+            echo "nothing errors."
+            echo
+            echo "On the real-time feed, it is that stop-time updates still carry"
+            echo "predicted arrival and departure times. Train positions are derived from"
+            echo "those against the wall clock; without them every train renders parked"
+            echo "at a station and nothing reports an error."
             echo
             echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
             echo
+            echo "### Static feed"
             echo '```'
-            tail -60 /tmp/feed-check.log 2>/dev/null || echo "(no log captured)"
+            tail -40 /tmp/feed-check.log 2>/dev/null || echo "(no log captured)"
+            echo '```'
+            echo
+            echo "### Real-time feed"
+            echo '```'
+            tail -40 /tmp/rt-check.log 2>/dev/null || echo "(no log captured)"
             echo '```'
           } > /tmp/issue.md
 
           # No label: a feed change is not necessarily a bug in this code, and
-          # mislabelling it would be worse than leaving it unlabelled.
+          # mislabeling it would be worse than leaving it unlabeled.
           gh issue create \
             --title "Feed invariant check failed ($(date -u +%Y-%m-%d))" \
             --body-file /tmp/issue.md || true
