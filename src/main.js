@@ -6,6 +6,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, createThreeLayer, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint, TUBE_ZOOM } from './scene/renderer.js';
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
+import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
 import { buildLineMeshes, setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
 import { buildSimulatedTrains, tickTrains, buildStationTByRoute, syncRealTrains, countRoutesPerStation } from './scene/trains.js';
 import { flyToStation, toggleView, currentOverride, attachAutoPitch } from './ui/camera.js';
@@ -15,6 +16,7 @@ import { buildSearch } from './ui/search.js';
 import { buildTripPlanner } from './ui/trip-planner.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
+import { loadPlatforms } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors, offsetPoints } from './core/corridors.js';
 import { complexIdIndex, buildSearchEntries, searchEntryLabel } from './core/station-meta.js';
@@ -58,10 +60,11 @@ async function init() {
     // Fetched together: both files are small and independent of the GTFS
     // parse, and serialising them behind it would delay the UI for data that
     // only labels tabs and marks entrances.
-    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex] = await Promise.all([
+    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex, platformsByComplex] = await Promise.all([
         loadAndParseGTFS(),
         loadStationMeta(),
         loadEntrances(),
+        loadPlatforms(),
     ]);
 
     // Arrivals name their destination by GTFS id; the popup needs a name.
@@ -103,6 +106,7 @@ async function init() {
     const showEntrances = (station) => {
         const complexId = station ? complexOf.get(station.id) : null;
         setEntrancesFor(map, complexId ? entrancesByComplex.get(complexId) : null);
+        setPlatformsFor(map, complexId ? platformsByComplex.get(complexId) : null);
     };
 
     // ── UI — built immediately; none of it depends on the map or the 3D scene ──
@@ -296,6 +300,7 @@ async function init() {
     // Empty until a station is selected; added here so the layer exists before
     // any click can reach it.
     addEntranceLayer(map);
+    addPlatformLayer(map);
     applyBasemapRestraint(map);
 
     // Maplibre hides the flat layer by its own maxzoom; the tubes are Three.js
