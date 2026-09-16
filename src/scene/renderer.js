@@ -1,9 +1,7 @@
 // src/scene/renderer.js
-// Maplibre owns the map, camera, and canvas. Three.js renders subway geometry
-// into the same WebGL context via a Maplibre custom layer — one canvas, two
-// renderers, perfectly synced camera on every frame.
+// Maplibre owns the map, camera, and canvas — all of it, now that the Three.js
+// custom layer is gone. One renderer, one representation of every route.
 
-import * as THREE from 'three';
 import maplibregl from 'maplibre-gl';
 import { MAP_CENTER } from '../core/geo.js';
 import { segmentCoords } from '../core/corridors.js';
@@ -13,23 +11,13 @@ const STYLE_URL = STADIA_KEY
     ? `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${STADIA_KEY}`
     : 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
 
-// The zoom at which the map swaps between its two representations of a route.
-//
-// Below it, routes are flat Maplibre line layers; above it, Three.js tubes.
-// Neither works at both distances: tube geometry collapses into a thread when
-// seen from across the city, and a flat line cannot show that one route passes
-// beneath another. Exported because the swap has two halves — the line layer's
-// own maxzoom and the tube visibility handler — and a threshold expressed twice
-// is a threshold that drifts.
-export const TUBE_ZOOM = 14;
-
 // Creates the Maplibre map centered on NYC with a dark street style.
-// Drag, zoom, and pitch are all handled natively by Maplibre.
+// Drag and zoom are handled natively by Maplibre.
 //
-// Opens flat, and stays flat at this zoom: pitch now follows zoom (see
-// camera.js), so the overview is upright and the camera tilts on approach. That
-// also keeps the initial tile set small, which is what a tilted opening camera
-// used to cost — it pushed the horizon back and dominated time-to-interactive.
+// Flat, and stays flat. Tilt was the whole point of the 3D scene and it never
+// paid for itself: the only thing pitch could show that a plan view cannot is
+// one line passing beneath another, and that turned out to be illegible at every
+// zoom. See "Why this is a 2D map" in the README.
 export function createMap(container) {
     return new maplibregl.Map({
         container,
@@ -200,6 +188,21 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             'text-size': 11,
             'text-offset': [0, 1.1],
             'text-anchor': 'top',
+            // Labels no longer block other symbols from being placed.
+            //
+            // They were quietly suppressing the trains. A station name is wide
+            // and sits directly under its dot, which is exactly where a train
+            // arriving at that station is drawn, so the label reserved the space
+            // and the bullet was dropped. Measured over midtown at zoom 13.4:
+            // 9 trains drawn with labels blocking, 37 without — and the labels
+            // themselves are unaffected, 40 before and 42 after, because this
+            // changes what they block rather than whether they are drawn.
+            //
+            // A bullet may now overlap a name. The name still wins the pixels:
+            // this layer is added after the train layer, so it draws on top, and
+            // text-halo-width below puts a dark outline around each glyph that
+            // separates white letters from whatever color sits behind them.
+            'text-ignore-placement': true,
         },
         paint: {
             'text-color': '#ffffff',
@@ -234,61 +237,6 @@ export function setStationAlerts(map, alertedIds) {
 
     map.getSource('stations').setData({ type: 'FeatureCollection', features: stationFeatures });
     map.getSource('station-complexes').setData({ type: 'FeatureCollection', features: complexFeatures });
-}
-
-// Creates a Maplibre custom layer that hosts a Three.js scene.
-// Call map.addLayer(layer) after the map's 'load' event fires; from that
-// point layer.scene is ready for buildLineMeshes / buildStationMeshes / etc.
-// layer.onTick(delta) can be assigned afterward to drive per-frame animation.
-export function createThreeLayer(id) {
-    const origin = maplibregl.MercatorCoordinate.fromLngLat(
-        [MAP_CENTER.lng, MAP_CENTER.lat],
-        0
-    );
-    const metersToMercator = origin.meterInMercatorCoordinateUnits();
-
-    // Local meters (from geoToLocalMeters) -> Mercator world space.
-    // No axis permutation needed: local x/y already match Mercator x/y
-    // (east, south), so this is a plain translate + uniform scale.
-    const modelMatrix = new THREE.Matrix4()
-        .makeTranslation(origin.x, origin.y, origin.z)
-        .scale(new THREE.Vector3(metersToMercator, metersToMercator, metersToMercator));
-
-    return {
-        id,
-        type: 'custom',
-        renderingMode: '3d',
-
-        onAdd(map, gl) {
-            this.map = map;
-            this.camera = new THREE.Camera();
-            this.scene = new THREE.Scene();
-
-            this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-            sun.position.set(0, -70, 100).normalize();
-            this.scene.add(sun);
-
-            this.renderer = new THREE.WebGLRenderer({
-                canvas: map.getCanvas(),
-                context: gl,
-                antialias: true,
-            });
-            this.renderer.autoClear = false;
-            this.clock = new THREE.Clock();
-        },
-
-        render(gl, args) {
-            const projection = new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix);
-            this.camera.projectionMatrix = projection.multiply(modelMatrix);
-
-            this.onTick?.(this.clock.getDelta());
-
-            this.renderer.resetState();
-            this.renderer.render(this.scene, this.camera);
-            this.map.triggerRepaint();
-        },
-    };
 }
 
 /**
@@ -345,10 +293,13 @@ export function routeLineFeatures(lineRoutes, corridors, routeMap) {
 }
 
 /**
- * Draws every route as a flat line, for zooms below TUBE_ZOOM.
+ * Draws every route, at every zoom.
  *
- * Built from lineRoutes — the same source the tubes are built from — so the two
- * representations can never disagree about where a line runs.
+ * This is now the only representation of a route. It used to stop at zoom 14
+ * and hand over to Three.js tubes, which is where two shipped bugs came from:
+ * highlighting and filtering each reached one representation and not the other,
+ * and both failed silently because the other half looked fine at the zoom the
+ * developer happened to be at.
  *
  * Inserted beneath the station circles so the dots stay readable on top of it.
  */
@@ -362,7 +313,6 @@ export function addRouteLines(map, lineRoutes, routeMap, corridors) {
         id: 'route-lines',
         type: 'line',
         source: 'route-lines',
-        maxzoom: TUBE_ZOOM,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
             'line-color': ['get', 'color'],

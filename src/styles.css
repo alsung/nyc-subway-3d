@@ -198,7 +198,7 @@ button:active,
     background: rgba(90, 200, 250, 0.16);
 }
 
-/* ── View toggle ─────────────────────────────────────────────────────────── */
+/* ── Control strip ───────────────────────────────────────────────────────── */
 
 #view-controls {
     position: absolute;
@@ -211,7 +211,7 @@ button:active,
 
 /* Styles every control in the strip by position rather than by listing ids, so
    a button added here cannot ship unstyled — which is exactly what the Lines
-   button did while this rule named #btn-2d, #btn-3d and #btn-status. */
+   button did while this rule named the buttons individually. */
 #view-controls button {
     padding: 8px 16px;
     background: rgba(10, 10, 26, 0.85);
@@ -223,13 +223,6 @@ button:active,
     cursor: pointer;
     backdrop-filter: blur(8px);
     transition: background 0.15s, border-color 0.15s;
-}
-
-/* The pressed state of a sticky pitch override. Reads as held-down rather than
-   hovered, since it persists until the reader releases it. */
-#view-controls button.view-btn--active {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.45);
 }
 
 #view-controls button:hover {

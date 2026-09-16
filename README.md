@@ -1,4 +1,4 @@
-# NYC Subway 3D — Product Design Document
+# Local Express — Product Design Document
 
 **Version:** 2.0  
 **Author:** Alex Sung  
@@ -12,32 +12,35 @@
 1. [Product Summary](#1-product-summary)
 2. [Problem Statement](#2-problem-statement)
 3. [Competitive Landscape](#3-competitive-landscape)
-4. [Use Cases](#4-use-cases)
-5. [Architecture Overview](#5-architecture-overview)
-6. [Technology Stack](#6-technology-stack)
-7. [Phase Roadmap](#7-phase-roadmap)
-8. [Phase 1 — Static 3D Map](#8-phase-1--static-3d-map)
-9. [Phase 2 — Live Arrivals](#9-phase-2--live-arrivals)
-10. [Phase 3 — Live Train Positions](#10-phase-3--live-train-positions)
-11. [Phase 4 — Real Trains + Station LOD](#11-phase-4--real-trains--station-lod)
-12. [Phase 5 — Go API Server (Fly.io)](#12-phase-5--go-api-server-flyio)
-13. [Phase 6 — Performance, Service Alerts + Mobile](#13-phase-6--performance-service-alerts--mobile)
-14. [Phase 7 — Map Legibility + Station Detail](#14-phase-7--map-legibility--station-detail)
-15. [Phase 8 — Trip Planner + Car Positioning](#15-phase-8--trip-planner--car-positioning)
-16. [Phase 9 — User Accounts](#16-phase-9--user-accounts)
-17. [Phase 10 — Push Notifications](#17-phase-10--push-notifications)
-18. [Phase 11 — AI Agent Layer](#18-phase-11--ai-agent-layer)
-19. [Data Sources](#19-data-sources)
-20. [API Reference](#20-api-reference)
-21. [Test Strategy](#21-test-strategy)
-22. [Deployment](#22-deployment)
-23. [Out of Scope](#23-out-of-scope)
+4. [Why This Is a 2D Map](#4-why-this-is-a-2d-map)
+5. [Use Cases](#5-use-cases)
+6. [Architecture Overview](#6-architecture-overview)
+7. [Technology Stack](#7-technology-stack)
+8. [Phase Roadmap](#8-phase-roadmap)
+9. [Phase 1 — Static 3D Map](#9-phase-1--static-3d-map)
+10. [Phase 2 — Live Arrivals](#10-phase-2--live-arrivals)
+11. [Phase 3 — Live Train Positions](#11-phase-3--live-train-positions)
+12. [Phase 4 — Real Trains + Station LOD](#12-phase-4--real-trains--station-lod)
+13. [Phase 5 — Go API Server (Fly.io)](#13-phase-5--go-api-server-flyio)
+14. [Phase 6 — Performance, Service Alerts + Mobile](#14-phase-6--performance-service-alerts--mobile)
+15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail)
+16. [Phase 8 — Trip Planner + Car Positioning](#16-phase-8--trip-planner--car-positioning)
+17. [Phase 9 — User Accounts](#17-phase-9--user-accounts)
+18. [Phase 10 — Push Notifications](#18-phase-10--push-notifications)
+19. [Phase 11 — AI Agent Layer](#19-phase-11--ai-agent-layer)
+20. [Data Sources](#20-data-sources)
+21. [API Reference](#21-api-reference)
+22. [Test Strategy](#22-test-strategy)
+23. [Deployment](#23-deployment)
+24. [Out of Scope](#24-out-of-scope)
 
 ---
 
 ## 1. Product Summary
 
-NYC Subway 3D is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 472 stations, and active train positions on a geographically accurate 3D map built with Three.js and Maplibre GL JS. The map is the primary interface — not a supplementary view bolted onto a list-based app.
+Local Express (localexpress.nyc) is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 472 stations, and active train positions on a geographically accurate map built with Maplibre GL JS. The map is the primary interface — not a supplementary view bolted onto a list-based app.
+
+It is deliberately a plan view. The project spent its first six phases as a 3D scene and measured its way out of it; section 4 records what was tried, what it cost, and why a flat map turned out to be the better product.
 
 The project solves real rider problems: planning trips, knowing when to leave, knowing which car to board for the fastest exit, understanding how service disruptions cascade through the system, and navigating accessibly. It does all of this on a spatial canvas that shows the full system simultaneously — something no existing app provides.
 
@@ -66,26 +69,64 @@ The NYC subway is used by ~3.6 million riders daily. Despite the existence of nu
 | App | Strengths | What's missing |
 |---|---|---|
 | MTA official app | First-party data, live arrivals, service alerts, accessibility mode, trip planning | 2D schematic only, no spatial system view, car positioning limited to LIRR/MNR |
-| Citymapper | Car positioning for transfers, multi-modal, step-by-step | No system-wide view, no 3D, mobile-only |
+| Citymapper | Car positioning for transfers, multi-modal, step-by-step | No system-wide view, mobile-only |
 | Exit Strategy NYC | Best-in-class car/door positioning for all 469 stops, works offline | Static, no live data, no trip planning, iOS-only pricing |
 | Google Maps | Familiar UX, multi-modal, widely trusted | No live train positions, no car positioning, no system-wide view |
 | AP Transit | 3D visualization, real-time | No trip planning, no car positioning, less polished |
+| Transit app | Live arrivals, good nearby view, multi-modal | No system-wide map, no car positioning |
 | Subway Now | Live map, clean UI | 2D only, no trip planning, no car positioning |
 
-**The gap this project fills:** a browser-based tool that combines system-wide 3D spatial context, live GTFS-RT data, trip planning, and car/exit positioning in one interface.
+**The gap this project fills:** a browser-based tool that combines a system-wide geographic view, live GTFS-RT data, trip planning, and car/exit positioning in one interface. Every competitor that shows the whole system draws it as a schematic; every competitor with live data shows it a station at a time. This shows every running train on real geography at once.
 
 ---
 
-## 4. Use Cases
+## 4. Why This Is a 2D Map
+
+This project began as a 3D scene and ran that way through Phase 7. Three.js rendered the routes as tubes above zoom 14, Maplibre drew flat lines below it, and the camera tilted to 56 degrees as you approached. All of that is gone. The reasoning is recorded here because "we tried 3D and it didn't work" is the kind of claim that gets relitigated every year, and because the measurements are more interesting than the conclusion.
+
+**What 3D was supposed to buy.** Exactly one thing that a plan view cannot show: that one line passes beneath another. Everything else — geography, live positions, the shape of the network — a flat map shows at least as well. So the whole case rested on depth being legible.
+
+**Building extrusions.** Prototyped and rejected on frame cost. The measurement was initially wrong in a way worth recording: counting `requestAnimationFrame` ticks reported 119 fps for every configuration, because rAF runs whether or not the map redraws. Counting Maplibre `render` events gave real numbers, and the extrusions were not affordable.
+
+**Platform depth as extrusions.** Blocked outright by the renderer. `fill-extrusion-base` and `fill-extrusion-height` both carry `minimum: 0` in Maplibre's style spec, so a fill extrusion cannot descend below ground. Platforms shipped as flat footprints instead, which is what they still are.
+
+**Tube depth — the measurement that settled it.** OpenStreetMap tags a `level` on 476 of 496 stations, which is enough to give every route a depth at every station and interpolate between them. Before building a renderer, the legibility was worked out analytically:
+
+```
+screen separation / tube width  =  sin(pitch) x depth difference / 12 m
+```
+
+Both terms scale with pixels-per-meter, so **the ratio is independent of zoom**, and pitch caps at 56 degrees. One level of separation — six meters, the convention used for the depth model — is 41% of a tube's width at zoom 16, at zoom 17 and at zoom 18 alike. There is no camera position from which it reads. Getting one level to clear a full tube width would need roughly 14 meters per level, which puts a four-level station 56 m down and detaches it from its own ground-level marker: the same failure that killed the platform extrusion prototype.
+
+The network-wide count was no kinder. Grouping intersections by place rather than by route pair — 7/E, 7/F, 7/FX and 7X/E at Court Sq are one crossing seen four ways — the entire system has **50 places** where two routes cross at more than 25 degrees with both depths known:
+
+```
+depth difference  < 6 m   17 places   invisible
+                 6-12 m   17 places   overlapping
+                12-18 m    6 places   readable
+                 >= 18 m  10 places   clearly separated
+```
+
+Sixteen readable crossings, eleven of them elevated-over-underground. A feature that works in sixteen places is not a reason to carry a second renderer.
+
+**What the same data said in favor of flat.** 274 of 1,130 route-km are elevated — about a quarter of the network. That is the one thing depth would have shown well, and it is also the one thing a rider can already see by looking out a window.
+
+**What removing it bought.** One representation of a route instead of two, which retired a whole class of bug: highlighting and filtering each used to reach the tubes or the flat layer and not both, and both failures were silent because the half you touched looked correct at the zoom you were testing at. The `three` dependency left with it — 1.60 MB to 1.12 MB raw, 426 KB to 307 KB gzipped, a 28% cut. Trains became route bullets, which name the line a train belongs to; the boxes they replaced were colored by route and nothing else, so you could see a train but not which one.
+
+**What would change this decision.** A data source giving real depths in meters rather than storey indices, combined with a reason to look at more than sixteen crossings. Neither exists today.
+
+---
+
+## 5. Use Cases
 
 ### UC-1: Morning commuter, late for work
 Alex opens the app. He types "Penn Station" → "Grand Central." The map highlights the route. Live arrival times show the next 4/5/6 train leaves in 3 minutes. The result tells him: board the **4th car from the front** to exit at the uptown stairs at Grand Central. He makes the train.
 
 ### UC-2: Tourist, first time on the subway
-A visitor from abroad opens the URL on their phone. They see the whole system in 3D and immediately understand the geographic relationship between Manhattan, Brooklyn, and Queens. They click Times Square. The popup shows 8 lines, next arrivals for each direction, and the exits at street level.
+A visitor from abroad opens the URL on their phone. They see the whole system at once and immediately understand the geographic relationship between Manhattan, Brooklyn, and Queens. They click Times Square. The popup shows 8 lines, next arrivals for each direction, and the exits at street level.
 
 ### UC-3: Rider encountering a service disruption
-A signal failure is issued on the A/C/E at Jay St. The user sees affected line segments pulse red on the 3D map. Their saved commute (Fulton St → 72nd St) shows a disrupted route and an alternate via the 2/3. They reroute before leaving the building.
+A signal failure is issued on the A/C/E at Jay St. The user sees affected line segments pulse red on the map. Their saved commute (Fulton St → 72nd St) shows a disrupted route and an alternate via the 2/3. They reroute before leaving the building.
 
 ### UC-4: Wheelchair user planning a trip
 A rider who uses a wheelchair needs elevator-only navigation. They enable accessibility mode. The map dims all stations without working elevators. Their route is recalculated to avoid the inaccessible 14th St–Union Square (elevator broken) and route via 23rd St instead.
@@ -98,7 +139,7 @@ A backend engineer looks at the GitHub repo to understand how the GTFS-RT protob
 
 ---
 
-## 5. Architecture Overview
+## 6. Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -141,14 +182,13 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 
 ---
 
-## 6. Technology Stack
+## 7. Technology Stack
 
 | Technology | Layer | Use case |
 |---|---|---|
-| Three.js r165 | Frontend / rendering | 3D scene graph, WebGL renderer, TubeGeometry for subway lines, InstancedMesh for trains |
-| Maplibre GL JS v5 | Frontend / map | Map tiles, camera, station circle layers, symbol labels, queryRenderedFeatures for click |
-| CatmullRomCurve3 | Frontend / rendering | Arc-length-uniform spline sampling via `getPointAt(u)`; `getUtoTmapping` for fraction → t conversion |
-| Vite 5 | Build | Dev server with HMR, production bundler via Rollup, tree-shakes Three.js |
+| Maplibre GL JS v5 | Frontend / map | Every pixel of the map: tiles, camera, route lines, station circles, symbol labels, train bullets, queryRenderedFeatures for click |
+| `src/core/polyline.js` | Frontend / geometry | Arc-length parameterized lat/lng polylines: `pointAt(u)`, `bearingAt(u)`, `nearestU()`. Replaced Three.js `CatmullRomCurve3` |
+| Vite 5 | Build | Dev server with HMR, production bundler via Rollup |
 | Vanilla JS (ES modules) | Frontend | All app logic as native ES modules; no framework overhead on a WebGL canvas |
 | Vitest | Testing | Unit test runner for all `src/core/` modules; runs in Node, no DOM or browser needed |
 | Go 1.27 | Backend | HTTP server: CORS proxy (Phase 4), full API server (Phase 5+) |
@@ -167,7 +207,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 
 ---
 
-## 7. Phase Roadmap
+## 8. Phase Roadmap
 
 | Phase | Name | Status | Key deliverable |
 |---|---|---|---|
@@ -185,7 +225,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 
 ---
 
-## 8. Phase 1 — Static 3D Map
+## 9. Phase 1 — Static 3D Map
 
 ### Goal
 Render the complete NYC subway system — all lines, all stations — in a geographically accurate 3D scene. Work entirely from public GTFS static data. No live feeds required. The app must be usable immediately on load without any server setup.
@@ -328,7 +368,7 @@ Orbit camera with spherical coordinates `(θ, φ, r)`. Mouse drag updates θ and
 
 ---
 
-## 9. Phase 2 — Live Arrivals
+## 10. Phase 2 — Live Arrivals
 
 ### Goal
 Replace simulated arrival data with real MTA GTFS-RT data. Station popups show actual next arrival times pulled from 8 parallel protobuf feeds every 30 seconds.
@@ -381,7 +421,7 @@ Discard arrivals that are: more than 60 seconds in the past, more than 60 minute
 
 ---
 
-## 10. Phase 3 — Live Train Positions
+## 11. Phase 3 — Live Train Positions
 
 ### Goal
 Replace simulated trains with real vehicle positions from the GTFS-RT `VehiclePosition` feed. Trains are positioned accurately on their routes and move smoothly between GTFS-RT update cycles.
@@ -439,7 +479,7 @@ One `InstancedMesh` per line color (23 lines = 23 draw calls, not 600).
 
 ---
 
-## 11. Phase 4 — Real Trains + Station LOD
+## 12. Phase 4 — Real Trains + Station LOD
 
 ### Goal
 Make the map legible at every zoom level and ensure every train shown is a real one. Station rendering switches from Three.js geometry to Maplibre native layers. Same-name stations merge into a single dot at low zoom. Arrival data is split into a permanent north/south two-column view.
@@ -515,7 +555,7 @@ Both directions always visible; no toggle button. Each column shows up to 4 arri
 
 ---
 
-## 12. Phase 5 — Go API Server (Fly.io)
+## 13. Phase 5 — Go API Server (Fly.io)
 
 ### Goal
 Move all GTFS-RT fetching and protobuf parsing to a dedicated Go API server on Fly.io. The browser receives clean JSON. Every user benefits from a shared server-side cache rather than each fetching independently from MTA.
@@ -696,7 +736,7 @@ MTA's subway feeds publish **no GPS** — position is derived client-side from a
 
 ---
 
-## 13. Phase 6 — Performance, Service Alerts + Mobile
+## 14. Phase 6 — Performance, Service Alerts + Mobile
 
 ### Goal
 Three threads: make the app load fast, make it honest about what it knows (service
@@ -1035,7 +1075,7 @@ Below 640px viewport width, the popup switches from a floating card to a bottom 
 
 ---
 
-## 14. Phase 7 — Map Legibility + Station Detail ✅
+## 15. Phase 7 — Map Legibility + Station Detail ✅
 
 ### Goal
 
@@ -1350,7 +1390,7 @@ now match a route.
 
 ---
 
-## 15. Phase 8 — Trip Planner + Car Positioning
+## 16. Phase 8 — Trip Planner + Car Positioning
 
 ### Goal
 User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
@@ -1626,7 +1666,7 @@ When a route is selected:
 
 ---
 
-## 16. Phase 9 — User Accounts
+## 17. Phase 9 — User Accounts
 
 ### Goal
 Introduce persistent, server-side user identity using Firebase Auth. Users sign in with Google to save commutes, preferences, and notification settings that follow them across devices.
@@ -1673,7 +1713,7 @@ Users who saved commutes in `localStorage` (Phases 1–4) are prompted to sign i
 
 ---
 
-## 17. Phase 10 — Push Notifications
+## 18. Phase 10 — Push Notifications
 
 ### Goal
 Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground.
@@ -1707,7 +1747,7 @@ Compare current `TripUpdate.arrival.delay` against the user's delay threshold. I
 
 ---
 
-## 18. Phase 11 — AI Agent Layer
+## 19. Phase 11 — AI Agent Layer
 
 ### Goal
 Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes.
@@ -1780,7 +1820,7 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ---
 
-## 19. Data Sources
+## 20. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -1802,7 +1842,7 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ---
 
-## 20. API Reference
+## 21. API Reference
 
 ### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
 
@@ -1870,7 +1910,7 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 21. Test Strategy
+## 22. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
@@ -1907,7 +1947,7 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ---
 
-## 22. Deployment
+## 23. Deployment
 
 ### Frontend (Vercel)
 
@@ -1985,7 +2025,7 @@ Vercel's Git integration authenticates itself. They can be deleted from the repo
 
 ---
 
-## 23. Out of Scope
+## 24. Out of Scope
 
 These features are intentionally excluded from all current phases:
 

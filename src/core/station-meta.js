@@ -135,6 +135,31 @@ export function complexIdIndex(meta) {
     return out;
 }
 
+/**
+ * How many routes serve each station, for station level-of-detail.
+ *
+ * This used to be derived from geometry: every route's curve was sampled at
+ * 2,001 points and every station tested against all of them, 14,384 pairs, to
+ * count how many lines passed near each dot. The dataset states it outright in
+ * daytime_routes, so the geometry pass was measuring something it already knew —
+ * and measuring it worse, since a curve passing near a station is not the same
+ * claim as a route serving it.
+ *
+ * Counts display names, which is what the column holds: the three shuttles all
+ * read "S" and the express variants read F, 6 and 7. That is the right unit for
+ * level-of-detail, because it is the number of bullets a rider sees on the sign.
+ *
+ * Falls back to 1 for a station the dataset does not describe, which keeps it at
+ * the smallest size rather than hiding it.
+ */
+export function routeCountByStation(meta) {
+    const out = new Map();
+    for (const [id, row] of meta ?? []) {
+        out.set(id, row.routes?.size || 1);
+    }
+    return out;
+}
+
 /** Human-readable borough for a station, or '' when unknown. */
 export function boroughName(meta, stopId) {
     return BOROUGH_NAME[meta?.get(stopId)?.borough] ?? '';
