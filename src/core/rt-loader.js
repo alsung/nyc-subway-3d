@@ -3,6 +3,8 @@
 // decoding and GTFS-RT parsing now happen server-side; the browser just consumes
 // clean JSON and no longer bundles gtfs-realtime-bindings.
 
+import { parsePlatforms, indexByComplex } from './platforms.js';
+
 // Production API runs on Fly.io in ewr — see api/fly.toml.
 const API_BASE = import.meta.env.PROD
     ? 'https://nyc-subway-api.fly.dev'
@@ -53,4 +55,20 @@ export async function fetchPlan(fromId, toId) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`plan request failed: ${res.status}`);
     return res.json();
+}
+
+// Platform footprints from OpenStreetMap, grouped by complex. Degrades to an
+// empty index: platforms are an enrichment, and a station drawn as a dot is
+// still a working station.
+export async function loadPlatforms() {
+    try {
+        const res = await fetch('/platforms.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) throw new Error('got HTML, not JSON');
+        return indexByComplex(parsePlatforms(await res.json()));
+    } catch (err) {
+        console.warn(`[rt-loader] platform data unavailable (${err.message}) — station platforms will not be drawn`);
+        return new Map();
+    }
 }

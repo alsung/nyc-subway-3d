@@ -26,6 +26,12 @@ const MIN_STATIONS = 490;
 // happens to have none.
 const MIN_ENTRANCES = 2000;
 
+// Platform footprints. Unlike the GTFS files and the entrance data, this one is
+// committed rather than fetched at build time: OSM platform geometry changes on
+// the order of months, and putting a rate-limited Overpass query on the critical
+// path of every deploy would trade a stale asset for a failed build.
+const MIN_PLATFORMS = 800;
+
 const problems = [];
 
 for (const name of REQUIRED) {
@@ -81,6 +87,21 @@ try {
     problems.push(`dist/entrances.json unreadable — did prebuild run? (${err.message})`);
 }
 
+// platforms.json — committed, so a failure here means it was deleted rather
+// than that a fetch went wrong.
+try {
+    const rows = JSON.parse(readFileSync(join(DIST, 'platforms.json'), 'utf8'));
+    if (!Array.isArray(rows)) {
+        problems.push('dist/platforms.json is not a JSON array');
+    } else if (rows.length < MIN_PLATFORMS) {
+        problems.push(`dist/platforms.json has ${rows.length} platforms, expected at least ${MIN_PLATFORMS}`);
+    } else if (!rows[0]?.c || !Array.isArray(rows[0]?.g)) {
+        problems.push('dist/platforms.json rows are missing a complex id or geometry');
+    }
+} catch (err) {
+    problems.push(`dist/platforms.json unreadable (${err.message})`);
+}
+
 if (problems.length) {
     console.error('\nBuild verification failed:\n');
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -88,4 +109,4 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station and entrance data present`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance and platform data present`);

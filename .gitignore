@@ -3,6 +3,9 @@ node_modules/
 dist/
 coverage/
 
+# Overpass tile cache for scripts/fetch-platforms.mjs
+.cache/
+
 # Vite build cache
 .vite/
 
