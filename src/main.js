@@ -8,7 +8,7 @@ import { createMap, addStationLayer, setStationAlerts, addRouteLines, applyBasem
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
 import { setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
-import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, startTrainLoop } from './scene/train-layer.js';
+import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
 import { flyToStation } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
@@ -23,6 +23,7 @@ import { complexIdIndex, buildSearchEntries, searchEntryLabel, routeCountByStati
 import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
 import { alertedStationIds } from './core/station-alerts.js';
+import { readPref, writePref } from './core/prefs.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
@@ -109,6 +110,12 @@ async function init() {
     // once they do. Storing state rather than queueing events keeps it idempotent.
     const filterState = new Map();
 
+    // Whether live trains are drawn. Remembered across visits: a reader who
+    // turned them off wanted a quieter map, and making them turn it off again
+    // every visit would be its own kind of noise. Defaults on — the live network
+    // is the thing this map is for.
+    let trainsOn = readPref('trains', true) !== false;
+
     // RT state — shared between the refresh loop and click/search handlers.
     let lastStation = null;
     // Surfaced alerts, for the station rings and the popup's disruption band.
@@ -180,6 +187,14 @@ async function init() {
             // running would be the same half-applied filter the two-representation
             // split used to produce.
             if (trainState) setTrainVisibility(trainState, routeId, active);
+        },
+        {
+            trainsOn,
+            onTrainsToggle: (on) => {
+                trainsOn = on;
+                writePref('trains', on);
+                if (trainState) setTrainsEnabled(trainState, on);
+            },
         },
     );
 
@@ -291,6 +306,9 @@ async function init() {
     // searching geometry every time a snapshot lands.
     const routeIndex = buildRouteIndex(lineRoutes, stations);
     trainState = createTrainState(map);
+    // Apply a remembered choice before the first snapshot lands, so a reader who
+    // turned trains off never sees them flash on during startup.
+    setTrainsEnabled(trainState, trainsOn);
     startTrainLoop(trainState);
 
     // Replay any chip toggles made while the layers were still being built.

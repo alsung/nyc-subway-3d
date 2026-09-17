@@ -29,7 +29,21 @@ export const TRUNKS = [
 // calls one "the FX" — the MTA signs them as a diamond F, 6 or 7. They are
 // filtered before the trunk's bullets are drawn, and still toggled with the
 // parent trunk.
-const EXPRESS_VARIANTS = new Set(['FX', '6X', '7X']);
+const EXPRESS_VARIANTS = new Map([['FX', 'F'], ['6X', '6'], ['7X', '7']]);
+
+/**
+ * The line an express pattern belongs to, or null for anything else.
+ *
+ * Two callers want opposite things from the same fact. The lines panel drops
+ * these entirely, because a rider toggling "the F" means the express too and a
+ * separate FX row would be noise. The map keeps them, because an express train
+ * is really running and has to be drawn — it just has to be drawn the way MTA
+ * signs it, as a diamond carrying the parent's letter rather than a circle
+ * reading "FX", which appears on no sign anywhere in the system.
+ */
+export function expressParent(routeId) {
+    return EXPRESS_VARIANTS.get(routeId) ?? null;
+}
 
 /**
  * The routes in a trunk that should get a bullet.

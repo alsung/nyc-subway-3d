@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TRUNKS, trunksFor, bulletRoutes } from '../../src/core/trunks.js';
+import { TRUNKS, trunksFor, bulletRoutes, expressParent } from '../../src/core/trunks.js';
 import { TRUNK_ORDER } from '../../src/core/alert-status.js';
 
 // The 29 route ids the MTA static feed actually ships, verified against
@@ -91,5 +91,28 @@ describe('trunksFor', () => {
     it('handles an empty or missing routeMap', () => {
         expect(trunksFor({})).toEqual([]);
         expect(trunksFor(undefined)).toEqual([]);
+    });
+});
+
+describe('expressParent', () => {
+    it('names the line an express pattern belongs to', () => {
+        expect(expressParent('FX')).toBe('F');
+        expect(expressParent('6X')).toBe('6');
+        expect(expressParent('7X')).toBe('7');
+    });
+
+    it('returns null for a line of its own', () => {
+        for (const id of ['F', '6', '7', 'A', 'GS', 'SI', 'L']) {
+            expect(expressParent(id)).toBeNull();
+        }
+        expect(expressParent(undefined)).toBeNull();
+    });
+
+    it('still lets bulletRoutes drop the same three', () => {
+        // Guards the change from a Set to a Map: bulletRoutes reads .has(), and
+        // both carry that method, so a regression here would be silent.
+        expect(bulletRoutes(['B', 'D', 'F', 'FX', 'M'])).toEqual(['B', 'D', 'F', 'M']);
+        expect(bulletRoutes(['4', '5', '6', '6X'])).toEqual(['4', '5', '6']);
+        expect(bulletRoutes(['7', '7X'])).toEqual(['7']);
     });
 });
