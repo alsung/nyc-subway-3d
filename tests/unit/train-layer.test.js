@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRouteIndex, placeVehicles, trainFeatures } from '../../src/scene/train-layer.js';
+import { buildRouteIndex, placeVehicles, trainFeatures, advanceTrains } from '../../src/scene/train-layer.js';
 import { VEHICLE_STATUS } from '../../src/core/rt-parser.js';
 
 const M_PER_DEG_LAT = 111_320;
@@ -135,5 +135,122 @@ describe('trainFeatures', () => {
 
     it('is an empty collection when nothing is running', () => {
         expect(trainFeatures([]).features).toEqual([]);
+    });
+});
+
+describe('advanceTrains', () => {
+    const M_LAT = 111_320;
+    const line = Array.from({ length: 5 }, (_, i) => [(i * 1000) / M_LAT, 0]);
+    const routeIndex = buildRouteIndex({ A: [line] }, [
+        { id: 's1', lat: 0, lng: 0 },
+        { id: 's2', lat: 2000 / M_LAT, lng: 0 },
+    ]);
+    const T = 1_700_000_000;
+
+    // s1 is at u = 0, s2 at u = 0.5 along a 4 km line.
+    const vehicle = (window) => ({
+        routeId: 'A',
+        tripId: 't1',
+        stopId: 's1',
+        currentStatus: VEHICLE_STATUS.STOPPED_AT,
+        stopTimeUpdate: window,
+    });
+
+    it('moves a train between two stops by wall clock', () => {
+        const placed = placeVehicles([vehicle([
+            { stopId: 's1', arrival: T, departure: T },
+            { stopId: 's2', arrival: T + 100, departure: T + 100 },
+        ])], routeIndex);
+
+        advanceTrains(placed, (T + 50) * 1000);
+        // Halfway in time is halfway in distance: u = 0.25 of the whole line.
+        expect(placed[0].u).toBeCloseTo(0.25, 4);
+
+        advanceTrains(placed, (T + 80) * 1000);
+        expect(placed[0].u).toBeCloseTo(0.40, 4);
+    });
+
+    it('extrapolates backward for a train short of its own stop', () => {
+        const placed = placeVehicles([vehicle([
+            { stopId: 's1', arrival: T + 50, departure: T + 50 },
+            { stopId: 's2', arrival: T + 150, departure: T + 150 },
+        ])], routeIndex);
+
+        advanceTrains(placed, T * 1000);
+        // Half a hop short of s1, which sits at u = 0, so it clamps to the
+        // start of the line rather than running off it.
+        expect(placed[0].u).toBe(0);
+    });
+
+    it('holds the snapshot position when the times cannot place it', () => {
+        // Arrival far in the future: a run that has not started. These are about
+        // a quarter of the feed and must not be moved or hidden.
+        const placed = placeVehicles([vehicle([
+            { stopId: 's1', arrival: T + 4000, departure: T + 4000 },
+            { stopId: 's2', arrival: T + 4100, departure: T + 4100 },
+        ])], routeIndex);
+        const before = placed[0].u;
+
+        const moved = advanceTrains(placed, T * 1000);
+        expect(moved).toBe(0);
+        expect(placed[0].u).toBe(before);
+    });
+
+    it('holds when the window names a stop this line does not carry', () => {
+        const placed = placeVehicles([vehicle([
+            { stopId: 's1', arrival: T, departure: T },
+            { stopId: 'elsewhere', arrival: T + 100, departure: T + 100 },
+        ])], routeIndex);
+        const before = placed[0].u;
+
+        expect(advanceTrains(placed, (T + 50) * 1000)).toBe(0);
+        expect(placed[0].u).toBe(before);
+    });
+
+    it('counts only the trains the times actually placed', () => {
+        const placeable = placeVehicles([vehicle([
+            { stopId: 's1', arrival: T, departure: T },
+            { stopId: 's2', arrival: T + 100, departure: T + 100 },
+        ])], routeIndex);
+        expect(advanceTrains(placeable, (T + 50) * 1000)).toBe(1);
+    });
+});
+
+describe('advanceTrains speed guard', () => {
+    const M_LAT = 111_320;
+    // A 20 km line, so consecutive stops are far apart in meters.
+    const line = Array.from({ length: 3 }, (_, i) => [(i * 10_000) / M_LAT, 0]);
+    const routeIndex = buildRouteIndex({ A: [line] }, [
+        { id: 's1', lat: 0, lng: 0 },
+        { id: 's2', lat: 10_000 / M_LAT, lng: 0 },
+    ]);
+    const T = 1_700_000_000;
+
+    const run = (hopSeconds) => {
+        const placed = placeVehicles([{
+            routeId: 'A', tripId: 't1', stopId: 's1',
+            currentStatus: VEHICLE_STATUS.STOPPED_AT,
+            stopTimeUpdate: [
+                { stopId: 's1', arrival: T, departure: T },
+                { stopId: 's2', arrival: T + hopSeconds, departure: T + hopSeconds },
+            ],
+        }], routeIndex);
+        const moved = advanceTrains(placed, (T + hopSeconds / 2) * 1000);
+        return { u: placed[0].u, moved };
+    };
+
+    it('animates a hop at a plausible speed', () => {
+        // 10 km in 600s is 16.7 m/s, a fast express but a real one.
+        const { u, moved } = run(600);
+        expect(moved).toBe(1);
+        expect(u).toBeCloseTo(0.25, 3);
+    });
+
+    it('holds at the stop it left when the feed implies an impossible speed', () => {
+        // 10 km in 100s is 100 m/s. Seen for real: the E published consecutive
+        // stops one second apart, and a D hop covered 3.81 km in 73s.
+        const { u, moved } = run(100);
+        expect(moved).toBe(0);
+        expect(u).toBe(0);
     });
 });

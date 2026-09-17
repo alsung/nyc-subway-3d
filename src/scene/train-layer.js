@@ -13,6 +13,7 @@
 import { normalizeStopId, VEHICLE_STATUS } from '../core/rt-parser.js';
 import { contrastColor } from '../core/color.js';
 import { preparePolyline, pointAt, nearestU, boundsOf, withinBounds } from '../core/polyline.js';
+import { positionAt } from '../core/train-motion.js';
 
 const SOURCE_ID = 'trains';
 const LAYER_ID = 'trains';
@@ -41,6 +42,40 @@ const ICON_PX = 44;
 const REDRAW_HZ = 4;
 
 const UNKNOWN_COLOR = '#808183';
+
+// Fastest a train is allowed to appear to travel, in meters per second.
+//
+// A guard on the feed, not on the renderer. Predictions occasionally imply a
+// speed nothing on rails reaches, in two distinct ways seen on one live
+// snapshot: the E published consecutive stops one second apart near Jamaica,
+// which turns 0.74 km into 741 m/s, and a D hop covered 3.81 km in a predicted
+// 73 s. Interpolating across either produces a bullet visibly rocketing across
+// the map, which reads as a bug even though the geometry is right.
+//
+// 40 m/s is about 90 mph, comfortably above anything NYC runs — a live snapshot
+// put the median at 8.0 m/s and the 90th percentile at 11.6 — so a legitimate
+// express hop is never caught by this. Only nonsense is.
+const MAX_PLAUSIBLE_SPEED_MPS = 40;
+
+// How much of the gap to a train's newly computed position to close each draw.
+//
+// A snapshot lands every 30 seconds and rewrites every prediction, so the
+// position a train should hold can step even while it is moving smoothly. Left
+// alone that is not subtle: measured over 45 seconds, the two refreshes in that
+// window moved about 260 trains each in a single frame. Easing absorbs the
+// correction instead of teleporting it. At the draw rate below this closes
+// roughly 95% of a gap in two seconds, and it costs a lag of about five meters
+// behind a train at full speed — nothing, against a position that is an estimate
+// to begin with.
+const CORRECTION_EASE = 0.3;
+
+// Beyond this, snap rather than slide.
+//
+// A correction this large is not a correction: it means the feed re-identified
+// the train, usually onto a different branch of its own route. Easing across it
+// would send a bullet gliding several kilometers over open ground, which looks
+// far more broken than simply appearing in the right place.
+const SNAP_CORRECTION_M = 500;
 
 /** Draws one route's bullet into an ImageData Maplibre can register. */
 function bulletImage(color, label) {
@@ -243,7 +278,18 @@ export function placeVehicles(vehicles, routeIndex, sortKeys = new Map()) {
             tripId: vehicle.tripId,
             routeId: vehicle.routeId,
             line: lines[at.lineIndex].poly,
+            // Where the snapshot put it. Kept as the fallback for any train the
+            // predicted times cannot place — about a quarter of them, whose next
+            // arrival is more than ten minutes out because the run has not
+            // started. Leaving those where they are is no worse than what the
+            // map showed before there was any motion at all; hiding them would
+            // empty a quarter of the network off the screen.
+            snapshotU: at.u,
             u: at.u,
+            // The stop window and this line's index of it, so the tick can turn
+            // a pair of stop ids into two places on the line.
+            window: vehicle.stopTimeUpdate ?? [],
+            stationU: lines[at.lineIndex].stationU,
             sortKey: sortKeys.get(vehicle.tripId),
         });
     }
@@ -254,6 +300,75 @@ export function placeVehicles(vehicles, routeIndex, sortKeys = new Map()) {
     for (const tripId of sortKeys.keys()) if (!running.has(tripId)) sortKeys.delete(tripId);
 
     return placed;
+}
+
+/**
+ * Advances every train to where the predicted times say it is now.
+ *
+ * Mutates `u` in place rather than rebuilding the list: this runs several times
+ * a second and the set of trains only changes when a snapshot lands.
+ *
+ * @param {number} nowMs wall clock in milliseconds
+ * @returns {number} how many trains the times could actually place, which is the
+ *   number worth reporting — the rest are sitting where their snapshot left them
+ */
+export function advanceTrains(placed, nowMs, smoothing = new Map()) {
+    const now = Math.floor(nowMs / 1000);
+    let moved = 0;
+
+    // Eases a train toward where it now belongs, so a refreshed prediction
+    // arrives as movement rather than as a jump.
+    const settle = (train, target) => {
+        const previous = smoothing.get(train.tripId);
+        const jumped = previous == null
+            || Math.abs(target - previous) * train.line.length > SNAP_CORRECTION_M;
+        train.u = jumped ? target : previous + (target - previous) * CORRECTION_EASE;
+        smoothing.set(train.tripId, train.u);
+    };
+
+    for (const train of placed) {
+        const at = positionAt(train.window, now);
+        if (at == null) {
+            // Unknown. Hold the snapshot position rather than inventing one.
+            settle(train, train.snapshotU);
+            continue;
+        }
+
+        const fromU = train.stationU.get(normalizeStopId(at.fromStopId));
+        const toU = train.stationU.get(normalizeStopId(at.toStopId));
+        // A stop the feed names but this line does not carry — a train that has
+        // been rerouted, or a window spanning a branch point.
+        if (fromU == null || toU == null) {
+            settle(train, train.snapshotU);
+            continue;
+        }
+
+        // Refuse to animate a hop the feed describes impossibly. Holding at the
+        // stop it left is wrong by at most one station; showing it cross three
+        // of them in a second is wrong in a way a rider would notice.
+        if (at.seconds > 0) {
+            const meters = Math.abs(toU - fromU) * train.line.length;
+            if (meters / at.seconds > MAX_PLAUSIBLE_SPEED_MPS) {
+                settle(train, fromU);
+                continue;
+            }
+        }
+
+        // One lerp covers all three cases, because t may be negative: that
+        // extrapolates backward along the same line for a train still short of
+        // its own stop. Clamped so it can never run off either end.
+        settle(train, Math.min(1, Math.max(0, fromU + at.t * (toU - fromU))));
+        moved++;
+    }
+
+    // Trips that have ended stop holding a smoothing entry, the same way they
+    // release their sort key.
+    if (smoothing.size > placed.length) {
+        const running = new Set(placed.map(t => t.tripId));
+        for (const tripId of smoothing.keys()) if (!running.has(tripId)) smoothing.delete(tripId);
+    }
+
+    return moved;
 }
 
 /** The GeoJSON for a set of placed vehicles. */
@@ -288,6 +403,13 @@ export function createTrainState(map) {
         sortKeys: new Map(),
         hidden: new Set(),
         lastDraw: 0,
+        // How many trains the predicted times placed on the last draw, as
+        // opposed to those holding a snapshot position.
+        placeable: 0,
+        // Last drawn position per trip, so a refreshed prediction is eased in
+        // rather than snapped. Survives the snapshot rebuild; keyed on trip id
+        // for exactly that reason.
+        smoothing: new Map(),
     };
 }
 
@@ -310,6 +432,8 @@ function draw(state, force = false) {
     if (!force && now - state.lastDraw < 1000 / REDRAW_HZ) return;
     state.lastDraw = now;
 
+    state.placeable = advanceTrains(state.placed, Date.now(), state.smoothing);
+
     const source = state.map?.getSource(SOURCE_ID);
     if (!source) return;
 
@@ -322,9 +446,10 @@ function draw(state, force = false) {
 /**
  * Starts the redraw loop.
  *
- * Positions do not move between snapshots yet — that arrives with the predicted
- * stop times the API now carries — so this exists to apply filter changes and to
- * give that motion somewhere to live. Returns a stop function.
+ * Trains move between snapshots, so this runs continuously rather than only when
+ * data lands: a snapshot arrives every 30 seconds and a hop takes about 105, so
+ * most of what a rider sees is interpolated rather than reported. Returns a stop
+ * function.
  */
 export function startTrainLoop(state) {
     let running = true;
