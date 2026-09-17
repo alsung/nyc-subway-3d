@@ -340,6 +340,22 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     flex-shrink: 0;
 }
 
+/* An express pattern, signed as a diamond rather than a circle.
+
+   clip-path rather than a rotated square: a rotation leaves the layout box
+   unrotated, so a square sized to span 22px on its diagonal would still occupy
+   only 15.6px of the row and overlap its neighbours, and the label would need
+   counter-rotating to stay upright. Clipping changes none of that — same box,
+   same grid centering, text untouched.
+
+   The glyph sits in the inscribed square, which for a 22px diamond is the same
+   15.6px a 22px circle gives it, so nothing needs resizing. Express labels are
+   always one character (F, 6, 7), so --wide never applies. */
+.alert-bullet--express {
+    border-radius: 0;
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
 /* SIR and similar need an oval rather than a clipped circle. */
 .alert-bullet--wide {
     width: auto;
@@ -568,6 +584,21 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .lines-close:hover { color: #fff; }
 
 .lines-body { overflow-y: auto; }
+
+/* The live-trains switch, set apart from the line rows below it: it controls a
+   different kind of thing, and a reader scanning for a line should not have to
+   read past it. */
+.lines-section {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.lines-label {
+    flex: 1;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+}
 
 .lines-row {
     width: 100%;

@@ -14,6 +14,7 @@ import { normalizeStopId, VEHICLE_STATUS } from '../core/rt-parser.js';
 import { contrastColor } from '../core/color.js';
 import { preparePolyline, pointAt, nearestU, boundsOf, withinBounds } from '../core/polyline.js';
 import { positionAt } from '../core/train-motion.js';
+import { expressParent } from '../core/trunks.js';
 
 const SOURCE_ID = 'trains';
 const LAYER_ID = 'trains';
@@ -77,14 +78,39 @@ const CORRECTION_EASE = 0.3;
 // far more broken than simply appearing in the right place.
 const SNAP_CORRECTION_M = 500;
 
-/** Draws one route's bullet into an ImageData Maplibre can register. */
-function bulletImage(color, label) {
+// How much bigger an express diamond is drawn than the circle it replaces.
+//
+// A diamond and a circle of the same radius have the same inscribed square, so
+// the letter fits either identically — but the diamond encloses about a third
+// less area and reads noticeably lighter beside its local. MTA signs the two at
+// about equal weight, so the diamond is drawn slightly larger to match.
+const DIAMOND_SCALE = 1.12;
+
+/**
+ * Draws one route's bullet into an ImageData Maplibre can register.
+ *
+ * A diamond, not a circle, for an express pattern. GTFS gives FX, 6X and 7X
+ * their own ids and short names, but no sign in the system reads "FX" — MTA
+ * draws a diamond carrying the parent line's letter, and a rider looking for a
+ * diamond 7 will not recognize a circle labelled 7X.
+ */
+function bulletImage(color, label, diamond = false) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = ICON_PX;
     const ctx = canvas.getContext('2d');
 
+    const mid = ICON_PX / 2;
     ctx.beginPath();
-    ctx.arc(ICON_PX / 2, ICON_PX / 2, ICON_PX / 2 - 3, 0, Math.PI * 2);
+    if (diamond) {
+        const r = (mid - 3) * DIAMOND_SCALE;
+        ctx.moveTo(mid, mid - r);
+        ctx.lineTo(mid + r, mid);
+        ctx.lineTo(mid, mid + r);
+        ctx.lineTo(mid - r, mid);
+        ctx.closePath();
+    } else {
+        ctx.arc(mid, mid, mid - 3, 0, Math.PI * 2);
+    }
     ctx.fillStyle = color;
     ctx.fill();
     // A dark rim, because a bullet sits on a line of its own color and would
@@ -119,7 +145,12 @@ function bulletImage(color, label) {
  */
 export function addTrainLayer(map, routeMap, beforeId = 'station-labels') {
     for (const [routeId, route] of Object.entries(routeMap ?? {})) {
-        const image = bulletImage(route?.color ?? UNKNOWN_COLOR, route?.shortName ?? routeId);
+        // An express pattern is signed as its parent line, in a diamond.
+        const parent = expressParent(routeId);
+        const label = parent
+            ? (routeMap[parent]?.shortName ?? parent)
+            : (route?.shortName ?? routeId);
+        const image = bulletImage(route?.color ?? UNKNOWN_COLOR, label, parent !== null);
         if (!map.hasImage(`train-${routeId}`)) map.addImage(`train-${routeId}`, image);
     }
 
@@ -402,6 +433,9 @@ export function createTrainState(map) {
         placed: [],
         sortKeys: new Map(),
         hidden: new Set(),
+        // Whether live trains are drawn at all. Separate from `hidden`, which is
+        // the per-route filter; see setTrainsEnabled.
+        enabled: true,
         lastDraw: 0,
         // How many trains the predicted times placed on the last draw, as
         // opposed to those holding a snapshot position.
@@ -427,7 +461,30 @@ export function setTrainVisibility(state, routeId, visible) {
     draw(state, true);
 }
 
+/**
+ * Turns live trains off or on as a whole.
+ *
+ * Deliberately a separate flag from `hidden` rather than a mass entry into it.
+ * The two answer different questions — "show me no trains at all" and "hide the
+ * A, C and E" — and folding the first into the second would lose the second:
+ * switching trains back on would reveal every route, including the trunks the
+ * reader had filtered out, and they would have to redo that work.
+ */
+export function setTrainsEnabled(state, enabled) {
+    state.enabled = enabled;
+    if (state.map?.getLayer?.(LAYER_ID)) {
+        state.map.setLayoutProperty(LAYER_ID, 'visibility', enabled ? 'visible' : 'none');
+    }
+    draw(state, true);
+}
+
 function draw(state, force = false) {
+    // Hidden trains still move in the feed, but nothing is looking. Skipping the
+    // whole pass rather than drawing into an invisible layer means the work
+    // stops too, and switching back on picks up from the wall clock rather than
+    // from wherever the trains were when they were hidden.
+    if (!state.enabled) return;
+
     const now = performance.now();
     if (!force && now - state.lastDraw < 1000 / REDRAW_HZ) return;
     state.lastDraw = now;

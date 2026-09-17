@@ -7,9 +7,9 @@
 // chips for the FX / 6X / 7X expresses — twenty-nine 31x24 targets crowding the
 // map attribution. Grouping by trunk gives eleven rows a rider can name.
 //
-// Toggling is per trunk rather than per route: on a 3D map the lines of a trunk
-// run the same corridor, so hiding one of three overlapping lines barely changes
-// the picture while clearing a whole corridor does.
+// Toggling is per trunk rather than per route: the lines of a trunk run the same
+// corridor, so hiding one of three overlapping lines barely changes the picture
+// while clearing a whole corridor does.
 
 import { trunksFor, bulletRoutes } from '../core/trunks.js';
 import { dedupeBulletRoutes } from '../core/alert-status.js';
@@ -21,10 +21,20 @@ const HASH = '#lines';
  * Builds the panel and its rows.
  *
  * onToggle(routeId, active) fires once per affected route — the caller drives
- * mesh visibility a route at a time, so a trunk toggle reports each of its
+ * layer visibility a route at a time, so a trunk toggle reports each of its
  * routes rather than making the caller expand the group itself.
+ *
+ * The live-trains switch sits here rather than in the control strip because
+ * this panel is already the answer to "what is drawn on the map". It stretches
+ * the name "Lines" slightly, which is the price of not adding a fourth button
+ * to a strip a reader already knows.
+ *
+ * @param {object} [options]
+ * @param {(on: boolean) => void} [options.onTrainsToggle]
+ * @param {boolean} [options.trainsOn] initial state of that switch
  */
-export function buildLinesPanel(container, routeMap, linesButton, onToggle) {
+export function buildLinesPanel(container, routeMap, linesButton, onToggle, options = {}) {
+    const { onTrainsToggle, trainsOn = true } = options;
     const panel = document.createElement('div');
     panel.id = 'lines-panel';
     panel.classList.add('hidden');
@@ -45,6 +55,43 @@ export function buildLinesPanel(container, routeMap, linesButton, onToggle) {
 
     const body = panel.querySelector('.lines-body');
     const trunks = trunksFor(routeMap);
+
+    // ── Live trains ─────────────────────────────────────────────────────────
+    //
+    // Its own section above the trunks, because it is not a line. Reading the
+    // network — which train stops where, where to change — and watching it run
+    // are different tasks, and the second is the one that adds movement and
+    // clutter to the first.
+    if (onTrainsToggle) {
+        const section = document.createElement('div');
+        section.className = 'lines-section';
+
+        const row = document.createElement('button');
+        row.className = 'lines-row';
+        row.setAttribute('role', 'switch');
+        row.setAttribute('aria-checked', String(trainsOn));
+        row.classList.toggle('lines-row--off', !trainsOn);
+        row.setAttribute('aria-label', 'Live trains');
+
+        const label = document.createElement('span');
+        label.className = 'lines-label';
+        label.textContent = 'Live trains';
+
+        const check = document.createElement('span');
+        check.className = 'lines-check';
+        check.setAttribute('aria-hidden', 'true');
+
+        row.append(label, check);
+        row.addEventListener('click', () => {
+            const on = row.getAttribute('aria-checked') !== 'true';
+            row.setAttribute('aria-checked', String(on));
+            row.classList.toggle('lines-row--off', !on);
+            onTrainsToggle(on);
+        });
+
+        section.appendChild(row);
+        body.appendChild(section);
+    }
 
     // Every trunk starts visible, matching the map on load.
     const active = new Map(trunks.map(t => [t.key, true]));
@@ -98,6 +145,10 @@ export function buildLinesPanel(container, routeMap, linesButton, onToggle) {
         rows.set(trunk.key, row);
     }
 
+    // All / None act on the lines only. "None" meaning "and also stop showing
+    // trains" would make the button do two things, and there would be no way to
+    // clear the lines while keeping the trains — which is a view someone might
+    // actually want.
     for (const btn of panel.querySelectorAll('.lines-action')) {
         const on = btn.dataset.action === 'all';
         btn.addEventListener('click', () => {

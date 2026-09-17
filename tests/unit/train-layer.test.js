@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildRouteIndex, placeVehicles, trainFeatures, advanceTrains } from '../../src/scene/train-layer.js';
+import { buildRouteIndex, placeVehicles, trainFeatures, advanceTrains,
+         createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled } from '../../src/scene/train-layer.js';
 import { VEHICLE_STATUS } from '../../src/core/rt-parser.js';
 
 const M_PER_DEG_LAT = 111_320;
@@ -252,5 +253,73 @@ describe('advanceTrains speed guard', () => {
         const { u, moved } = run(100);
         expect(moved).toBe(0);
         expect(u).toBe(0);
+    });
+});
+
+describe('setTrainsEnabled', () => {
+    const M_LAT = 111_320;
+    const line = Array.from({ length: 3 }, (_, i) => [(i * 1000) / M_LAT, 0]);
+    const routeIndex = buildRouteIndex({ A: [line], B: [line] }, [{ id: 's1', lat: 0, lng: 0 }]);
+    const T = 1_700_000_000;
+
+    const vehicle = (routeId, tripId) => ({
+        routeId, tripId, stopId: 's1',
+        currentStatus: VEHICLE_STATUS.STOPPED_AT,
+        stopTimeUpdate: [{ stopId: 's1', arrival: T, departure: T }],
+    });
+
+    // A map stub recording only what this exercises: the layer's visibility and
+    // the data the source is handed.
+    const fakeMap = () => {
+        const state = { visibility: 'visible', data: null };
+        return {
+            state,
+            getLayer: () => ({}),
+            setLayoutProperty: (_id, _prop, value) => { state.visibility = value; },
+            getSource: () => ({ setData: (d) => { state.data = d; } }),
+        };
+    };
+
+    it('hides the layer without discarding the trains behind it', () => {
+        const map = fakeMap();
+        const s = createTrainState(map);
+        syncTrains(s, [vehicle('A', 't1'), vehicle('B', 't2')], routeIndex);
+        expect(s.placed).toHaveLength(2);
+
+        setTrainsEnabled(s, false);
+        expect(map.state.visibility).toBe('none');
+        // Still tracked, so switching back on is instant rather than a refetch.
+        expect(s.placed).toHaveLength(2);
+
+        setTrainsEnabled(s, true);
+        expect(map.state.visibility).toBe('visible');
+    });
+
+    it('draws nothing at all while disabled', () => {
+        const map = fakeMap();
+        const s = createTrainState(map);
+        syncTrains(s, [vehicle('A', 't1')], routeIndex);
+
+        setTrainsEnabled(s, false);
+        map.state.data = null;
+        // A snapshot landing while hidden must not repaint the layer.
+        syncTrains(s, [vehicle('A', 't1'), vehicle('B', 't2')], routeIndex);
+        expect(map.state.data).toBeNull();
+    });
+
+    it('keeps the per-route filter across an off and on cycle', () => {
+        // The reason this is a separate flag rather than a mass entry into
+        // `hidden`: switching trains back on must not undo the reader's filter.
+        const map = fakeMap();
+        const s = createTrainState(map);
+        syncTrains(s, [vehicle('A', 't1'), vehicle('B', 't2')], routeIndex);
+
+        setTrainVisibility(s, 'B', false);
+        setTrainsEnabled(s, false);
+        setTrainsEnabled(s, true);
+
+        expect([...s.hidden]).toEqual(['B']);
+        expect(map.state.data.features).toHaveLength(1);
+        expect(map.state.data.features[0].properties.routeId).toBe('A');
     });
 });
