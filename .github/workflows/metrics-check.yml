@@ -1,0 +1,91 @@
+# Alerting for the API, because Fly's managed Grafana does not do it.
+#
+# Fly draws dashboards from their managed Prometheus but ships no alerting on
+# top of it — their docs say to set that up yourself against the Prometheus
+# endpoint. So the rules live in scripts/check-metrics.mjs and run here.
+#
+# That is not a downgrade. A threshold in a repository is reviewable in a pull
+# request; the same number typed into a web form is not, and nobody can tell
+# later why it was chosen.
+#
+# What this is NOT: a pager. GitHub's scheduled runs drift under load and are
+# dropped entirely when the runner pool is busy, so treat a timestamp here as
+# "no earlier than" rather than "at". For a personal project with no on-call
+# rotation that is the right amount of machinery; it is written down so nobody
+# later mistakes it for real alerting.
+
+name: Metrics check
+
+on:
+  schedule:
+    # Every 30 minutes. Feed staleness matters within minutes, and the extra
+    # resolution makes the issue timeline useful for reconstructing an outage
+    # after the fact.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# A run still in flight when the next one fires would query the same window
+# twice and race on the issue check below.
+concurrency:
+  group: metrics-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Metrics check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # No npm ci: the script uses only built-in fetch, so installing the
+      # frontend's dependencies would be a minute of runner time per half hour
+      # to gain nothing.
+      - name: Evaluate rules
+        id: rules
+        env:
+          FLY_METRICS_TOKEN: ${{ secrets.FLY_METRICS_TOKEN }}
+        run: node scripts/check-metrics.mjs 2>&1 | tee /tmp/metrics-check.log
+
+      # Deduplicated on the label. At this cadence a sustained outage would
+      # otherwise open 48 issues a day, and the fiftieth says nothing the first
+      # did not. A firing condition keeps one issue open until a human closes
+      # it, which is also what mutes it — deliberate, and the same behaviour a
+      # real alertmanager silence would give.
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --label metrics-alert --state open --json number --jq 'length')
+          if [ "$EXISTING" != "0" ]; then
+            echo "A metrics-alert issue is already open; not filing another."
+            exit 0
+          fi
+
+          {
+            echo "A scheduled metrics check found one or more rules firing against production."
+            echo
+            echo "These rules query Fly's managed Prometheus, which collects the collectors in"
+            echo "\`api/metrics.go\`. The thresholds live in \`scripts/check-metrics.mjs\`."
+            echo
+            echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo
+            echo '```'
+            tail -40 /tmp/metrics-check.log 2>/dev/null || echo "(no log captured)"
+            echo '```'
+            echo
+            echo "This issue is the mute: while it is open, no further issues are filed."
+            echo "Close it once the condition clears."
+          } > /tmp/issue.md
+
+          gh issue create \
+            --title "Metrics check failing ($(date -u +'%Y-%m-%d %H:%M') UTC)" \
+            --label metrics-alert \
+            --body-file /tmp/issue.md || true
