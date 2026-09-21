@@ -214,6 +214,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Before the refreshers start, so every feed counter exists at zero rather
+	// than appearing for the first time during the outage it should have warned
+	// about.
+	initFeedMetrics()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go startFeedRefresher(ctx)
