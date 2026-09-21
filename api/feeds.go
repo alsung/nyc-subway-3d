@@ -113,6 +113,10 @@ func refreshFeeds(ctx context.Context) {
 		}
 		feedCache[r.group] = feedEntry{msg: r.msg, fetchedAt: now}
 		metricFeedRefresh.WithLabelValues(r.group, "success").Inc()
+		// Per group, and only here. Advancing a single gauge once per cycle
+		// regardless of outcome reported a fresh timestamp while every feed was
+		// failing, over a cache holding nothing but last-known-good.
+		metricFeedLastRefresh.WithLabelValues(r.group).Set(float64(now.Unix()))
 		ok++
 	}
 	lastRefresh = now
@@ -125,8 +129,6 @@ func refreshFeeds(ctx context.Context) {
 	}
 	departures = buildDepartureIndex(all, now)
 	feedsMu.Unlock()
-
-	metricFeedLastRefresh.Set(float64(now.Unix()))
 
 	slog.Info("feeds refreshed", "ok", ok, "total", len(feedURLs))
 }
