@@ -281,7 +281,7 @@ button:active,
 .alerts-close {
     background: none;
     border: 0;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     font-size: 19px;
     line-height: 1;
     cursor: pointer;
@@ -361,7 +361,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     width: auto;
     padding: 0 7px;
     border-radius: 11px;
-    font-size: 9.5px;
+    font-size: 10px;
 }
 
 .alert-row-status {
@@ -401,7 +401,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .alert-item-top .alert-bullet {
     width: 17px;
     height: 17px;
-    font-size: 9.5px;
+    font-size: 10px;
 }
 
 .alert-item-label { font-size: 12.5px; font-weight: 700; }
@@ -421,9 +421,9 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     /* .alert-bullet is display:grid, which is block-level and would break the
        line; inline-grid keeps the bullet inside the run of prose. */
     display: inline-grid;
-    width: 15px;
-    height: 15px;
-    font-size: 8.5px;
+    width: 17px;
+    height: 17px;
+    font-size: 9.5px;
     vertical-align: -2px;
     margin: 0 1px;
 }
@@ -461,7 +461,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .alert-chip::after { content: ' \203A'; color: rgba(255, 255, 255, 0.55); }
 
 /* The overflow control is not a destination, so it gets no chevron. */
-.alert-chip--more { color: rgba(255, 255, 255, 0.5); }
+.alert-chip--more { color: rgba(255, 255, 255, 0.6); }
 .alert-chip--more::after { content: none; }
 
 /* ── Planned service changes ─────────────────────────────────────────────── */
@@ -574,7 +574,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 .lines-close {
     background: none;
     border: 0;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     font-size: 19px;
     line-height: 1;
     cursor: pointer;
@@ -677,7 +677,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     right: 10px;
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     font-size: 18px;
     line-height: 1;
     padding: 2px 4px;
@@ -1436,14 +1436,14 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 
 .search-row-more {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     padding-left: 2px;
     flex: 0 0 auto;
 }
 
 .search-row-borough {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.55);
     white-space: nowrap;
     flex: 0 0 auto;
 }
