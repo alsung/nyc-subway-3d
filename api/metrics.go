@@ -82,6 +82,11 @@ var (
 		Name: "alerts_labeled",
 		Help: "Cached alerts carrying a readable Mercury label.",
 	})
+
+	metricPlanNoRoute = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "plan_no_route_total",
+		Help: "Plan requests that returned zero journeys.",
+	})
 )
 
 // initFeedMetrics creates every feed counter series at zero, before the first

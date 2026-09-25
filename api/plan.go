@@ -143,6 +143,9 @@ func handlePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	journeys := tt.Plan(PlanRequest{From: from, To: to, DepartAt: departAt, Realtime: rt})
+	if len(journeys) == 0 {
+		metricPlanNoRoute.Inc()
+	}
 
 	resp := planResponse{From: fromID, To: toID, FeedAgeSeconds: feedAge, Journeys: []planJourney{}}
 	for _, j := range journeys {
