@@ -12,6 +12,35 @@ import { searchEntryLabel } from '../core/station-meta.js';
 import {
     normalizePlan, formatClock, formatDuration, formatTransfers, describeLeg,
 } from '../core/plan.js';
+import { carAdvice, bestAdvice } from '../core/car-position.js';
+
+function renderCarAdvice(legs, carDeps, nameOf) {
+    const { carPositions, complexOf, stationById } = carDeps;
+    if (!carPositions?.size) return null;
+
+    const lastRide = [...legs].reverse().find(l => l.kind === 'ride');
+    if (!lastRide?.stops?.length) return null;
+
+    const destId = String(lastRide.toStop).replace(/[NS]$/, '');
+    const complexFor = (id) => complexOf?.get(id);
+    const stationFor = (id) => stationById?.get(id);
+
+    const advice = carAdvice(lastRide, complexFor, stationFor, carPositions);
+    const best = bestAdvice(advice);
+    if (!best) return null;
+
+    const destName = nameOf(lastRide.toStop);
+    const label = best.hasElevator
+        ? `Board the ${best.region} for the elevator at ${destName}`
+        : `Board the ${best.region} for exits at ${destName}`;
+
+    const li = document.createElement('li');
+    li.className = 'trip-leg trip-leg--car';
+    const span = document.createElement('span');
+    span.textContent = label;
+    li.appendChild(span);
+    return li;
+}
 
 /**
  * Builds the trip planner panel.
@@ -21,9 +50,10 @@ import {
  * @param {object[]} stations GTFS stations, for naming stops in leg text
  * @param {object} routeMap
  * @param {HTMLElement} toggleButton
+ * @param {object} carDeps  car positioning data: { carPositions, complexOf, stationById }
  * @param {{onPlan: (journey, stations) => void, onClear: () => void}} handlers
  */
-export function buildTripPlanner(container, entries, stations, routeMap, toggleButton, handlers = {}) {
+export function buildTripPlanner(container, entries, stations, routeMap, toggleButton, carDeps = {}, handlers = {}) {
     const nameById = new Map(stations.map(s => [s.id, s.name]));
     // Platform ids come back from the API (127N); the rider knows the station.
     const nameOf = (stopId) => nameById.get(stopId)
@@ -116,6 +146,9 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
             if (leg.timing === 'realtime') li.classList.add('trip-leg--live');
             legs.appendChild(li);
         }
+
+        const carTip = renderCarAdvice(journey.legs, carDeps, nameOf);
+        if (carTip) legs.appendChild(carTip);
 
         summary.addEventListener('click', () => {
             const open = !legs.classList.contains('hidden');

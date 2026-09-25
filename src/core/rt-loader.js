@@ -4,6 +4,7 @@
 // clean JSON and no longer bundles gtfs-realtime-bindings.
 
 import { parsePlatforms, indexByComplex } from './platforms.js';
+import { indexCarPositions } from './car-position.js';
 
 // Production API runs on Fly.io in ewr — see api/fly.toml.
 const API_BASE = import.meta.env.PROD
@@ -69,6 +70,19 @@ export async function loadPlatforms() {
         return indexByComplex(parsePlatforms(await res.json()));
     } catch (err) {
         console.warn(`[rt-loader] platform data unavailable (${err.message}) — station platforms will not be drawn`);
+        return new Map();
+    }
+}
+
+export async function loadCarPositions() {
+    try {
+        const res = await fetch('/car-positions.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) throw new Error('got HTML, not JSON');
+        return indexCarPositions(await res.json());
+    } catch (err) {
+        console.warn(`[rt-loader] car position data unavailable (${err.message}) — car advice will not be shown`);
         return new Map();
     }
 }

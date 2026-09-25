@@ -16,7 +16,7 @@ import { buildSearch } from './ui/search.js';
 import { buildTripPlanner } from './ui/trip-planner.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
-import { loadPlatforms } from './core/rt-loader.js';
+import { loadPlatforms, loadCarPositions } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors } from './core/corridors.js';
 import { complexIdIndex, buildSearchEntries, searchEntryLabel, routeCountByStation } from './core/station-meta.js';
@@ -49,11 +49,12 @@ async function init() {
     // Fetched together: both files are small and independent of the GTFS
     // parse, and serialising them behind it would delay the UI for data that
     // only labels tabs and marks entrances.
-    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex, platformsByComplex] = await Promise.all([
+    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex, platformsByComplex, carPositions] = await Promise.all([
         loadAndParseGTFS(),
         loadStationMeta(),
         loadEntrances(),
         loadPlatforms(),
+        loadCarPositions(),
     ]);
 
     // Arrivals name their destination by GTFS id; the popup needs a name.
@@ -201,6 +202,7 @@ async function init() {
     buildTripPlanner(
         document.getElementById('ui'), searchEntries, stations, routeMap,
         document.getElementById('btn-trip'),
+        { carPositions, complexOf, stationById },
         {
             // Frames the whole journey and dims everything it does not use.
             onPlan: (journey) => {
