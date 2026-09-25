@@ -2,12 +2,9 @@
 #
 # See https://fly.io/docs/reference/configuration/ for details.
 #
-# Differs from proxy/fly.toml in three ways, each driven by this server's design:
-#   1. Never scales to zero — a background goroutine refreshes the GTFS-RT feeds
-#      every 30s, so a stopped machine is a stale machine.
-#   2. Longer health-check grace period — main() downloads and unzips the 5.6 MB
-#      GTFS static ZIP before it starts listening.
-#   3. More memory — holds the GTFS static files plus 8 decoded feeds in memory.
+# Never scales to zero: a background goroutine refreshes the GTFS-RT feeds
+# every 30s, so a stopped machine is a stale machine. The 30s health-check
+# grace period covers the GTFS static ZIP download at boot.
 #
 # Deploy with --ha=false: the cache is in-process, so a second machine would poll
 # MTA independently and serve inconsistent data.

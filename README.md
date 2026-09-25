@@ -195,8 +195,8 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | Vite 5 | Build | Dev server with HMR, production bundler via Rollup |
 | Vanilla JS (ES modules) | Frontend | All app logic as native ES modules; no framework overhead on a WebGL canvas |
 | Vitest | Testing | Unit test runner for all `src/core/` modules; runs in Node, no DOM or browser needed |
-| Go 1.27 | Backend | HTTP server: CORS proxy (Phase 4), full API server (Phase 5+) |
-| log/slog | Backend | Structured JSON logging for each proxied/API request |
+| Go 1.27 | Backend | HTTP API server: arrivals, vehicles, trip planning, service alerts |
+| log/slog | Backend | Structured JSON logging for each API request |
 | sync.RWMutex | Backend | Thread-safe in-memory feed cache; concurrent reads, serialized writes |
 | net/http/httptest | Backend testing | In-memory request/response testing without binding a port |
 | MTA GTFS static | Data | `stops.txt` → stations, `routes.txt` → colors, `shapes.txt` → route geometry, `trips.txt` → shape-to-route mapping |
@@ -219,10 +219,10 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 2 | Live Arrivals | Complete | Real protobuf decoding, next arrivals per station/direction from 8 GTFS-RT feeds |
 | 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
-| 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
+| 5 | Go API Server (Fly.io) | Complete | Go API server on Fly.io; server-side protobuf parsing, shared in-memory cache, clean JSON endpoints |
 | 6 | Performance, Service Alerts + Mobile | Complete | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
 | 7 | Map Legibility + Station Detail | In Progress | Zoom-driven camera, basemap restraint, routes as the subject, station entrances and exits |
-| 8 | Trip Planner + Car Positioning | Partial | RAPTOR-based trip planner shipped; car positioning spiked (feasible), not yet built |
+| 8 | Trip Planner + Car Positioning | Complete | RAPTOR-based trip planner with realtime overlay; car positioning recommends front/middle/back based on destination exits |
 | 9 | User Accounts | Planned | Persistent user identity, saved commutes, preferences synced across devices |
 | 10 | Push Notifications | Planned | Departure reminders, delay alerts scoped to saved routes and commute windows |
 | 11 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence (Pro) |
@@ -399,15 +399,10 @@ index[stopId] = [...entries]
 index[parentId] = [...entries]   // allows lookup by either
 ```
 
-#### Fan-out fetch pattern
+#### Lazy per-station fetch
 ```js
-const results = await Promise.allSettled(
-  Object.values(GTFS_RT_FEEDS).map(url =>
-    fetch(`${PROXY}/proxy?url=${encodeURIComponent(url)}`)
-      .then(r => r.ok ? r.arrayBuffer() : null)
-  )
-)
-// allSettled: one failed feed does not block the others
+const arrivals = await fetch(`/api/arrivals/${stationId}`)
+  .then(r => r.ok ? r.json() : [])
 ```
 
 #### Arrival filtering
@@ -568,12 +563,12 @@ Both directions always visible; no toggle button. Each column shows up to 4 arri
 Move all GTFS-RT fetching and protobuf parsing to a dedicated Go API server on Fly.io. The browser receives clean JSON. Every user benefits from a shared server-side cache rather than each fetching independently from MTA.
 
 ### Scope
-- Replace the CORS proxy with a Go API server deployed to Fly.io
+- Go API server deployed to Fly.io
 - Background goroutine fetches and parses all 8 GTFS-RT feeds every 30s
 - In-memory cache shared across all concurrent users
-- New endpoints: `GET /api/arrivals/:stationId`, `GET /api/vehicles`, `GET /api/gtfs/:file`
+- Endpoints: `GET /api/arrivals/:stationId`, `GET /api/vehicles`, `GET /api/gtfs/:file`
 - Browser JS: remove protobuf decoding; replace with simple `fetch('/api/...')` calls
-- CI: add a `flyctl deploy` job for `api/`; retire the proxy deploy
+- CI: `flyctl deploy` job for `api/`
 - GTFS static stays baked into the Vercel build (see Design Decisions) — the server keeps its own in-memory copy for future server-side use
 
 ### Tickets
@@ -689,7 +684,7 @@ for cpu. Total cpu < 1 is not supported with cpu always allocated (unthrottled).
 That forces a full always-on vCPU: **~$46/month versus ~$3.32 on Fly.io** for identical
 behavior. Cloud Run is an excellent fit for request-scoped handlers; it is a poor fit
 for a long-lived in-memory cache with a background refresher. Fly.io sells exactly what
-this architecture wants — a small always-on VM — and already hosted the Phase 1–4 proxy.
+this architecture wants — a small always-on VM.
 
 GCP is still the intended home for Firebase Auth and FCM in Phases 8–10; that setup is
 independent of where this API runs.
@@ -2097,12 +2092,12 @@ cd api && flyctl deploy --remote-only --ha=false
 with `auto_stop_machines = 'off'`, and a `GET /health` check every 15s with a 30s
 grace period.
 
-Three of those differ deliberately from what the retired proxy used:
+Key settings and why:
 
 - **Never scales to zero** — the background goroutine refreshes the GTFS-RT feeds
   every 30s, so a stopped machine serves stale data.
 - **30s health-check grace period** — `main()` downloads and unzips the 5.6 MB GTFS
-  static ZIP before it starts listening, so a 5s grace would kill the machine at boot.
+  static ZIP before it starts listening; a shorter grace kills the machine at boot.
 - **512 MB** — measured peak RSS is ~51 MB; the headroom is cheap insurance against an
   OOM restart, which would dump the cache and re-download the ZIP.
 
