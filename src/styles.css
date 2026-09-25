@@ -1358,6 +1358,14 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 }
 
 .trip-leg--walk { color: rgba(255, 255, 255, 0.5); font-style: italic; }
+.trip-leg--car {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 4px;
+    padding-top: 8px;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 12px;
+    list-style: none;
+}
 /* Only the description span, not the route bullet — which is also a direct
    span child, and was getting its own " · live" appended beneath it. */
 .trip-leg--live > span:last-child::after {
