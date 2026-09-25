@@ -1,6 +1,6 @@
 # Local Express — Product Design Document
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Author:** Alex Sung  
 **Status:** Active development  
 **Repository:** github.com/alsung/nyc-subway-3d
@@ -28,23 +28,27 @@
 17. [Phase 9 — User Accounts](#17-phase-9--user-accounts)
 18. [Phase 10 — Push Notifications](#18-phase-10--push-notifications)
 19. [Phase 11 — AI Agent Layer](#19-phase-11--ai-agent-layer)
-20. [Data Sources](#20-data-sources)
-21. [API Reference](#21-api-reference)
-22. [Test Strategy](#22-test-strategy)
-23. [Deployment](#23-deployment)
-24. [Out of Scope](#24-out-of-scope)
+20. [Phase 12 — Mobile App](#20-phase-12--mobile-app)
+21. [Phase 13 — Multi-Modal Routing](#21-phase-13--multi-modal-routing)
+22. [Phase 14 — Accessibility Routing](#22-phase-14--accessibility-routing)
+23. [Monetization](#23-monetization)
+24. [Data Sources](#24-data-sources)
+25. [API Reference](#25-api-reference)
+26. [Test Strategy](#26-test-strategy)
+27. [Deployment](#27-deployment)
+28. [Out of Scope](#28-out-of-scope)
 
 ---
 
 ## 1. Product Summary
 
-Local Express (localexpress.nyc) is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 472 stations, and active train positions on a geographically accurate map built with Maplibre GL JS. The map is the primary interface — not a supplementary view bolted onto a list-based app.
+Local Express (localexpress.nyc) is a browser-based, real-time visualization of the New York City subway system. It renders all 27 lines, 496 stations, and active train positions on a geographically accurate map built with MapLibre GL JS. The map is the primary interface — not a supplementary view bolted onto a list-based app.
 
 It is deliberately a plan view. The project spent its first six phases as a 3D scene and measured its way out of it; section 4 records what was tried, what it cost, and why a flat map turned out to be the better product.
 
 The project solves real rider problems: planning trips, knowing when to leave, knowing which car to board for the fastest exit, understanding how service disruptions cascade through the system, and navigating accessibly. It does all of this on a spatial canvas that shows the full system simultaneously — something no existing app provides.
 
-The goal is to be the most technically interesting NYC transit tool that an individual engineer could build without institutional data access.
+The long-term goal is to become a standalone transit product for NYC riders — whether independently, through partnership with the MTA, or as part of a team working on urban mobility. The architecture generalizes to any city with GTFS-RT feeds.
 
 ---
 
@@ -216,12 +220,15 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 3 | Live Train Positions | Complete | Real vehicle positions from GTFS-RT, interpolated between stops on route curves |
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
 | 5 | Go API Server (Fly.io) | Complete | Replaced the CORS proxy with a full API server; server-side protobuf parsing and a shared in-memory cache |
-| 6 | Performance, Service Alerts + Mobile | **Complete** | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
-| 7 | Map Legibility + Station Detail | **Next** | Zoom-driven camera, basemap restraint, routes as the subject, building extrusions, station entrances and exits |
-| 8 | Trip Planner + Car Positioning | Planned | Origin → destination routing (RAPTOR, transit-only), highlighted route on map, optimal car recommendation; walking legs and Citibike staged after |
-| 9 | User Accounts | Planned | Firebase Auth (Google Sign-In), server-side saved commutes, user preferences |
-| 10 | Push Notifications | Planned | FCM via service worker; departure reminders, delay alerts for saved commutes |
-| 11 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence |
+| 6 | Performance, Service Alerts + Mobile | Complete | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
+| 7 | Map Legibility + Station Detail | In Progress | Zoom-driven camera, basemap restraint, routes as the subject, station entrances and exits |
+| 8 | Trip Planner + Car Positioning | Partial | RAPTOR-based trip planner shipped; car positioning spiked (feasible), not yet built |
+| 9 | User Accounts | Planned | Persistent user identity, saved commutes, preferences synced across devices |
+| 10 | Push Notifications | Planned | Departure reminders, delay alerts scoped to saved routes and commute windows |
+| 11 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence (Pro) |
+| 12 | Mobile App | Planned | Native shell over the web app; homescreen presence, push notification support, offline schedules |
+| 13 | Multi-Modal Routing | Planned | Citibike, bus, and walking legs in the trip planner; street-level routing for first/last mile |
+| 14 | Accessibility Routing | Planned | Elevator-aware step-free directions; real-time elevator outage integration |
 
 ---
 
@@ -1669,34 +1676,36 @@ When a route is selected:
 ## 17. Phase 9 — User Accounts
 
 ### Goal
-Introduce persistent, server-side user identity using Firebase Auth. Users sign in with Google to save commutes, preferences, and notification settings that follow them across devices.
+Introduce persistent, server-side user identity. Users sign in to save commutes, preferences, and notification settings that follow them across devices. This is the foundation for the Pro subscription tier and push notifications.
 
 ### Scope
-- Firebase Auth with Google Sign-In provider
+- OAuth sign-in (Google as the initial provider)
 - Auth state persisted in browser; JWT sent with API requests
-- The API server validates Firebase JWT on protected endpoints
-- Saved commutes stored in Firestore: `users/{uid}/commutes[]`
-- Maximum 5 saved commutes per user
+- The API server validates tokens on protected endpoints
+- Saved commutes: origin, destination, label, notification preferences
+- Maximum 5 saved commutes per free user, unlimited for Pro
 - "My Commute" shortcut in the UI: one tap to show saved route arrival times
 - Settings page: notification preferences, default zoom, preferred direction
+- Account tier (free vs. Pro) stored server-side and enforced on both client and API
 
 ### Key Implementation Notes
 
 #### Auth flow
 ```
-User clicks "Sign in with Google"
-→ Firebase Auth popup (Google OAuth)
-→ Firebase returns ID token (JWT)
-→ Browser includes token in Authorization header on all /api/* requests
-→ API middleware: firebase-admin.VerifyIDToken(token)
-→ uid extracted; requests are scoped to that user's Firestore documents
+User clicks "Sign in"
+→ OAuth popup (Google)
+→ Provider returns ID token (JWT)
+→ Browser includes token in Authorization header on /api/* requests
+→ API middleware validates token, extracts uid
+→ Requests scoped to that user's data
 ```
 
-#### Firestore data model
+#### Data model
 ```
 users/{uid}
   displayName: string
   email: string
+  tier: "free" | "pro"
   createdAt: timestamp
 
 users/{uid}/commutes/{commuteId}
@@ -1709,55 +1718,57 @@ users/{uid}/commutes/{commuteId}
 ```
 
 #### Anonymous → authenticated migration
-Users who saved commutes in `localStorage` (Phases 1–4) are prompted to sign in. On sign-in, `localStorage` commutes are migrated to Firestore and local storage is cleared.
+Users who saved preferences in `localStorage` are prompted to sign in. On sign-in, local data is migrated to the server and local storage is cleared.
+
+### Open questions
+- Auth provider: Firebase Auth is the fastest path, but adds a Google dependency. Alternatives: Auth0, Clerk, or rolling JWT auth against the Go API directly.
+- Storage: Firestore is convenient with Firebase Auth but couples the backend to Google. Postgres on Fly.io keeps everything in one stack.
 
 ---
 
 ## 18. Phase 10 — Push Notifications
 
 ### Goal
-Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground.
+Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground. Smart notifications — filtered, timed, and contextualized to the rider's saved routes — are a core Pro feature.
 
 ### Scope
-- Firebase Cloud Messaging (FCM) via service worker
+- Push notifications via service worker (web) and native push (mobile, Phase 12)
 - Notification types: departure reminder ("Your 6 train leaves 14th St in 3 min"), delay alert ("Your A train is running 12 min late")
 - User sets notification preferences per saved commute: alert window (e.g., 5/10/15 min before scheduled departure), delay threshold
 - The API server schedules notification dispatch based on GTFS-RT data
-- Service worker handles background message receipt and shows system notification
+- Free users see alerts in-app; Pro users get push notifications before they leave
 
 ### Key Implementation Notes
 
-#### Service worker registration
-```js
-navigator.serviceWorker.register('/sw.js')
-const messaging = firebase.messaging()
-const token = await messaging.getToken({ vapidKey: VAPID_KEY })
-// Store token in Firestore under users/{uid}/fcmTokens[]
-```
-
 #### Notification dispatch
-A scheduled job on the API server (every minute) checks:
-1. For each user with notifications enabled, load their saved commutes
+A scheduled job on the API server (every refresh cycle) checks:
+1. For each Pro user with notifications enabled, load their saved commutes
 2. For each commute, check GTFS-RT arrivals at the origin station
-3. If next arrival is within the user's alert window → send FCM push via `firebase-admin.Messaging.Send`
-4. Deduplicate: store `{ tripId, notifiedAt }` in Firestore to avoid repeat alerts for the same trip
+3. If next arrival is within the user's alert window, send push notification
+4. Deduplicate: track `{ tripId, notifiedAt }` to avoid repeat alerts for the same trip
 
 #### Delay alerting
 Compare current `TripUpdate.arrival.delay` against the user's delay threshold. If threshold exceeded for a trip on the user's commute route, dispatch a delay alert notification.
+
+### Open questions
+- Push delivery: Web Push API (no vendor dependency) vs. FCM (better reliability, adds Google dependency). Mobile native push requires APNs for iOS regardless.
+- Notification frequency capping: riders don't want 10 alerts on a bad morning. Need a per-commute cooldown or digest mode.
 
 ---
 
 ## 19. Phase 11 — AI Agent Layer
 
 ### Goal
-Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes.
+Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes. This is the headline Pro feature — expensive to run (LLM inference per query), clearly premium, and genuinely useful.
 
 ### Scope
 - Claude API integration with tool use (function calling)
 - Tool definitions that expose the app's data layer to the model
 - Chat input UI accessible from the main map view
 - Agent response displays reasoning and highlights the recommended route on the map
-- Proactive commute intelligence: "Your usual 8:42am 4 train is running 8 minutes late — you have time for coffee"
+- Proactive commute intelligence (Pro): "Your usual 8:42am 4 train is running 8 minutes late — you have time for coffee"
+- Context-aware suggestions: "Take the express, it's running ahead of schedule"
+- Proactive rerouting when delays hit a saved route
 
 ### Tool Definitions
 
@@ -1795,7 +1806,7 @@ const tools = [
   },
   {
     name: "highlight_route",
-    description: "Highlight a route segment on the 3D map",
+    description: "Highlight a route segment on the map",
     input_schema: {
       properties: {
         station_ids: { type: "array", items: { type: "string" } },
@@ -1808,7 +1819,7 @@ const tools = [
 
 ### Agent Architecture
 ```
-User query → Claude claude-sonnet-5
+User query → Claude API (tool use)
   → tool_use: get_arrivals("14 St-Union Sq")
   → tool_result: [{ route: "4", minutes: 2 }, { route: "6", minutes: 5 }]
   → tool_use: plan_route("14 St-Union Sq", "72 St")
@@ -1816,11 +1827,98 @@ User query → Claude claude-sonnet-5
   → final text response + highlight_route side effect → map update
 ```
 
-The `highlight_route` tool is the bridge between the AI layer and the 3D map: Claude decides which route to show, and the tool call triggers the existing map highlight function.
+The `highlight_route` tool is the bridge between the AI layer and the map: Claude decides which route to show, and the tool call triggers the existing map highlight function.
 
 ---
 
-## 20. Data Sources
+## 20. Phase 12 — Mobile App
+
+### Goal
+Give riders a homescreen icon, reliable push notifications, and offline access. The web app already works on mobile browsers; this phase adds the native shell that unlocks platform capabilities the browser restricts.
+
+### Scope
+- Native shell wrapping the existing web app (Capacitor or similar)
+- iOS and Android distribution via App Store and Google Play
+- Native push notification integration (APNs, FCM)
+- Offline schedule access: downloaded timetables usable in subway dead zones (Pro)
+- Background location for proactive departure alerts (Pro, opt-in)
+
+### Open questions
+- Capacitor vs. React Native vs. PWA-only: Capacitor preserves the existing codebase. React Native would require a rewrite but produces a more native feel. A well-tuned PWA with Web Push may be sufficient for Android but iOS restricts background execution and push.
+- App Store review: transit apps are straightforward, but the review process adds release cycle overhead.
+
+---
+
+## 21. Phase 13 — Multi-Modal Routing
+
+### Goal
+Extend the trip planner beyond subway-only trips. Riders rarely take a single mode — they walk to a station, ride, then walk or bike the last mile. Multi-modal routing closes the gap between "the subway gets you close" and "you've arrived."
+
+### Scope
+- Walking legs with real street-level routing (not straight-line distance)
+- Citibike integration: bike-share as a first/last-mile option, using Citibike's GBFS feed for real-time dock availability
+- Bus legs using MTA Bus Time GTFS-RT feeds
+- Ferry legs (NYC Ferry publishes GTFS)
+- The RAPTOR core stays subway-focused; walking and biking legs are pre/post-transit and connect to the nearest suitable station
+
+### Open questions
+- Walking routing requires a street graph (OpenStreetMap data + a routing engine like OSRM or Valhalla). Hosting one adds infrastructure cost. An alternative: use a third-party walking API for the short legs only.
+- Citibike dock availability changes by the minute. Showing "12 bikes available" at plan time vs. arrival time is a data freshness problem.
+
+---
+
+## 22. Phase 14 — Accessibility Routing
+
+### Goal
+Let riders who need step-free access plan trips confidently. Only 28% of NYC subway stations are ADA accessible, and elevator outages are common. No mainstream app combines real-time elevator status with trip planning.
+
+### Scope
+- Elevator-aware routing: trip planner avoids stations without working elevators
+- Real-time elevator/escalator outage data from MTA's equipment status feed
+- Accessible route alternatives: when the planned route's elevator goes out, suggest the next best step-free path
+- Elevator status alerts for saved routes (Pro): "The elevator at 14th St-Union Sq is out of service; here's your next best route"
+- Visual distinction on the map: accessible stations marked, out-of-service elevators flagged
+
+### Design note
+Basic accessible routing (plan a step-free trip) should be free. The premium layer is proactive alerting — notifications when an elevator on your saved route goes down, with an automatic reroute suggestion. Charging for basic accessibility information would be ethically wrong.
+
+### Open questions
+- MTA publishes elevator/escalator status through their API, but the data format and update frequency need investigation.
+- The car positioning spike (Phase 8) already mapped platform entrances, including elevator entrances. 65% of elevators sit in an outer third of their platform — strong car-positioning signal for accessibility.
+
+---
+
+## 23. Monetization
+
+### Free tier
+The free product must be good enough to build a daily habit. It is the acquisition funnel.
+
+- Live train map with real-time positions
+- Basic trip planning (A to B, next departure)
+- Service alerts and line status
+- Station search
+- Line filtering
+- Express/local distinction
+
+### Pro tier
+Features that add personal, ongoing value on top of a working product. Target: $4/month or $30/year.
+
+| Feature | What it does | Why it's Pro |
+|---|---|---|
+| AI route assistant | Natural language trip planning, context-aware suggestions, proactive rerouting | LLM inference cost per query |
+| Smart notifications | Push alerts scoped to saved routes and commute times, contextualized and timed | Requires user accounts + push infrastructure + per-user computation |
+| Commute analytics | Historical reliability scores, average trip duration by day/time, delay frequency | Requires data aggregation over weeks of real-time feeds |
+| Multi-stop planning | Plan routes with 3+ stops (school → office → gym) | Combinatorial routing cost; free gets A-to-B |
+| Offline schedules | Download timetables for use in subway dead zones | Storage and delivery infrastructure |
+| Historical patterns | "The 2/3 at this station is usually 3 minutes late at this time" | Requires long-term data collection and analysis |
+| Elevator status alerts | Proactive rerouting when an elevator on a saved route goes down | Per-user monitoring; basic accessible routing stays free |
+
+### Market signal
+Citymapper Pro: $5/month. Transit Royale: $3/month. The transit app market supports a $3–5/month price point for features that save commute time daily.
+
+---
+
+## 24. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -1842,7 +1940,7 @@ The `highlight_route` tool is the bridge between the AI layer and the 3D map: Cl
 
 ---
 
-## 21. API Reference
+## 25. API Reference
 
 ### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
 
@@ -1910,7 +2008,7 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 22. Test Strategy
+## 26. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
@@ -1947,7 +2045,7 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ---
 
-## 23. Deployment
+## 27. Deployment
 
 ### Frontend (Vercel)
 
@@ -2025,16 +2123,21 @@ Vercel's Git integration authenticates itself. They can be deleted from the repo
 
 ---
 
-## 24. Out of Scope
+## 28. Out of Scope
 
-These features are intentionally excluded from all current phases:
+These features are intentionally excluded from current phases:
 
 | Feature | Reason excluded |
 |---|---|
 | Ticket purchasing / OMNY integration | Requires MTA partnership; not buildable independently |
-| Bus routing | Separate MTA Bus Time API with different data shape; dilutes subway focus |
-| Native iOS / Android app | PWA (Phase 6) covers installability; native app adds App Store overhead without new capability |
-| LIRR / Metro-North | Different GTFS feeds, different fare structure, different rider problems |
-| Turn-by-turn walking directions | Google Maps / Apple Maps API dependency; not core to the transit problem |
+| LIRR / Metro-North | Different GTFS feeds, different fare structure, different rider problems. Revisit if multi-city expansion (Phase 13+) proves the architecture generalizes. |
 | Real-time crowding data via computer vision | Requires hardware access to MTA cameras; not publicly available |
-| Paid subscription model | Not relevant to portfolio project goals |
+
+Previously excluded, now planned:
+
+| Feature | Moved to |
+|---|---|
+| Native iOS / Android app | Phase 12 — Mobile App |
+| Bus routing | Phase 13 — Multi-Modal Routing (as one mode among several) |
+| Walking directions | Phase 13 — Multi-Modal Routing (first/last-mile legs) |
+| Paid subscription | Section 23 — Monetization |
