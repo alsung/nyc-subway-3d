@@ -123,6 +123,7 @@ async function init() {
     // Starts empty so a popup opened before the first response simply shows no
     // alerts rather than waiting on one.
     let alerts = [];
+    let consecutiveFailures = 0;
 
     if (usingEmbeddedData) showEmbeddedDataWarning(document.getElementById('ui'));
 
@@ -324,6 +325,7 @@ async function init() {
     // re-fetches arrivals for the popup if it's currently open.
     async function refreshRT() {
         const staleEl = document.getElementById('staleness');
+        const banner = document.getElementById('connection-banner');
         try {
             const { vehicles, updatedAt } = await fetchVehicles();
             syncTrains(trainState, vehicles, routeIndex);
@@ -334,10 +336,10 @@ async function init() {
             if (isStale) staleEl.classList.add('stale');
             document.getElementById('staleness-label').textContent = isStale ? 'Stale' : 'Live';
 
+            if (consecutiveFailures >= 2) banner.classList.add('hidden');
+            consecutiveFailures = 0;
+
             if (lastStation && !popup.classList.contains('hidden')) {
-                // Capture the station: the await below can outlive the user's
-                // selection, and re-reading lastStation would let a stale
-                // response overwrite a newer station's popup.
                 const station = lastStation;
                 const result = await getArrivals(station);
                 if (lastStation === station && !popup.classList.contains('hidden')) {
@@ -346,9 +348,11 @@ async function init() {
                 }
             }
         } catch {
+            consecutiveFailures++;
             staleEl.classList.remove('hidden');
             staleEl.classList.add('stale');
             document.getElementById('staleness-label').textContent = 'Offline';
+            if (consecutiveFailures >= 2) banner.classList.remove('hidden');
         }
     }
 

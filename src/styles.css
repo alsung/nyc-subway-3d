@@ -1003,6 +1003,24 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     background: #ff9800;
 }
 
+/* ── Connection banner ───────────────────────────────────────────────────── */
+
+#connection-banner {
+    position: absolute;
+    top: 64px;
+    right: 20px;
+    max-width: 340px;
+    padding: 10px 14px;
+    background: rgba(30, 30, 50, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 150, 50, 0.3);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    line-height: 1.4;
+    pointer-events: auto;
+}
+
 /* ── Touch targets ───────────────────────────────────────────────────────── */
 
 /* Keyed on the input device, not the viewport. A narrow desktop window is still
@@ -1121,6 +1139,13 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         left: 16px;
         right: auto;
     }
+
+    #connection-banner {
+        top: 118px;
+        left: 16px;
+        right: 16px;
+        max-width: none;
+    }
 }
 
 /* ── Display preferences ─────────────────────────────────────────────────── */
@@ -1152,6 +1177,11 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     #alerts-panel,
     #lines-panel {
         background: #0c0f16;
+    }
+
+    #connection-banner {
+        backdrop-filter: none;
+        background: #1e1e32;
     }
 }
 
