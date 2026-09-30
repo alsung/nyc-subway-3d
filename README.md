@@ -221,7 +221,7 @@ CI/CD:          GitHub Actions (test → build → deploy frontend + backend)
 | 4 | Real Trains + Station LOD | Complete | Station complexes, major/minor LOD circles, two-column arrival popup, real train sync |
 | 5 | Go API Server (Fly.io) | Complete | Go API server on Fly.io; server-side protobuf parsing, shared in-memory cache, clean JSON endpoints |
 | 6 | Performance, Service Alerts + Mobile | Complete | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
-| 7 | Map Legibility + Station Detail | In Progress | Zoom-driven camera, basemap restraint, routes as the subject, station entrances and exits |
+| 7 | Map Legibility + Station Detail | Complete | Zoom-driven camera, basemap restraint, routes as flat Maplibre lines, parallel strands, station entrances, platform footprints |
 | 8 | Trip Planner + Car Positioning | Complete | RAPTOR-based trip planner with realtime overlay; car positioning recommends front/middle/back based on destination exits |
 | 9 | User Accounts | Planned | Persistent user identity, saved commutes, preferences synced across devices |
 | 10 | Push Notifications | Planned | Departure reminders, delay alerts scoped to saved routes and commute windows |
@@ -1376,19 +1376,22 @@ is usually a short-turn, and the M's busiest shape is 9.5 km against the line's
 while they contribute new ground. 29 polylines became 38, and all 496 stations
 now match a route.
 
-### Still open
+### Resolved
 
-- **Tube appearance at street zoom.** Lit `MeshStandardMaterial` against a dark
-  ground reads dimmer than the flat layer's raw color, and the zoom-14 handoff
-  now invites the comparison.
-- **The shared WebGL context** — see the follow-up section above. Still the
-  highest-leverage frontend performance work, and still what gates buildings.
-- **Live elevator outages**, before any accessibility claim is made.
-- **Platform geometry in 3D** — the reduced form of the X-ray idea, sized and
-  de-risked by the OSM spike above. One fetch script, a 55 kB asset, and a render
-  layer alongside the entrances one. Weigh it against Phase 8 rather than
-  assuming it comes first: the idea was compelling partly because it promised the
-  inside of Times Sq, and the spike established that promise cannot be kept.
+- **Tube appearance at street zoom** — resolved by removing Three.js entirely.
+  Routes are Maplibre line layers at every zoom; there are no tubes and no
+  zoom-14 handoff.
+- **The shared WebGL context** — moot. With the Three.js custom layer gone,
+  Maplibre owns the sole WebGL context. The frame-rate baseline improved and
+  no longer gates buildings (buildings remain cut for their own cost).
+- **Platform geometry in 3D** — shipped as flat fill polygons. The 3D form was
+  measured and cut: at true scale the vertical range is ~15px at zoom 16.4,
+  and exaggerating the depth scatters platforms across the map.
+
+### Moved to Phase 14
+
+- **Live elevator outages** — belongs with accessibility routing, where the
+  outage data drives step-free trip planning rather than existing in isolation.
 
 ---
 

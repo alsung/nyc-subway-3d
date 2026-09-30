@@ -198,9 +198,10 @@ func newMux() http.Handler {
 	// would double-encode and break scraping with no visible error; and Fly
 	// scrapes every few seconds, which would otherwise swamp the request
 	// counter with traffic nobody made.
+	rl := newIPRateLimiter(10, 30)
 	root := http.NewServeMux()
 	root.Handle("GET /metrics", promhttp.Handler())
-	root.Handle("/", metricsMiddleware(corsMiddleware(gzipMiddleware(mux))))
+	root.Handle("/", metricsMiddleware(rateLimitMiddleware(rl)(corsMiddleware(gzipMiddleware(mux)))))
 	return root
 }
 
