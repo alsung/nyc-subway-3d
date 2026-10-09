@@ -65,6 +65,25 @@
 
     <div id="map"></div>
 
+    <div id="app-footer">
+        <button id="btn-privacy" type="button">Privacy</button>
+        <span aria-hidden="true">·</span>
+        <a id="btn-feedback" href="https://forms.gle/47HbNrAoqKSjiSbS6" target="_blank" rel="noopener">Feedback</a>
+    </div>
+
+    <div id="privacy-modal" class="hidden" role="dialog" aria-label="Privacy">
+        <div id="privacy-backdrop"></div>
+        <div id="privacy-content">
+            <h2>Privacy</h2>
+            <p>Local Express does not use cookies, create accounts, or store personal data.</p>
+            <p><strong>Analytics</strong> — Cookieless page-view counts via Vercel Analytics. No identifying information is collected.</p>
+            <p><strong>Map tiles</strong> — Served by Stadia Maps. Tile requests go directly from your browser to their servers.</p>
+            <p><strong>Transit data</strong> — Realtime feeds from the MTA, fetched by our API server. No user data is sent to the MTA.</p>
+            <p>Questions? <a href="mailto:sung.alexcs@gmail.com">Email us.</a></p>
+            <button id="privacy-close" type="button" aria-label="Close">&times;</button>
+        </div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
 </body>
 </html>

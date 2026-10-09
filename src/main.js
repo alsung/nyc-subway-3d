@@ -428,6 +428,23 @@ async function init() {
     }
 }
 
+// ── Privacy modal ──────────────────────────────────────────────────────────
+const privacyModal = document.getElementById('privacy-modal');
+document.getElementById('btn-privacy').addEventListener('click', () => {
+    privacyModal.classList.remove('hidden');
+});
+document.getElementById('privacy-backdrop').addEventListener('click', () => {
+    privacyModal.classList.add('hidden');
+});
+document.getElementById('privacy-close').addEventListener('click', () => {
+    privacyModal.classList.add('hidden');
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !privacyModal.classList.contains('hidden')) {
+        privacyModal.classList.add('hidden');
+    }
+});
+
 init().catch((err) => {
     console.error('[init] fatal:', err);
     showFatalError();
