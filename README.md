@@ -25,17 +25,18 @@
 14. [Phase 6 — Performance, Service Alerts + Mobile](#14-phase-6--performance-service-alerts--mobile)
 15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail)
 16. [Phase 8 — Trip Planner + Car Positioning](#16-phase-8--trip-planner--car-positioning)
-17. [Phase 9 — User Accounts](#17-phase-9--user-accounts)
-18. [Phase 10 — Push Notifications](#18-phase-10--push-notifications)
-19. [Phase 11 — AI Agent Layer](#19-phase-11--ai-agent-layer)
-20. [Phase 12 — Mobile App](#20-phase-12--mobile-app)
-21. [Phase 13 — Multi-Modal Routing](#21-phase-13--multi-modal-routing)
-22. [Phase 14 — Accessibility Routing](#22-phase-14--accessibility-routing)
-23. [Monetization](#23-monetization)
-24. [Data Sources](#24-data-sources)
-25. [API Reference](#25-api-reference)
-26. [Test Strategy](#26-test-strategy)
-27. [Deployment](#27-deployment)
+17. [Phase 8.5 — Production Operations](#17-phase-85--production-operations)
+18. [Phase 9 — User Accounts](#18-phase-9--user-accounts)
+19. [Phase 10 — Push Notifications](#19-phase-10--push-notifications)
+20. [Phase 11 — AI Agent Layer](#20-phase-11--ai-agent-layer)
+21. [Phase 12 — Mobile App](#21-phase-12--mobile-app)
+22. [Phase 13 — Multi-Modal Routing](#22-phase-13--multi-modal-routing)
+23. [Phase 14 — Accessibility Routing](#23-phase-14--accessibility-routing)
+24. [Monetization](#24-monetization)
+25. [Data Sources](#25-data-sources)
+26. [API Reference](#26-api-reference)
+27. [Test Strategy](#27-test-strategy)
+28. [Deployment](#28-deployment)
 28. [Out of Scope](#28-out-of-scope)
 
 ---
@@ -1400,7 +1401,7 @@ now match a route.
 ### Goal
 User inputs origin and destination. The app computes time-dependent transit itineraries from the GTFS timetable — offering both the fastest journey and the one with fewest transfers — highlights the route on the map, and recommends which car to board based on exit position at the destination. Walking legs and multimodal comparison (Citibike) are staged after; see the plan below.
 
-### Status — routing shipped, car positioning did not
+### Status — complete
 
 | PR | |
 |---|---|
@@ -1410,12 +1411,12 @@ User inputs origin and destination. The app computes time-dependent transit itin
 | #57 | Fix: the overlay shipped doing nothing (see below) |
 | #58 | Search parameterised so a page can hold more than one box |
 | #59 | The trip planner UI |
+| #72 | Car positioning — board front/middle/back for destination exits |
 
-A rider can open the app, name two stations, and get an itinerary planned partly on live train predictions. Measured in production: 218 patterns, 20,621 trips, 989 platforms, 7 services, **881 ms** to build the timetable at startup and roughly **11 ms** per query.
+A rider can open the app, name two stations, and get an itinerary planned partly on live train predictions. The last ride leg recommends which part of the train to board based on exit proximity at the destination. Measured in production: 218 patterns, 20,621 trips, 989 platforms, 7 services, **881 ms** to build the timetable at startup and roughly **11 ms** per query.
 
-**What has not shipped from this phase's scope:**
+**Remaining from this phase's original scope:**
 
-- **Car positioning.** No `car-positions.json`, no front/middle/back recommendation. The routing half turned out to be the whole of four PRs plus a fix, and car positioning is independent of it — it needs hand-assembled data about exits rather than anything in the GTFS feed.
 - **Direction in the turn-by-turn panel.** Legs name the line and the destination stop, not "uptown" or "Manhattan-bound". The station popup already resolves direction labels from MTA's editorial dataset, so this is reuse rather than new work.
 
 ### Scope
@@ -1426,8 +1427,8 @@ A rider can open the app, name two stations, and get an itinerary planned partly
 - ~~Highlight route segments on the map~~ — done, both representations
 - ~~Fly camera to frame the route~~ — done, flat
 - ~~Show turn-by-turn panel: line, stops, transfer instructions~~ — done, except direction
-- Recommend front/middle/back of train based on destination exit — **not built**
-- Car positioning data as static JSON — **not built**
+- ~~Recommend front/middle/back of train based on destination exit~~ — done, PR #72
+- ~~Car positioning data as static JSON~~ — done, `public/car-positions.json`
 
 ### Key Implementation Notes
 
@@ -1671,7 +1672,41 @@ When a route is selected:
 
 ---
 
-## 17. Phase 9 — User Accounts
+## 17. Phase 8.5 — Production Operations
+
+### Goal
+Harden the system for real users. Deep health checks that distinguish a running server from one serving stale data, external uptime monitoring, a public status page, a feedback channel, a privacy note, and an incident response process.
+
+### Status — in progress
+
+| PR | Issue | |
+|---|---|---|
+| #77 | — | Error screen when initial load fails (map timeout, WebGL unavailable) |
+| #78 | — | Lock CORS, add server timeouts, cap rate limiter |
+| #85 | #79 | Deep health endpoint — 503 on stale data |
+| — | #80 | External uptime monitor and status page |
+| — | #81 | Feedback link in the app |
+| — | #82 | Privacy note |
+| — | #83 | Incident post-mortem template |
+| — | #84 | Update README with Phase 8.5 |
+
+### Scope
+
+- ~~Deep health endpoint: `/health` returns 503 when feeds are stale, missing, or empty~~ — done
+- ~~CORS locked to `localexpress.nyc` + localhost~~ — done
+- ~~Server read/write/idle timeouts~~ — done
+- ~~Rate limiter map capped at 10,000 entries~~ — done
+- ~~Stadia Maps API key restricted to production domain~~ — done
+- ~~Fatal error screen on init failure~~ — done
+- External uptime monitor (Better Stack or UptimeRobot)
+- Public status page
+- Feedback link in the app
+- Privacy note
+- Incident post-mortem template and process
+
+---
+
+## 18. Phase 9 — User Accounts
 
 ### Goal
 Introduce persistent, server-side user identity. Users sign in to save commutes, preferences, and notification settings that follow them across devices. This is the foundation for the Pro subscription tier and push notifications.
@@ -1724,7 +1759,7 @@ Users who saved preferences in `localStorage` are prompted to sign in. On sign-i
 
 ---
 
-## 18. Phase 10 — Push Notifications
+## 19. Phase 10 — Push Notifications
 
 ### Goal
 Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground. Smart notifications — filtered, timed, and contextualized to the rider's saved routes — are a core Pro feature.
@@ -1754,7 +1789,7 @@ Compare current `TripUpdate.arrival.delay` against the user's delay threshold. I
 
 ---
 
-## 19. Phase 11 — AI Agent Layer
+## 20. Phase 11 — AI Agent Layer
 
 ### Goal
 Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes. This is the headline Pro feature — expensive to run (LLM inference per query), clearly premium, and genuinely useful.
@@ -1829,7 +1864,7 @@ The `highlight_route` tool is the bridge between the AI layer and the map: Claud
 
 ---
 
-## 20. Phase 12 — Mobile App
+## 21. Phase 12 — Mobile App
 
 ### Goal
 Give riders a homescreen icon, reliable push notifications, and offline access. The web app already works on mobile browsers; this phase adds the native shell that unlocks platform capabilities the browser restricts.
@@ -1847,7 +1882,7 @@ Give riders a homescreen icon, reliable push notifications, and offline access. 
 
 ---
 
-## 21. Phase 13 — Multi-Modal Routing
+## 22. Phase 13 — Multi-Modal Routing
 
 ### Goal
 Extend the trip planner beyond subway-only trips. Riders rarely take a single mode — they walk to a station, ride, then walk or bike the last mile. Multi-modal routing closes the gap between "the subway gets you close" and "you've arrived."
@@ -1865,7 +1900,7 @@ Extend the trip planner beyond subway-only trips. Riders rarely take a single mo
 
 ---
 
-## 22. Phase 14 — Accessibility Routing
+## 23. Phase 14 — Accessibility Routing
 
 ### Goal
 Let riders who need step-free access plan trips confidently. Only 28% of NYC subway stations are ADA accessible, and elevator outages are common. No mainstream app combines real-time elevator status with trip planning.
@@ -1886,7 +1921,7 @@ Basic accessible routing (plan a step-free trip) should be free. The premium lay
 
 ---
 
-## 23. Monetization
+## 24. Monetization
 
 ### Free tier
 The free product must be good enough to build a daily habit. It is the acquisition funnel.
@@ -1916,7 +1951,7 @@ Citymapper Pro: $5/month. Transit Royale: $3/month. The transit app market suppo
 
 ---
 
-## 24. Data Sources
+## 25. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -1938,7 +1973,7 @@ Citymapper Pro: $5/month. Transit Royale: $3/month. The transit app market suppo
 
 ---
 
-## 25. API Reference
+## 26. API Reference
 
 ### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
 
@@ -2006,7 +2041,7 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 26. Test Strategy
+## 27. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
@@ -2043,7 +2078,7 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ---
 
-## 27. Deployment
+## 28. Deployment
 
 ### Frontend (Vercel)
 
