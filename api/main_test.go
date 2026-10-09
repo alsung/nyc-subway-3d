@@ -5,9 +5,37 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	gtfs "github.com/MobilityData/gtfs-realtime-bindings/golang/gtfs"
 )
 
-func TestHealth(t *testing.T) {
+func seedFeedCache(age time.Duration, count int) func() {
+	feedsMu.Lock()
+	origCache := feedCache
+	origRefresh := lastRefresh
+	feedCache = make(map[string]feedEntry)
+	for i := 0; i < count; i++ {
+		feedCache[string(rune('a'+i))] = feedEntry{msg: &gtfs.FeedMessage{}, fetchedAt: time.Now()}
+	}
+	if count > 0 {
+		lastRefresh = time.Now().Add(-age)
+	} else {
+		lastRefresh = time.Time{}
+	}
+	feedsMu.Unlock()
+	return func() {
+		feedsMu.Lock()
+		feedCache = origCache
+		lastRefresh = origRefresh
+		feedsMu.Unlock()
+	}
+}
+
+func TestHealthOK(t *testing.T) {
+	restore := seedFeedCache(10*time.Second, 8)
+	defer restore()
+
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	handleHealth(w, req)
@@ -24,6 +52,55 @@ func TestHealth(t *testing.T) {
 	}
 	if resp.Status != "ok" {
 		t.Errorf("expected status 'ok', got %q", resp.Status)
+	}
+	if resp.FeedAgeSec < 0 || resp.FeedAgeSec > 30 {
+		t.Errorf("expected feedAgeSec ~10, got %f", resp.FeedAgeSec)
+	}
+	if resp.FeedsLoaded != 8 {
+		t.Errorf("expected feedsLoaded 8, got %d", resp.FeedsLoaded)
+	}
+}
+
+func TestHealthDegradedWhenStale(t *testing.T) {
+	restore := seedFeedCache(4*time.Minute, 8)
+	defer restore()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handleHealth(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", w.Code)
+	}
+	var resp healthResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "degraded" {
+		t.Errorf("expected status 'degraded', got %q", resp.Status)
+	}
+}
+
+func TestHealthDegradedWhenNoFeeds(t *testing.T) {
+	restore := seedFeedCache(0, 0)
+	defer restore()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handleHealth(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", w.Code)
+	}
+	var resp healthResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "degraded" {
+		t.Errorf("expected status 'degraded', got %q", resp.Status)
+	}
+	if resp.FeedAgeSec != -1 {
+		t.Errorf("expected feedAgeSec -1 when never refreshed, got %f", resp.FeedAgeSec)
 	}
 }
 
