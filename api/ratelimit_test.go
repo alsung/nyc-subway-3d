@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -81,6 +83,34 @@ func TestRateLimiter_RejectsOverLimit(t *testing.T) {
 	}
 	if !rejected {
 		t.Error("expected at least one 429 response")
+	}
+}
+
+func TestRateLimiter_RejectsWhenMapFull(t *testing.T) {
+	rl := &ipRateLimiter{
+		entries: make(map[string]*ipEntry),
+		r:       10,
+		burst:   10,
+	}
+	// Fill the map to the cap with dummy entries.
+	for i := 0; i < maxLimiterEntries; i++ {
+		rl.entries[fmt.Sprintf("10.0.%d.%d", i/256, i%256)] = &ipEntry{
+			limiter:  rate.NewLimiter(10, 10),
+			lastSeen: time.Now(),
+		}
+	}
+
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := rateLimitMiddleware(rl)(ok)
+
+	req := httptest.NewRequest("GET", "/api/vehicles", nil)
+	req.RemoteAddr = "99.99.99.99:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("new IP when map full: got %d, want 429", rec.Code)
 	}
 }
 

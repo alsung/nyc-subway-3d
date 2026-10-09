@@ -21,6 +21,8 @@ type ipEntry struct {
 	lastSeen time.Time
 }
 
+const maxLimiterEntries = 10_000
+
 type ipRateLimiter struct {
 	mu      sync.Mutex
 	entries map[string]*ipEntry
@@ -42,11 +44,15 @@ func (l *ipRateLimiter) get(ip string) *rate.Limiter {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e, ok := l.entries[ip]
-	if !ok {
-		e = &ipEntry{limiter: rate.NewLimiter(l.r, l.burst)}
-		l.entries[ip] = e
+	if ok {
+		e.lastSeen = time.Now()
+		return e.limiter
 	}
-	e.lastSeen = time.Now()
+	if len(l.entries) >= maxLimiterEntries {
+		return nil
+	}
+	e = &ipEntry{limiter: rate.NewLimiter(l.r, l.burst), lastSeen: time.Now()}
+	l.entries[ip] = e
 	return e.limiter
 }
 
@@ -88,7 +94,8 @@ func rateLimitMiddleware(limiter *ipRateLimiter) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
-			if !limiter.get(ip).Allow() {
+			lim := limiter.get(ip)
+			if lim == nil || !lim.Allow() {
 				metricRateLimited.Inc()
 				w.Header().Set("Retry-After", "1")
 				http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
