@@ -14,10 +14,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+const maxFeedAge = 3 * time.Minute
+
 type healthResponse struct {
-	Status      string `json:"status"`
-	FeedsLoaded int    `json:"feedsLoaded"`
-	LastRefresh string `json:"lastRefresh"`
+	Status      string  `json:"status"`
+	FeedsLoaded int     `json:"feedsLoaded"`
+	FeedAgeSec  float64 `json:"feedAgeSec"`
+	LastRefresh string  `json:"lastRefresh"`
 	// AlertsLoaded is the cached alert count; AlertsLabeled is how many of
 	// those carry a readable Mercury label. The two should track each other
 	// closely — a gap means MTA's extension shape changed and the UI has
@@ -75,16 +78,27 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	feedsMu.RUnlock()
 
 	lastStr := ""
+	var ageSec float64 = -1
 	if !last.IsZero() {
 		lastStr = last.UTC().Format(time.RFC3339)
+		ageSec = time.Since(last).Seconds()
+	}
+
+	status := "ok"
+	code := http.StatusOK
+	if last.IsZero() || time.Since(last) > maxFeedAge || loaded == 0 {
+		status = "degraded"
+		code = http.StatusServiceUnavailable
 	}
 
 	labeled, alertTotal := extensionHealth()
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(healthResponse{
-		Status:        "ok",
+		Status:        status,
 		FeedsLoaded:   loaded,
+		FeedAgeSec:    ageSec,
 		LastRefresh:   lastStr,
 		AlertsLoaded:  alertTotal,
 		AlertsLabeled: labeled,
