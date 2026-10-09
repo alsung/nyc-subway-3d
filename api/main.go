@@ -53,7 +53,11 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) { return w.Writer.Write
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin == "https://localexpress.nyc" || strings.HasPrefix(origin, "http://localhost:") {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -228,7 +232,14 @@ func main() {
 	go startAlertsRefresher(ctx)
 
 	slog.Info("server starting", "port", port)
-	if err := http.ListenAndServe(":"+port, newMux()); err != nil {
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      newMux(),
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}
