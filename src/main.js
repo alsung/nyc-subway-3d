@@ -34,6 +34,18 @@ const RT_STALE_MS   = 90_000;
 // GTFS download starts, and the search / filter / popup UI renders as soon as
 // GTFS resolves rather than waiting for the map's tiles to finish arriving.
 // Only the map layers themselves are gated on the map's 'load' event.
+function showFatalError() {
+    const el = document.createElement('div');
+    el.id = 'fatal-error';
+    el.innerHTML = `
+        <p>Something went wrong loading the map.</p>
+        <button onclick="location.reload()">Reload</button>
+    `;
+    document.body.appendChild(el);
+}
+
+const MAP_LOAD_TIMEOUT_MS = 20_000;
+
 async function init() {
     // Page-view analytics. Cookieless, and a no-op outside Vercel deployments,
     // so local development is unaffected. Fired before the awaits below because
@@ -44,7 +56,11 @@ async function init() {
     // Created first so Maplibre's tile requests overlap the GTFS download below
     // rather than queueing behind it.
     const map = createMap(document.getElementById('map'));
-    const mapLoaded = new Promise(resolve => map.on('load', resolve));
+    const mapLoaded = Promise.race([
+        new Promise(resolve => map.on('load', resolve)),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Map style timed out')), MAP_LOAD_TIMEOUT_MS)),
+    ]);
 
     // Fetched together: both files are small and independent of the GTFS
     // parse, and serialising them behind it would delay the UI for data that
@@ -412,4 +428,7 @@ async function init() {
     }
 }
 
-init();
+init().catch((err) => {
+    console.error('[init] fatal:', err);
+    showFatalError();
+});
