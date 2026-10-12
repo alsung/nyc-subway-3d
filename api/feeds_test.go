@@ -59,9 +59,10 @@ func TestHealthReportsFeedCount(t *testing.T) {
 	lastRefresh = time.Now()
 	feedsMu.Unlock()
 
+	a := &app{}
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
-	handleHealth(w, req)
+	a.handleHealth(w, req)
 
 	var resp healthResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {

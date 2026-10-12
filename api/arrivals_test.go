@@ -121,7 +121,7 @@ func TestHandleArrivalsEndpoint(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/arrivals/127", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -156,7 +156,7 @@ func TestHandleArrivalsUnknownStation(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/arrivals/999", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for unknown station, got %d", w.Code)

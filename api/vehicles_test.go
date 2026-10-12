@@ -248,7 +248,7 @@ func TestHandleVehiclesEndpoint(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -280,7 +280,7 @@ func TestHandleVehiclesEmpty(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	raw := w.Body.Bytes()
 	// Must serialize as [] not null so the frontend can always iterate.

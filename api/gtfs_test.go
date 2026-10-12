@@ -117,7 +117,7 @@ func TestHandleGTFSFileServed(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/gtfs/stops.txt", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -141,7 +141,7 @@ func TestHandleGTFSFileNotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/gtfs/nonexistent.txt", nil)
 	w := httptest.NewRecorder()
-	newMux().ServeHTTP(w, req)
+	newMux(&app{}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
