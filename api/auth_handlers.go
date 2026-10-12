@@ -40,6 +40,111 @@ type userView struct {
 	Tier        string `json:"tier"`
 }
 
+type googleAuthRequest struct {
+	IDToken string `json:"idToken"`
+}
+
+func (a *app) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
+	var req googleAuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IDToken == "" {
+		http.Error(w, `{"error":"idToken is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	claims, err := verifyGoogleIDToken(r.Context(), req.IDToken, a.googleClientID)
+	if err != nil {
+		slog.Error("google token verification failed", "err", err)
+		http.Error(w, `{"error":"invalid Google ID token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	email := strings.ToLower(claims.Email)
+
+	var userID, displayName, avatarURL, tier, provider string
+	err = a.dbPool.QueryRow(r.Context(),
+		`SELECT id, display_name, avatar_url, tier, provider
+		 FROM users WHERE email = $1 AND deleted_at IS NULL`,
+		email,
+	).Scan(&userID, &displayName, &avatarURL, &tier, &provider)
+
+	if err == nil {
+		if provider != "google" {
+			http.Error(w, `{"error":"account exists with email/password, please sign in with your password"}`, http.StatusConflict)
+			return
+		}
+		// Existing Google user: update name/avatar from Google profile
+		if claims.Name != "" {
+			displayName = claims.Name
+		}
+		if claims.Picture != "" {
+			avatarURL = claims.Picture
+		}
+		a.dbPool.Exec(r.Context(),
+			`UPDATE users SET display_name = $1, avatar_url = $2, updated_at = now()
+			 WHERE id = $3`,
+			displayName, avatarURL, userID,
+		)
+	} else {
+		// New user via Google
+		displayName = claims.Name
+		if displayName == "" {
+			displayName = strings.Split(email, "@")[0]
+		}
+		avatarURL = claims.Picture
+
+		err = a.dbPool.QueryRow(r.Context(),
+			`INSERT INTO users (email, display_name, avatar_url, provider, email_verified)
+			 VALUES ($1, $2, $3, 'google', true)
+			 RETURNING id, tier`,
+			email, displayName, avatarURL,
+		).Scan(&userID, &tier)
+
+		if err != nil {
+			slog.Error("insert google user failed", "err", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	accessToken, err := signAccessToken(userID, email, tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User: userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+		},
+	})
+}
+
 func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
