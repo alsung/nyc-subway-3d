@@ -313,12 +313,10 @@ paths:
               schema:
                 type: string
 
-  # Phase 9 endpoints (not yet implemented)
-
   /api/auth/google:
     post:
       summary: Sign in with Google
-      description: "Verify a Google ID token, upsert user, return JWT. [Phase 9: not yet implemented]"
+      description: Verify a Google ID token, upsert user, return JWT. New users are created with provider google. If the email already exists with provider email, returns 409.
       tags: [Auth]
       requestBody:
         required: true
@@ -338,11 +336,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid Google ID token
+        '409':
+          description: Email already registered with email/password
 
   /api/auth/register:
     post:
       summary: Register with email/password
-      description: "Create a new account. Sends a verification email. [Phase 9: not yet implemented]"
+      description: Create a new account with email and password. Returns JWT and refresh token.
       tags: [Auth]
       requestBody:
         required: true
@@ -363,19 +365,18 @@ paths:
                   example: Alex
       responses:
         '201':
-          description: Account created, verification email sent
+          description: Account created
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Email already registered
 
   /api/auth/login:
     post:
       summary: Sign in with email/password
-      description: "Authenticate with email and password. [Phase 9: not yet implemented]"
+      description: Authenticate with email and password. Returns JWT and refresh token.
       tags: [Auth]
       requestBody:
         required: true
@@ -402,7 +403,7 @@ paths:
   /api/auth/refresh:
     post:
       summary: Refresh access token
-      description: "Exchange a refresh token for a new access token. [Phase 9: not yet implemented]"
+      description: Exchange a refresh token for a new access token. Old token is invalidated (rotation).
       tags: [Auth]
       requestBody:
         required: true
@@ -425,13 +426,30 @@ paths:
   /api/auth/logout:
     post:
       summary: Sign out
-      description: "Invalidate the refresh token. [Phase 9: not yet implemented]"
+      description: Invalidate the refresh token. Requires a valid access token.
       tags: [Auth]
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Signed out
+
+  /api/auth/me:
+    get:
+      summary: Current user profile
+      description: Returns the authenticated user's profile.
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Not authenticated
 
   /api/auth/verify-email:
     post:

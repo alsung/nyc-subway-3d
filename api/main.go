@@ -35,7 +35,8 @@ type healthResponse struct {
 // cache. Fields may be nil when the dependency is unavailable (e.g. no
 // DATABASE_URL set).
 type app struct {
-	dbPool *pgxpool.Pool
+	dbPool         *pgxpool.Pool
+	googleClientID string
 }
 
 // gzipMiddleware compresses responses for clients that accept it. Added for the
@@ -239,6 +240,9 @@ func newMux(a *app) http.Handler {
 		mux.HandleFunc("POST /api/auth/refresh", a.handleRefresh)
 		mux.Handle("POST /api/auth/logout", requireAuth(http.HandlerFunc(a.handleLogout)))
 		mux.Handle("GET /api/auth/me", requireAuth(http.HandlerFunc(a.handleMe)))
+		if a.googleClientID != "" {
+			mux.HandleFunc("POST /api/auth/google", a.handleGoogleAuth)
+		}
 	}
 
 	// /metrics is mounted outside both gzipMiddleware and metricsMiddleware.
@@ -286,6 +290,11 @@ func main() {
 		defer pool.Close()
 		a.dbPool = pool
 		slog.Info("database connected")
+
+		if gid := os.Getenv("GOOGLE_CLIENT_ID"); gid != "" {
+			a.googleClientID = gid
+			slog.Info("google oauth enabled")
+		}
 	} else {
 		slog.Warn("DATABASE_URL not set, running without database (auth endpoints will be unavailable)")
 	}
