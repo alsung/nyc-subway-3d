@@ -70,7 +70,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -233,6 +233,14 @@ func newMux(a *app) http.Handler {
 	mux.HandleFunc("GET /api/alerts/summary", handleAlertsSummary)
 	mux.HandleFunc("GET /api/plan", handlePlan)
 
+	if a.dbPool != nil {
+		mux.HandleFunc("POST /api/auth/register", a.handleRegister)
+		mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+		mux.HandleFunc("POST /api/auth/refresh", a.handleRefresh)
+		mux.Handle("POST /api/auth/logout", requireAuth(http.HandlerFunc(a.handleLogout)))
+		mux.Handle("GET /api/auth/me", requireAuth(http.HandlerFunc(a.handleMe)))
+	}
+
 	// /metrics is mounted outside both gzipMiddleware and metricsMiddleware.
 	// promhttp negotiates its own content encoding, so wrapping it in ours
 	// would double-encode and break scraping with no visible error; and Fly
@@ -259,6 +267,8 @@ func main() {
 	// than appearing for the first time during the outage it should have warned
 	// about.
 	initFeedMetrics()
+
+	initJWT(os.Getenv("JWT_SECRET"))
 
 	a := &app{}
 

@@ -1,0 +1,328 @@
+package main
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type registerRequest struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"displayName"`
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+type authResponse struct {
+	AccessToken  string   `json:"accessToken"`
+	RefreshToken string   `json:"refreshToken"`
+	User         userView `json:"user"`
+}
+
+type userView struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	AvatarURL   string `json:"avatarUrl"`
+	Tier        string `json:"tier"`
+}
+
+func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+
+	if req.Email == "" || req.Password == "" || req.DisplayName == "" {
+		http.Error(w, `{"error":"email, password, and displayName are required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Password) < 8 {
+		http.Error(w, `{"error":"password must be at least 8 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("bcrypt hash failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	var userID, email, displayName, avatarURL, tier string
+	err = a.dbPool.QueryRow(r.Context(),
+		`INSERT INTO users (email, password_hash, display_name, provider, email_verified)
+		 VALUES ($1, $2, $3, 'email', true)
+		 RETURNING id, email, display_name, avatar_url, tier`,
+		req.Email, string(hash), req.DisplayName,
+	).Scan(&userID, &email, &displayName, &avatarURL, &tier)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") {
+			http.Error(w, `{"error":"email already registered"}`, http.StatusConflict)
+			return
+		}
+		slog.Error("insert user failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	accessToken, err := signAccessToken(userID, email, tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User: userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+		},
+	})
+}
+
+func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+	var userID, email, displayName, avatarURL, tier, passwordHash string
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT id, email, display_name, avatar_url, tier, password_hash
+		 FROM users
+		 WHERE email = $1 AND deleted_at IS NULL`,
+		req.Email,
+	).Scan(&userID, &email, &displayName, &avatarURL, &tier, &passwordHash)
+
+	if err != nil {
+		http.Error(w, `{"error":"invalid email or password"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		http.Error(w, `{"error":"invalid email or password"}`, http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, err := signAccessToken(userID, email, tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User: userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+		},
+	})
+}
+
+func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, `{"error":"refreshToken is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	hashed := hashToken(req.RefreshToken)
+
+	var tokenID, userID string
+	var expiresAt time.Time
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT rt.id, rt.user_id, rt.expires_at
+		 FROM refresh_tokens rt
+		 WHERE rt.token_hash = $1`,
+		hashed,
+	).Scan(&tokenID, &userID, &expiresAt)
+
+	if err != nil {
+		http.Error(w, `{"error":"invalid refresh token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE id = $1`, tokenID)
+		http.Error(w, `{"error":"refresh token expired"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Delete old token (rotation)
+	a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE id = $1`, tokenID)
+
+	var email, displayName, avatarURL, tier string
+	err = a.dbPool.QueryRow(r.Context(),
+		`SELECT email, display_name, avatar_url, tier
+		 FROM users WHERE id = $1 AND deleted_at IS NULL`,
+		userID,
+	).Scan(&email, &displayName, &avatarURL, &tier)
+
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, err := signAccessToken(userID, email, tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User: userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+		},
+	})
+}
+
+func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+		http.Error(w, `{"error":"refreshToken is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	hashed := hashToken(req.RefreshToken)
+	u := userFromContext(r.Context())
+
+	a.dbPool.Exec(r.Context(),
+		`DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2`,
+		hashed, u.ID,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "signed out"})
+}
+
+func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r.Context())
+
+	var displayName, avatarURL, tier string
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT display_name, avatar_url, tier
+		 FROM users WHERE id = $1 AND deleted_at IS NULL`,
+		u.ID,
+	).Scan(&displayName, &avatarURL, &tier)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+			return
+		}
+		slog.Error("query user failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(userView{
+		ID:          u.ID,
+		Email:       u.Email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+	})
+}
