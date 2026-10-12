@@ -240,6 +240,10 @@ func newMux(a *app) http.Handler {
 		mux.HandleFunc("POST /api/auth/refresh", a.handleRefresh)
 		mux.Handle("POST /api/auth/logout", requireAuth(http.HandlerFunc(a.handleLogout)))
 		mux.Handle("GET /api/auth/me", requireAuth(http.HandlerFunc(a.handleMe)))
+		mux.HandleFunc("POST /api/auth/verify-email", a.handleVerifyEmail)
+		mux.HandleFunc("POST /api/auth/resend-verification", a.handleResendVerification)
+		mux.HandleFunc("POST /api/auth/forgot-password", a.handleForgotPassword)
+		mux.HandleFunc("POST /api/auth/reset-password", a.handleResetPassword)
 		if a.googleClientID != "" {
 			mux.HandleFunc("POST /api/auth/google", a.handleGoogleAuth)
 		}
@@ -273,6 +277,11 @@ func main() {
 	initFeedMetrics()
 
 	initJWT(os.Getenv("JWT_SECRET"))
+	initEmail(
+		os.Getenv("RESEND_API_KEY"),
+		os.Getenv("APP_BASE_URL"),
+		os.Getenv("DEV_AUTO_VERIFY") == "true",
+	)
 
 	a := &app{}
 

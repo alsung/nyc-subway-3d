@@ -171,12 +171,14 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	verified := devAutoVerify
+
 	var userID, email, displayName, avatarURL, tier string
 	err = a.dbPool.QueryRow(r.Context(),
 		`INSERT INTO users (email, password_hash, display_name, provider, email_verified)
-		 VALUES ($1, $2, $3, 'email', true)
+		 VALUES ($1, $2, $3, 'email', $4)
 		 RETURNING id, email, display_name, avatar_url, tier`,
-		req.Email, string(hash), req.DisplayName,
+		req.Email, string(hash), req.DisplayName, verified,
 	).Scan(&userID, &email, &displayName, &avatarURL, &tier)
 
 	if err != nil {
@@ -189,43 +191,71 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := signAccessToken(userID, email, tier)
-	if err != nil {
-		slog.Error("sign access token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+	if devAutoVerify {
+		accessToken, err := signAccessToken(userID, email, tier)
+		if err != nil {
+			slog.Error("sign access token failed", "err", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+		rawRefresh, hashedRefresh, err := generateRefreshToken()
+		if err != nil {
+			slog.Error("generate refresh token failed", "err", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+		_, err = a.dbPool.Exec(r.Context(),
+			`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+			 VALUES ($1, $2, $3)`,
+			userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+		)
+		if err != nil {
+			slog.Error("insert refresh token failed", "err", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(authResponse{
+			AccessToken:  accessToken,
+			RefreshToken: rawRefresh,
+			User: userView{
+				ID:          userID,
+				Email:       email,
+				DisplayName: displayName,
+				AvatarURL:   avatarURL,
+				Tier:        tier,
+			},
+		})
 		return
 	}
 
-	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	rawToken, hashedToken, err := generateRefreshToken()
 	if err != nil {
-		slog.Error("generate refresh token failed", "err", err)
+		slog.Error("generate verification token failed", "err", err)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
 	_, err = a.dbPool.Exec(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+		`INSERT INTO verification_tokens (user_id, token_hash, kind, expires_at)
+		 VALUES ($1, $2, 'email_verification', $3)`,
+		userID, hashedToken, time.Now().Add(24*time.Hour),
 	)
 	if err != nil {
-		slog.Error("insert refresh token failed", "err", err)
+		slog.Error("insert verification token failed", "err", err)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
+	if err := sendVerificationEmail(email, rawToken); err != nil {
+		slog.Error("send verification email failed", "err", err)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
-		User: userView{
-			ID:          userID,
-			Email:       email,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Tier:        tier,
-		},
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Check your email to verify your account",
 	})
 }
 
@@ -238,21 +268,32 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
-	var userID, email, displayName, avatarURL, tier, passwordHash string
+	var userID, email, displayName, avatarURL, tier, passwordHash, provider string
+	var emailVerified bool
 	err := a.dbPool.QueryRow(r.Context(),
-		`SELECT id, email, display_name, avatar_url, tier, password_hash
+		`SELECT id, email, display_name, avatar_url, tier, password_hash, provider, email_verified
 		 FROM users
 		 WHERE email = $1 AND deleted_at IS NULL`,
 		req.Email,
-	).Scan(&userID, &email, &displayName, &avatarURL, &tier, &passwordHash)
+	).Scan(&userID, &email, &displayName, &avatarURL, &tier, &passwordHash, &provider, &emailVerified)
 
 	if err != nil {
 		http.Error(w, `{"error":"invalid email or password"}`, http.StatusUnauthorized)
 		return
 	}
 
+	if provider == "google" {
+		http.Error(w, `{"error":"this account uses Google sign-in"}`, http.StatusConflict)
+		return
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
 		http.Error(w, `{"error":"invalid email or password"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if !emailVerified {
+		http.Error(w, `{"error":"please verify your email before signing in"}`, http.StatusForbidden)
 		return
 	}
 
@@ -400,6 +441,293 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "signed out"})
+}
+
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+func (a *app) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req verifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+		http.Error(w, `{"error":"token is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	hashed := hashToken(req.Token)
+
+	var tokenID, userID string
+	var expiresAt time.Time
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT id, user_id, expires_at FROM verification_tokens
+		 WHERE token_hash = $1 AND kind = 'email_verification'`,
+		hashed,
+	).Scan(&tokenID, &userID, &expiresAt)
+
+	if err != nil {
+		http.Error(w, `{"error":"invalid or expired verification link"}`, http.StatusBadRequest)
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
+		http.Error(w, `{"error":"verification link has expired, please request a new one"}`, http.StatusBadRequest)
+		return
+	}
+
+	a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
+
+	var email, displayName, avatarURL, tier string
+	err = a.dbPool.QueryRow(r.Context(),
+		`UPDATE users SET email_verified = true, updated_at = now()
+		 WHERE id = $1 AND deleted_at IS NULL
+		 RETURNING email, display_name, avatar_url, tier`,
+		userID,
+	).Scan(&email, &displayName, &avatarURL, &tier)
+
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusBadRequest)
+		return
+	}
+
+	accessToken, err := signAccessToken(userID, email, tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User: userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+		},
+	})
+}
+
+type resendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
+func (a *app) handleResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req resendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		http.Error(w, `{"error":"email is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var userID string
+	var emailVerified bool
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT id, email_verified FROM users
+		 WHERE email = $1 AND provider = 'email' AND deleted_at IS NULL`,
+		req.Email,
+	).Scan(&userID, &emailVerified)
+
+	if err != nil || emailVerified {
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "If that email is registered, a verification link has been sent",
+		})
+		return
+	}
+
+	var recentCount int
+	a.dbPool.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM verification_tokens
+		 WHERE user_id = $1 AND kind = 'email_verification'
+		 AND created_at > $2`,
+		userID, time.Now().Add(-1*time.Hour),
+	).Scan(&recentCount)
+
+	if recentCount >= 3 {
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "If that email is registered, a verification link has been sent",
+		})
+		return
+	}
+
+	a.dbPool.Exec(r.Context(),
+		`DELETE FROM verification_tokens WHERE user_id = $1 AND kind = 'email_verification'`,
+		userID,
+	)
+
+	rawToken, hashedToken, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate verification token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO verification_tokens (user_id, token_hash, kind, expires_at)
+		 VALUES ($1, $2, 'email_verification', $3)`,
+		userID, hashedToken, time.Now().Add(24*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert verification token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if err := sendVerificationEmail(req.Email, rawToken); err != nil {
+		slog.Error("send verification email failed", "err", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "If that email is registered, a verification link has been sent",
+	})
+}
+
+type forgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+func (a *app) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req forgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		http.Error(w, `{"error":"email is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var userID string
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT id FROM users
+		 WHERE email = $1 AND provider = 'email' AND deleted_at IS NULL`,
+		req.Email,
+	).Scan(&userID)
+
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "If that email is registered, a password reset link has been sent",
+		})
+		return
+	}
+
+	a.dbPool.Exec(r.Context(),
+		`DELETE FROM verification_tokens WHERE user_id = $1 AND kind = 'password_reset'`,
+		userID,
+	)
+
+	rawToken, hashedToken, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate reset token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO verification_tokens (user_id, token_hash, kind, expires_at)
+		 VALUES ($1, $2, 'password_reset', $3)`,
+		userID, hashedToken, time.Now().Add(1*time.Hour),
+	)
+	if err != nil {
+		slog.Error("insert reset token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if err := sendPasswordResetEmail(req.Email, rawToken); err != nil {
+		slog.Error("send password reset email failed", "err", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "If that email is registered, a password reset link has been sent",
+	})
+}
+
+type resetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"newPassword"`
+}
+
+func (a *app) handleResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req resetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.Token == "" || req.NewPassword == "" {
+		http.Error(w, `{"error":"token and newPassword are required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		http.Error(w, `{"error":"password must be at least 8 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	hashed := hashToken(req.Token)
+
+	var tokenID, userID string
+	var expiresAt time.Time
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT id, user_id, expires_at FROM verification_tokens
+		 WHERE token_hash = $1 AND kind = 'password_reset'`,
+		hashed,
+	).Scan(&tokenID, &userID, &expiresAt)
+
+	if err != nil {
+		http.Error(w, `{"error":"invalid or expired reset link"}`, http.StatusBadRequest)
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
+		http.Error(w, `{"error":"reset link has expired, please request a new one"}`, http.StatusBadRequest)
+		return
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("bcrypt hash failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	a.dbPool.Exec(r.Context(),
+		`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+		string(newHash), userID,
+	)
+
+	a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
+	a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Password updated. Please sign in.",
+	})
 }
 
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {

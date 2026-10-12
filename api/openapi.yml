@@ -454,7 +454,7 @@ paths:
   /api/auth/verify-email:
     post:
       summary: Verify email address
-      description: "Activate account via the token from the verification email. [Phase 9: not yet implemented]"
+      description: Activate account via the token from the verification email. Signs the user in on success.
       tags: [Auth]
       requestBody:
         required: true
@@ -474,10 +474,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
 
+  /api/auth/resend-verification:
+    post:
+      summary: Resend verification email
+      description: Resend the account verification email. Rate limited to 3 per hour per email. Always returns 200.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: rider@example.com
+      responses:
+        '200':
+          description: Verification email sent (if account exists and is unverified)
+
   /api/auth/forgot-password:
     post:
       summary: Request password reset
-      description: "Sends a password reset email. Always returns 200 regardless of whether the email exists. [Phase 9: not yet implemented]"
+      description: Sends a password reset email. Always returns 200 regardless of whether the email exists.
       tags: [Auth]
       requestBody:
         required: true
@@ -497,7 +517,7 @@ paths:
   /api/auth/reset-password:
     post:
       summary: Reset password
-      description: "Set a new password using the token from the reset email. [Phase 9: not yet implemented]"
+      description: Set a new password using the reset token. Invalidates all sessions.
       tags: [Auth]
       requestBody:
         required: true
