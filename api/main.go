@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -25,8 +26,16 @@ type healthResponse struct {
 	// those carry a readable Mercury label. The two should track each other
 	// closely — a gap means MTA's extension shape changed and the UI has
 	// quietly fallen back to generic labels.
-	AlertsLoaded  int `json:"alertsLoaded"`
-	AlertsLabeled int `json:"alertsLabeled"`
+	AlertsLoaded  int     `json:"alertsLoaded"`
+	AlertsLabeled int     `json:"alertsLabeled"`
+	Database      *string `json:"database,omitempty"`
+}
+
+// app holds shared dependencies that handlers need beyond the in-memory feed
+// cache. Fields may be nil when the dependency is unavailable (e.g. no
+// DATABASE_URL set).
+type app struct {
+	dbPool *pgxpool.Pool
 }
 
 // gzipMiddleware compresses responses for clients that accept it. Added for the
@@ -71,7 +80,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleHealth(w http.ResponseWriter, r *http.Request) {
 	feedsMu.RLock()
 	loaded := len(feedCache)
 	last := lastRefresh
@@ -93,16 +102,29 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	labeled, alertTotal := extensionHealth()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(healthResponse{
+	resp := healthResponse{
 		Status:        status,
 		FeedsLoaded:   loaded,
 		FeedAgeSec:    ageSec,
 		LastRefresh:   lastStr,
 		AlertsLoaded:  alertTotal,
 		AlertsLabeled: labeled,
-	})
+	}
+
+	if a.dbPool != nil {
+		dbStatus := "ok"
+		if !pingDB(r.Context(), a.dbPool) {
+			dbStatus = "unreachable"
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+		resp.Database = &dbStatus
+		resp.Status = status
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleAlerts returns alerts currently in effect. Upcoming planned work — the
@@ -201,9 +223,9 @@ func handleVehicles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func newMux() http.Handler {
+func newMux(a *app) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /health", a.handleHealth)
 	mux.HandleFunc("GET /api/gtfs/{file}", handleGTFSFile)
 	mux.HandleFunc("GET /api/arrivals/{stationId}", handleArrivals)
 	mux.HandleFunc("GET /api/vehicles", handleVehicles)
@@ -238,6 +260,26 @@ func main() {
 	// about.
 	initFeedMetrics()
 
+	a := &app{}
+
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		if err := runMigrations(dbURL); err != nil {
+			slog.Error("failed to run migrations", "err", err)
+			os.Exit(1)
+		}
+
+		pool, err := connectDB(context.Background(), dbURL)
+		if err != nil {
+			slog.Error("failed to connect to database", "err", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		a.dbPool = pool
+		slog.Info("database connected")
+	} else {
+		slog.Warn("DATABASE_URL not set, running without database (auth endpoints will be unavailable)")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go startFeedRefresher(ctx)
@@ -248,7 +290,7 @@ func main() {
 	slog.Info("server starting", "port", port)
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      newMux(),
+		Handler:      newMux(a),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

@@ -1,0 +1,711 @@
+openapi: 3.0.3
+info:
+  title: Local Express API
+  description: NYC subway realtime data, trip planning, and user accounts.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://nyc-subway-api.fly.dev
+    description: Production
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        feedsLoaded:
+          type: integer
+        feedAgeSec:
+          type: number
+        lastRefresh:
+          type: string
+        alertsLoaded:
+          type: integer
+        alertsLabeled:
+          type: integer
+        database:
+          type: string
+          enum: [ok, unreachable]
+          nullable: true
+
+    Arrival:
+      type: object
+      properties:
+        routeId:
+          type: string
+        tripId:
+          type: string
+        direction:
+          type: integer
+        minutes:
+          type: number
+        arrival:
+          type: string
+
+    Vehicle:
+      type: object
+      properties:
+        tripId:
+          type: string
+        routeId:
+          type: string
+        currentStopId:
+          type: string
+        currentStatus:
+          type: string
+        stopTimeUpdate:
+          type: array
+          items:
+            type: object
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+        headerText:
+          type: string
+        descriptionText:
+          type: string
+        routeIds:
+          type: array
+          items:
+            type: string
+        stopIds:
+          type: array
+          items:
+            type: string
+
+    PlanResponse:
+      type: object
+      properties:
+        itineraries:
+          type: array
+          items:
+            type: object
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+        tier:
+          type: string
+          enum: [free, pro]
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    Feature:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        requiredTier:
+          type: string
+        accessible:
+          type: boolean
+
+    Commute:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        originStopId:
+          type: string
+        originName:
+          type: string
+        destStopId:
+          type: string
+        destName:
+          type: string
+        label:
+          type: string
+        createdAt:
+          type: string
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server status. 503 when feeds are stale, database unreachable, or no feeds loaded.
+      tags: [Health]
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Degraded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/vehicles:
+    get:
+      summary: Live train positions
+      description: All active vehicle positions from GTFS-RT feeds.
+      tags: [Map Data]
+      responses:
+        '200':
+          description: Vehicle list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Vehicle'
+                  updatedAt:
+                    type: string
+
+  /api/arrivals/{stationId}:
+    get:
+      summary: Station arrivals
+      description: Next arrivals at a station, computed from GTFS-RT trip updates.
+      tags: [Map Data]
+      parameters:
+        - name: stationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "631"
+      responses:
+        '200':
+          description: Arrival list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stationId:
+                    type: string
+                  arrivals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Arrival'
+                  updatedAt:
+                    type: string
+
+  /api/alerts:
+    get:
+      summary: Service alerts
+      description: Current service alerts from MTA. Pass ?upcoming=true to include planned work.
+      tags: [Map Data]
+      parameters:
+        - name: upcoming
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        '200':
+          description: Alert list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+                  updatedAt:
+                    type: string
+
+  /api/alerts/summary:
+    get:
+      summary: Alert summary by trunk line
+      description: Per-trunk rollup for the status panel.
+      tags: [Map Data]
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/plan:
+    get:
+      summary: Trip planner
+      description: RAPTOR-based trip planning between two stations.
+      tags: [Map Data]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "631"
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "R20"
+        - name: time
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO 8601 datetime, defaults to now
+      responses:
+        '200':
+          description: Trip itineraries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanResponse'
+
+  /api/gtfs/{file}:
+    get:
+      summary: GTFS static file
+      description: Serves cached GTFS static files (stops.txt, routes.txt, etc.)
+      tags: [Map Data]
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+          example: stops.txt
+      responses:
+        '200':
+          description: File contents
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # Phase 9 endpoints (not yet implemented)
+
+  /api/auth/google:
+    post:
+      summary: Sign in with Google
+      description: "Verify a Google ID token, upsert user, return JWT. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken:
+                  type: string
+                  description: Google ID token from the client-side sign-in
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /api/auth/register:
+    post:
+      summary: Register with email/password
+      description: "Create a new account. Sends a verification email. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, displayName]
+              properties:
+                email:
+                  type: string
+                  example: rider@example.com
+                password:
+                  type: string
+                  example: securepassword123
+                displayName:
+                  type: string
+                  example: Alex
+      responses:
+        '201':
+          description: Account created, verification email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /api/auth/login:
+    post:
+      summary: Sign in with email/password
+      description: "Authenticate with email and password. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: rider@example.com
+                password:
+                  type: string
+                  example: securepassword123
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /api/auth/refresh:
+    post:
+      summary: Refresh access token
+      description: "Exchange a refresh token for a new access token. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /api/auth/logout:
+    post:
+      summary: Sign out
+      description: "Invalidate the refresh token. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Signed out
+
+  /api/auth/verify-email:
+    post:
+      summary: Verify email address
+      description: "Activate account via the token from the verification email. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Email verified, user signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /api/auth/forgot-password:
+    post:
+      summary: Request password reset
+      description: "Sends a password reset email. Always returns 200 regardless of whether the email exists. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  example: rider@example.com
+      responses:
+        '200':
+          description: Reset email sent (if account exists)
+
+  /api/auth/reset-password:
+    post:
+      summary: Reset password
+      description: "Set a new password using the token from the reset email. [Phase 9: not yet implemented]"
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Password updated
+
+  /api/auth/account:
+    patch:
+      summary: Update account
+      description: "Update display name. [Phase 9: not yet implemented]"
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      summary: Delete account
+      description: "Soft-delete account and all associated data. Hard-deleted after 30 days. [Phase 9: not yet implemented]"
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account scheduled for deletion
+
+  /api/auth/change-password:
+    post:
+      summary: Change password
+      description: "Change password for email/password users. [Phase 9: not yet implemented]"
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Password changed
+
+  /api/features:
+    get:
+      summary: List feature flags
+      description: Returns features and whether the current user has access. Anonymous users get everyone-tier features.
+      tags: [Features]
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: Feature list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  features:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Feature'
+
+  /api/features/{name}:
+    put:
+      summary: Update feature flag (admin)
+      description: "Change a feature's required tier. Admin only. [Phase 9: not yet implemented]"
+      tags: [Features]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: ai_assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requiredTier]
+              properties:
+                requiredTier:
+                  type: string
+                  enum: [everyone, pro, disabled]
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+
+  /api/commutes:
+    get:
+      summary: List saved commutes
+      description: "Returns the signed-in user's saved commutes. [Phase 9: not yet implemented]"
+      tags: [Commutes]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Commute list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commutes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Commute'
+    post:
+      summary: Save a commute
+      description: "Save a new commute. Max 20 per user. [Phase 9: not yet implemented]"
+      tags: [Commutes]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [originStopId, originName, destStopId, destName]
+              properties:
+                originStopId:
+                  type: string
+                  example: "631"
+                originName:
+                  type: string
+                  example: 14 St-Union Sq
+                destStopId:
+                  type: string
+                  example: "R20"
+                destName:
+                  type: string
+                  example: 72 St
+                label:
+                  type: string
+                  example: Morning commute
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Commute'
+
+  /api/commutes/{id}:
+    patch:
+      summary: Update commute label
+      description: "Update a saved commute's label. [Phase 9: not yet implemented]"
+      tags: [Commutes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Commute'
+    delete:
+      summary: Delete a commute
+      description: "Delete a saved commute. Must be the owner. [Phase 9: not yet implemented]"
+      tags: [Commutes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted

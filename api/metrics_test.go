@@ -69,7 +69,7 @@ func TestRouteLabelBoundsCardinality(t *testing.T) {
 // shipped and spent months counted as "other" because the old allowlist was
 // never extended.
 func TestRouteLabelsComeFromTheRealMux(t *testing.T) {
-	mux := newMux()
+	mux := newMux(&app{})
 
 	for _, tc := range []struct{ path, wantRoute string }{
 		{"/health", "/health"},
@@ -145,7 +145,7 @@ func TestMetricsMiddlewareRecordsErrorStatus(t *testing.T) {
 // must not be counted by it — Fly scrapes every few seconds and would otherwise
 // dominate the request counter.
 func TestMetricsEndpointIsUnwrappedAndUncounted(t *testing.T) {
-	mux := newMux()
+	mux := newMux(&app{})
 
 	// Plain request: promhttp serves text, and our gzip middleware must not
 	// have touched it.
@@ -202,7 +202,7 @@ func TestMetricsEndpointExposesOurCollectors(t *testing.T) {
 	metricFeedLastRefresh.WithLabelValues("ACE").Set(1_700_000_000)
 
 	rec := httptest.NewRecorder()
-	newMux().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	newMux(&app{}).ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
 
 	for _, name := range []string{
@@ -274,7 +274,7 @@ func TestStalenessGaugeIsPerGroupAndOnlyOnSuccess(t *testing.T) {
 func exposition(t *testing.T) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	newMux().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	newMux(&app{}).ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	return rec.Body.String()
 }
 
