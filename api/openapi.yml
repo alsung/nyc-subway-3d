@@ -615,7 +615,7 @@ paths:
   /api/features/{name}:
     put:
       summary: Update feature flag (admin)
-      description: "Change a feature's required tier. Admin only. [Phase 9: not yet implemented]"
+      description: Change a feature's required tier. Admin only (ADMIN_EMAILS env var).
       tags: [Features]
       security:
         - bearerAuth: []
