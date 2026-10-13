@@ -37,6 +37,7 @@ type healthResponse struct {
 type app struct {
 	dbPool         *pgxpool.Pool
 	googleClientID string
+	adminEmails    []string
 }
 
 // gzipMiddleware compresses responses for clients that accept it. Added for the
@@ -232,7 +233,12 @@ func newMux(a *app) http.Handler {
 	mux.HandleFunc("GET /api/vehicles", handleVehicles)
 	mux.HandleFunc("GET /api/alerts", handleAlerts)
 	mux.HandleFunc("GET /api/alerts/summary", handleAlertsSummary)
-	mux.HandleFunc("GET /api/plan", handlePlan)
+	if a.dbPool != nil {
+		mux.Handle("GET /api/plan",
+			optionalAuth(a.requireFeature("trip_planner")(http.HandlerFunc(handlePlan))))
+	} else {
+		mux.HandleFunc("GET /api/plan", handlePlan)
+	}
 
 	if a.dbPool != nil {
 		mux.HandleFunc("POST /api/auth/register", a.handleRegister)
@@ -244,6 +250,9 @@ func newMux(a *app) http.Handler {
 		mux.HandleFunc("POST /api/auth/resend-verification", a.handleResendVerification)
 		mux.HandleFunc("POST /api/auth/forgot-password", a.handleForgotPassword)
 		mux.HandleFunc("POST /api/auth/reset-password", a.handleResetPassword)
+		mux.Handle("GET /api/features", optionalAuth(http.HandlerFunc(a.handleGetFeatures)))
+		mux.Handle("PUT /api/features/{name}", requireAuth(http.HandlerFunc(a.handleUpdateFeature)))
+
 		if a.googleClientID != "" {
 			mux.HandleFunc("POST /api/auth/google", a.handleGoogleAuth)
 		}
@@ -285,6 +294,14 @@ func main() {
 
 	a := &app{}
 
+	if raw := os.Getenv("ADMIN_EMAILS"); raw != "" {
+		for _, e := range strings.Split(raw, ",") {
+			if trimmed := strings.TrimSpace(e); trimmed != "" {
+				a.adminEmails = append(a.adminEmails, trimmed)
+			}
+		}
+	}
+
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		if err := runMigrations(dbURL); err != nil {
 			slog.Error("failed to run migrations", "err", err)
@@ -300,6 +317,12 @@ func main() {
 		a.dbPool = pool
 		slog.Info("database connected")
 
+		if err := loadFeatures(context.Background(), pool); err != nil {
+			slog.Error("failed to load feature flags", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("feature flags loaded")
+
 		if gid := os.Getenv("GOOGLE_CLIENT_ID"); gid != "" {
 			a.googleClientID = gid
 			slog.Info("google oauth enabled")
@@ -314,6 +337,9 @@ func main() {
 	// Separate goroutine and interval: alerts change far less often than train
 	// positions, and a slow alerts fetch must not delay a vehicle refresh.
 	go startAlertsRefresher(ctx)
+	if a.dbPool != nil {
+		go startFeatureCacheRefresher(ctx, a.dbPool)
+	}
 
 	slog.Info("server starting", "port", port)
 	srv := &http.Server{
