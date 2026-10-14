@@ -26,6 +26,8 @@ import { alertedStationIds } from './core/station-alerts.js';
 import { readPref, writePref } from './core/prefs.js';
 import { tryRestoreSession } from './core/auth.js';
 import { loadFeatures } from './core/features.js';
+import { buildAuthButton } from './ui/auth-button.js';
+import { buildAuthModal } from './ui/auth-modal.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
@@ -49,6 +51,16 @@ function showFatalError() {
 const MAP_LOAD_TIMEOUT_MS = 20_000;
 
 async function init() {
+    const path = window.location.pathname;
+    if (path === '/verify') {
+        const { renderVerifyPage } = await import('./ui/verify-page.js');
+        return renderVerifyPage();
+    }
+    if (path === '/reset-password') {
+        const { renderResetPasswordPage } = await import('./ui/reset-password-page.js');
+        return renderResetPasswordPage();
+    }
+
     // Page-view analytics. Cookieless, and a no-op outside Vercel deployments,
     // so local development is unaffected. Fired before the awaits below because
     // it is fire-and-forget: a visitor who leaves during the GTFS download
@@ -290,6 +302,9 @@ async function init() {
         },
         { routeMap, labelFor: searchEntryLabel },
     );
+
+    const authModal = buildAuthModal(document.getElementById('auth-modal'));
+    buildAuthButton(document.getElementById('app-footer'), authModal.open);
 
     // ── Map layers — the only work that genuinely needs the map's style loaded ──
 

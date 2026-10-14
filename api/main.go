@@ -68,7 +68,9 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) { return w.Writer.Write
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "https://localexpress.nyc" || strings.HasPrefix(origin, "http://localhost:") {
+		if origin == "https://localexpress.nyc" ||
+			strings.HasPrefix(origin, "http://localhost:") ||
+			strings.HasSuffix(origin, ".vercel.app") {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}
