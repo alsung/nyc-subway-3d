@@ -648,7 +648,7 @@ paths:
   /api/commutes:
     get:
       summary: List saved commutes
-      description: "Returns the signed-in user's saved commutes. [Phase 9: not yet implemented]"
+      description: "Returns the signed-in user's saved commutes, newest first. Requires saved_commutes feature flag."
       tags: [Commutes]
       security:
         - bearerAuth: []
@@ -666,7 +666,7 @@ paths:
                       $ref: '#/components/schemas/Commute'
     post:
       summary: Save a commute
-      description: "Save a new commute. Max 20 per user. [Phase 9: not yet implemented]"
+      description: "Save a new commute. Max 20 per user. Requires saved_commutes feature flag."
       tags: [Commutes]
       security:
         - bearerAuth: []
@@ -704,7 +704,7 @@ paths:
   /api/commutes/{id}:
     patch:
       summary: Update commute label
-      description: "Update a saved commute's label. [Phase 9: not yet implemented]"
+      description: "Update a saved commute's label. Must be the owner."
       tags: [Commutes]
       security:
         - bearerAuth: []
@@ -733,7 +733,7 @@ paths:
                 $ref: '#/components/schemas/Commute'
     delete:
       summary: Delete a commute
-      description: "Delete a saved commute. Must be the owner. [Phase 9: not yet implemented]"
+      description: "Delete a saved commute. Must be the owner."
       tags: [Commutes]
       security:
         - bearerAuth: []

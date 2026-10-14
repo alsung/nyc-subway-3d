@@ -38,6 +38,7 @@ type app struct {
 	dbPool         *pgxpool.Pool
 	googleClientID string
 	adminEmails    []string
+	commutes       CommuteStore
 }
 
 // gzipMiddleware compresses responses for clients that accept it. Added for the
@@ -255,6 +256,15 @@ func newMux(a *app) http.Handler {
 		mux.Handle("GET /api/features", optionalAuth(http.HandlerFunc(a.handleGetFeatures)))
 		mux.Handle("PUT /api/features/{name}", requireAuth(http.HandlerFunc(a.handleUpdateFeature)))
 
+		mux.Handle("GET /api/commutes",
+			requireAuth(a.requireFeature("saved_commutes")(http.HandlerFunc(a.handleListCommutes))))
+		mux.Handle("POST /api/commutes",
+			requireAuth(a.requireFeature("saved_commutes")(http.HandlerFunc(a.handleCreateCommute))))
+		mux.Handle("PATCH /api/commutes/{id}",
+			requireAuth(http.HandlerFunc(a.handleUpdateCommute)))
+		mux.Handle("DELETE /api/commutes/{id}",
+			requireAuth(http.HandlerFunc(a.handleDeleteCommute)))
+
 		if a.googleClientID != "" {
 			mux.HandleFunc("POST /api/auth/google", a.handleGoogleAuth)
 		}
@@ -317,6 +327,7 @@ func main() {
 		}
 		defer pool.Close()
 		a.dbPool = pool
+		a.commutes = newPGStore(pool)
 		slog.Info("database connected")
 
 		if err := loadFeatures(context.Background(), pool); err != nil {
