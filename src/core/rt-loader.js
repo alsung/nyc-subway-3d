@@ -5,6 +5,7 @@
 
 import { parsePlatforms, indexByComplex } from './platforms.js';
 import { indexCarPositions } from './car-position.js';
+import { authFetch } from './auth.js';
 
 // Production API runs on Fly.io in ewr — see api/fly.toml.
 const API_BASE = import.meta.env.PROD
@@ -53,7 +54,7 @@ export async function fetchAlerts(includeUpcoming = false) {
 // Returns { from, to, journeys: [...], feedAgeSeconds }.
 export async function fetchPlan(fromId, toId) {
     const url = `${API_BASE}/api/plan?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`;
-    const res = await fetch(url);
+    const res = await authFetch(url);
     if (!res.ok) throw new Error(`plan request failed: ${res.status}`);
     return res.json();
 }

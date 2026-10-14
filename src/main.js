@@ -24,6 +24,8 @@ import { fetchVehicles, fetchArrivals, fetchAlerts } from './core/rt-loader.js';
 import { mergeArrivalResults } from './core/arrivals.js';
 import { alertedStationIds } from './core/station-alerts.js';
 import { readPref, writePref } from './core/prefs.js';
+import { tryRestoreSession } from './core/auth.js';
+import { loadFeatures } from './core/features.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
@@ -52,6 +54,11 @@ async function init() {
     // it is fire-and-forget: a visitor who leaves during the GTFS download
     // still counts, which matters when the number being measured is traffic.
     injectAnalytics();
+
+    // Restore a previous session from the stored refresh token and load feature
+    // flags. Both are fire-and-forget: a failed restore means anonymous usage,
+    // and a failed feature load means hasFeature returns false for everything.
+    tryRestoreSession().then(loadFeatures).catch(() => {});
 
     // Created first so Maplibre's tile requests overlap the GTFS download below
     // rather than queueing behind it.
