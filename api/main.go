@@ -228,6 +228,27 @@ func handleVehicles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func startAccountCleanup(ctx context.Context, pool *pgxpool.Pool) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			tag, err := pool.Exec(ctx,
+				`DELETE FROM users WHERE deleted_at < now() - interval '30 days'`)
+			if err != nil {
+				slog.Error("account cleanup failed", "err", err)
+				continue
+			}
+			if n := tag.RowsAffected(); n > 0 {
+				slog.Info("account cleanup", "purged", n)
+			}
+		}
+	}
+}
+
 func newMux(a *app) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", a.handleHealth)
@@ -253,6 +274,9 @@ func newMux(a *app) http.Handler {
 		mux.HandleFunc("POST /api/auth/resend-verification", a.handleResendVerification)
 		mux.HandleFunc("POST /api/auth/forgot-password", a.handleForgotPassword)
 		mux.HandleFunc("POST /api/auth/reset-password", a.handleResetPassword)
+		mux.Handle("PATCH /api/auth/account", requireAuth(http.HandlerFunc(a.handleUpdateAccount)))
+		mux.Handle("DELETE /api/auth/account", requireAuth(http.HandlerFunc(a.handleDeleteAccount)))
+		mux.Handle("POST /api/auth/change-password", requireAuth(http.HandlerFunc(a.handleChangePassword)))
 		mux.Handle("GET /api/features", optionalAuth(http.HandlerFunc(a.handleGetFeatures)))
 		mux.Handle("PUT /api/features/{name}", requireAuth(http.HandlerFunc(a.handleUpdateFeature)))
 
@@ -352,6 +376,7 @@ func main() {
 	go startAlertsRefresher(ctx)
 	if a.dbPool != nil {
 		go startFeatureCacheRefresher(ctx, a.dbPool)
+		go startAccountCleanup(ctx, a.dbPool)
 	}
 
 	slog.Info("server starting", "port", port)

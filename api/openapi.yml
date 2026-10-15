@@ -538,7 +538,7 @@ paths:
   /api/auth/account:
     patch:
       summary: Update account
-      description: "Update display name. [Phase 9: not yet implemented]"
+      description: Update display name.
       tags: [Account]
       security:
         - bearerAuth: []
@@ -560,7 +560,7 @@ paths:
                 $ref: '#/components/schemas/User'
     delete:
       summary: Delete account
-      description: "Soft-delete account and all associated data. Hard-deleted after 30 days. [Phase 9: not yet implemented]"
+      description: Soft-delete account and all associated data. Hard-deleted after 30 days.
       tags: [Account]
       security:
         - bearerAuth: []
@@ -571,7 +571,7 @@ paths:
   /api/auth/change-password:
     post:
       summary: Change password
-      description: "Change password for email/password users. [Phase 9: not yet implemented]"
+      description: Change password for email/password users.
       tags: [Account]
       security:
         - bearerAuth: []
