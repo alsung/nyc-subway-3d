@@ -26,6 +26,7 @@ import { alertedStationIds } from './core/station-alerts.js';
 import { readPref, writePref } from './core/prefs.js';
 import { tryRestoreSession } from './core/auth.js';
 import { loadFeatures } from './core/features.js';
+import { loadCommutes } from './core/commutes.js';
 import { buildAuthButton } from './ui/auth-button.js';
 import { buildAuthModal } from './ui/auth-modal.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
@@ -70,7 +71,7 @@ async function init() {
     // Restore a previous session from the stored refresh token and load feature
     // flags. Both are fire-and-forget: a failed restore means anonymous usage,
     // and a failed feature load means hasFeature returns false for everything.
-    tryRestoreSession().then(loadFeatures).catch(() => {});
+    tryRestoreSession().then(loadFeatures).then(loadCommutes).catch(() => {});
 
     // Created first so Maplibre's tile requests overlap the GTFS download below
     // rather than queueing behind it.
@@ -235,12 +236,14 @@ async function init() {
         },
     );
 
+    const authModal = buildAuthModal(document.getElementById('auth-modal'));
+    buildAuthButton(document.getElementById('app-footer'), authModal.open);
+
     buildTripPlanner(
         document.getElementById('ui'), searchEntries, stations, routeMap,
         document.getElementById('btn-trip'),
         { carPositions, complexOf, stationById },
         {
-            // Frames the whole journey and dims everything it does not use.
             onPlan: (journey) => {
                 highlightLine(map, journey.rides);
 
@@ -262,6 +265,7 @@ async function init() {
                 clearLineHighlight(map);
             },
         },
+        authModal,
     );
 
     // Fetches arrivals for a station on demand (Phase 5 lazy per-station fetch).
@@ -302,9 +306,6 @@ async function init() {
         },
         { routeMap, labelFor: searchEntryLabel },
     );
-
-    const authModal = buildAuthModal(document.getElementById('auth-modal'));
-    buildAuthButton(document.getElementById('app-footer'), authModal.open);
 
     // ── Map layers — the only work that genuinely needs the map's style loaded ──
 
