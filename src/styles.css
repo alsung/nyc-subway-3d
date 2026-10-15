@@ -1917,6 +1917,166 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     }
 }
 
+/* ── Saved commutes ──────────────────────────────────────────────────── */
+
+.commutes-section { padding: 0 14px; }
+
+.commutes-signin {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin: 4px 0;
+    background: none;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 44px;
+}
+.commutes-signin:hover { border-color: rgba(255, 255, 255, 0.3); color: rgba(255, 255, 255, 0.7); }
+
+.commutes-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 0;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 36px;
+}
+.commutes-toggle:hover { color: #fff; }
+
+.commutes-arrow {
+    font-size: 10px;
+    width: 12px;
+    text-align: center;
+}
+
+.commutes-list {
+    max-height: 240px;
+    overflow-y: auto;
+    margin-bottom: 6px;
+}
+.commutes-list.hidden { display: none; }
+
+.commutes-empty {
+    margin: 0;
+    padding: 10px 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.commute-card {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.commute-card:last-child { border-bottom: none; }
+
+.commute-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 4px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+}
+.commute-card-body:hover { background: rgba(255, 255, 255, 0.05); border-radius: 6px; }
+
+.commute-card-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.commute-card-label[contenteditable="true"] {
+    outline: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    padding: 0 4px;
+    white-space: pre;
+}
+
+.commute-card-route {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.commute-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 2px;
+}
+
+.commute-card-edit,
+.commute-card-delete {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    font-size: 14px;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+.commute-card-edit:hover,
+.commute-card-delete:hover { color: rgba(255, 255, 255, 0.7); background: rgba(255, 255, 255, 0.08); }
+
+.commute-card-delete.confirming {
+    color: #ffb4a8;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 52px;
+}
+
+.trip-save-btn {
+    display: block;
+    width: calc(100% - 28px);
+    margin: 8px 14px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.trip-save-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #fff;
+}
+.trip-save-btn:disabled { opacity: 0.6; cursor: default; }
+.trip-save-btn.saved {
+    background: rgba(76, 175, 125, 0.15);
+    border-color: rgba(76, 175, 125, 0.4);
+    color: #4caf7d;
+}
+
 /* ── Search result rows ───────────────────────────────────────────────────
    Two lines: the station name, then the lines it serves and its borough.
    Search lists complexes rather than GTFS stations, so "Times Sq-42 St" is one
