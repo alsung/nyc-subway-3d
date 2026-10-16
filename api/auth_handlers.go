@@ -38,6 +38,7 @@ type userView struct {
 	DisplayName string `json:"displayName"`
 	AvatarURL   string `json:"avatarUrl"`
 	Tier        string `json:"tier"`
+	Provider    string `json:"provider"`
 }
 
 type googleAuthRequest struct {
@@ -141,6 +142,7 @@ func (a *app) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 			DisplayName: displayName,
 			AvatarURL:   avatarURL,
 			Tier:        tier,
+			Provider:    "google",
 		},
 	})
 }
@@ -225,6 +227,7 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 				DisplayName: displayName,
 				AvatarURL:   avatarURL,
 				Tier:        tier,
+				Provider:    "email",
 			},
 		})
 		return
@@ -332,6 +335,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 			DisplayName: displayName,
 			AvatarURL:   avatarURL,
 			Tier:        tier,
+			Provider:    provider,
 		},
 	})
 }
@@ -373,12 +377,12 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	// Delete old token (rotation)
 	a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE id = $1`, tokenID)
 
-	var email, displayName, avatarURL, tier string
+	var email, displayName, avatarURL, tier, provider string
 	err = a.dbPool.QueryRow(r.Context(),
-		`SELECT email, display_name, avatar_url, tier
+		`SELECT email, display_name, avatar_url, tier, provider
 		 FROM users WHERE id = $1 AND deleted_at IS NULL`,
 		userID,
-	).Scan(&email, &displayName, &avatarURL, &tier)
+	).Scan(&email, &displayName, &avatarURL, &tier, &provider)
 
 	if err != nil {
 		http.Error(w, `{"error":"user not found"}`, http.StatusUnauthorized)
@@ -420,6 +424,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 			DisplayName: displayName,
 			AvatarURL:   avatarURL,
 			Tier:        tier,
+			Provider:    provider,
 		},
 	})
 }
@@ -477,13 +482,13 @@ func (a *app) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
 
-	var email, displayName, avatarURL, tier string
+	var email, displayName, avatarURL, tier, provider string
 	err = a.dbPool.QueryRow(r.Context(),
 		`UPDATE users SET email_verified = true, updated_at = now()
 		 WHERE id = $1 AND deleted_at IS NULL
-		 RETURNING email, display_name, avatar_url, tier`,
+		 RETURNING email, display_name, avatar_url, tier, provider`,
 		userID,
-	).Scan(&email, &displayName, &avatarURL, &tier)
+	).Scan(&email, &displayName, &avatarURL, &tier, &provider)
 
 	if err != nil {
 		http.Error(w, `{"error":"user not found"}`, http.StatusBadRequest)
@@ -525,6 +530,7 @@ func (a *app) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 			DisplayName: displayName,
 			AvatarURL:   avatarURL,
 			Tier:        tier,
+			Provider:    provider,
 		},
 	})
 }
@@ -733,12 +739,12 @@ func (a *app) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 
-	var displayName, avatarURL, tier string
+	var displayName, avatarURL, tier, provider string
 	err := a.dbPool.QueryRow(r.Context(),
-		`SELECT display_name, avatar_url, tier
+		`SELECT display_name, avatar_url, tier, provider
 		 FROM users WHERE id = $1 AND deleted_at IS NULL`,
 		u.ID,
-	).Scan(&displayName, &avatarURL, &tier)
+	).Scan(&displayName, &avatarURL, &tier, &provider)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -757,5 +763,161 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 		DisplayName: displayName,
 		AvatarURL:   avatarURL,
 		Tier:        tier,
+		Provider:    provider,
+	})
+}
+
+type updateAccountRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
+func (a *app) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r.Context())
+
+	var req updateAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if req.DisplayName == "" {
+		http.Error(w, `{"error":"displayName is required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.DisplayName) > 100 {
+		http.Error(w, `{"error":"displayName must be 100 characters or fewer"}`, http.StatusBadRequest)
+		return
+	}
+
+	var email, avatarURL, tier, provider string
+	err := a.dbPool.QueryRow(r.Context(),
+		`UPDATE users SET display_name = $1, updated_at = now()
+		 WHERE id = $2 AND deleted_at IS NULL
+		 RETURNING email, avatar_url, tier, provider`,
+		req.DisplayName, u.ID,
+	).Scan(&email, &avatarURL, &tier, &provider)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+			return
+		}
+		slog.Error("update account failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(userView{
+		ID:          u.ID,
+		Email:       email,
+		DisplayName: req.DisplayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+		Provider:    provider,
+	})
+}
+
+func (a *app) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r.Context())
+
+	tag, err := a.dbPool.Exec(r.Context(),
+		`UPDATE users SET deleted_at = now(), updated_at = now()
+		 WHERE id = $1 AND deleted_at IS NULL`,
+		u.ID,
+	)
+	if err != nil {
+		slog.Error("soft-delete account failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		return
+	}
+
+	a.dbPool.Exec(r.Context(),
+		`DELETE FROM refresh_tokens WHERE user_id = $1`, u.ID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Account scheduled for deletion",
+	})
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+func (a *app) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r.Context())
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		http.Error(w, `{"error":"currentPassword and newPassword are required"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		http.Error(w, `{"error":"new password must be at least 8 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	var passwordHash, provider string
+	err := a.dbPool.QueryRow(r.Context(),
+		`SELECT password_hash, provider FROM users
+		 WHERE id = $1 AND deleted_at IS NULL`,
+		u.ID,
+	).Scan(&passwordHash, &provider)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+			return
+		}
+		slog.Error("query user for password change failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	if provider == "google" {
+		http.Error(w, `{"error":"password change is not available for Google accounts"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.CurrentPassword)); err != nil {
+		http.Error(w, `{"error":"incorrect current password"}`, http.StatusUnauthorized)
+		return
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("bcrypt hash failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+		string(newHash), u.ID,
+	)
+	if err != nil {
+		slog.Error("update password failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	a.dbPool.Exec(r.Context(),
+		`DELETE FROM refresh_tokens WHERE user_id = $1`, u.ID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Password changed. Please sign in again.",
 	})
 }
