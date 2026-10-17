@@ -105,6 +105,46 @@ export async function authFetch(url, opts = {}) {
     return res;
 }
 
+export async function updateAccount(displayName) {
+    const res = await authFetch(`${API_BASE}/api/auth/account`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to update account');
+    }
+    const user = await res.json();
+    currentUser = user;
+    notify();
+    return user;
+}
+
+export async function deleteAccount() {
+    const res = await authFetch(`${API_BASE}/api/auth/account`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete account');
+    }
+    signOut();
+}
+
+export async function changePassword(currentPassword, newPassword) {
+    const res = await authFetch(`${API_BASE}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to change password');
+    }
+    signOut();
+}
+
 export async function tryRestoreSession() {
     if (!refreshToken) return;
     await refreshTokens();

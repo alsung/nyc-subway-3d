@@ -80,12 +80,14 @@
             <p><strong>Analytics</strong> — Cookieless page-view counts via Vercel Analytics. No identifying information is collected.</p>
             <p><strong>Map tiles</strong> — Served by Stadia Maps. Tile requests go directly from your browser to their servers.</p>
             <p><strong>Transit data</strong> — Realtime feeds from the MTA, fetched by our API server. No user data is sent to the MTA.</p>
+            <p><strong>Accounts</strong> — If you sign in, your display name, email, and saved commutes are stored on our servers. You can delete your account and all associated data at any time from Settings.</p>
             <p>Questions? <a href="mailto:sung.alexcs@gmail.com">Email us.</a></p>
             <button id="privacy-close" type="button" aria-label="Close">&times;</button>
         </div>
     </div>
 
     <div id="auth-modal" class="hidden" role="dialog" aria-label="Sign in"></div>
+    <div id="settings-modal" class="hidden" role="dialog" aria-label="Settings"></div>
 
     <script type="module" src="/src/main.js"></script>
 </body>
