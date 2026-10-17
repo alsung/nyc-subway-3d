@@ -29,6 +29,7 @@ import { loadFeatures } from './core/features.js';
 import { loadCommutes } from './core/commutes.js';
 import { buildAuthButton } from './ui/auth-button.js';
 import { buildAuthModal } from './ui/auth-modal.js';
+import { buildSettingsModal } from './ui/settings-modal.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const RT_REFRESH_MS = 30_000;
@@ -237,7 +238,8 @@ async function init() {
     );
 
     const authModal = buildAuthModal(document.getElementById('auth-modal'));
-    buildAuthButton(document.getElementById('app-footer'), authModal.open);
+    const settingsModal = buildSettingsModal(document.getElementById('settings-modal'));
+    buildAuthButton(document.getElementById('app-footer'), authModal.open, settingsModal);
 
     buildTripPlanner(
         document.getElementById('ui'), searchEntries, stations, routeMap,

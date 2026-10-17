@@ -1,7 +1,7 @@
 import { getUser, onAuthChange, signOut } from '../core/auth.js';
 import { loadFeatures } from '../core/features.js';
 
-export function buildAuthButton(container, onSignInClick) {
+export function buildAuthButton(container, onSignInClick, settingsModal = null) {
     const wrapper = document.createElement('div');
     wrapper.id = 'auth-wrapper';
 
@@ -19,6 +19,11 @@ export function buildAuthButton(container, onSignInClick) {
     const ddTier = document.createElement('div');
     ddTier.className = 'auth-dropdown-tier';
 
+    const ddSettings = document.createElement('button');
+    ddSettings.className = 'auth-dropdown-item';
+    ddSettings.type = 'button';
+    ddSettings.textContent = 'Settings';
+
     const ddDivider = document.createElement('hr');
     ddDivider.className = 'auth-dropdown-divider';
 
@@ -27,7 +32,7 @@ export function buildAuthButton(container, onSignInClick) {
     ddSignout.type = 'button';
     ddSignout.textContent = 'Sign out';
 
-    dropdown.append(ddEmail, ddTier, ddDivider, ddSignout);
+    dropdown.append(ddEmail, ddTier, ddDivider, ddSettings, ddSignout);
     wrapper.append(btn, dropdown);
 
     const dot = document.createElement('span');
@@ -67,6 +72,11 @@ export function buildAuthButton(container, onSignInClick) {
         } else {
             onSignInClick();
         }
+    });
+
+    ddSettings.addEventListener('click', () => {
+        dropdown.classList.add('hidden');
+        settingsModal?.open();
     });
 
     ddSignout.addEventListener('click', () => {
