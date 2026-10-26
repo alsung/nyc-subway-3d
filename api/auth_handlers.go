@@ -822,7 +822,15 @@ func (a *app) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 
-	tag, err := a.dbPool.Exec(r.Context(),
+	tx, err := a.dbPool.Begin(r.Context())
+	if err != nil {
+		slog.Error("begin delete account failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	tag, err := tx.Exec(r.Context(),
 		`UPDATE users SET deleted_at = now(), updated_at = now()
 		 WHERE id = $1 AND deleted_at IS NULL`,
 		u.ID,
@@ -837,8 +845,23 @@ func (a *app) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.dbPool.Exec(r.Context(),
-		`DELETE FROM refresh_tokens WHERE user_id = $1`, u.ID)
+	// The user row is kept for 30 days, but saved commutes go now, as the
+	// settings modal promises. Verification tokens go too, so a reset link
+	// mailed before deletion cannot touch the deleted account.
+	for _, table := range []string{"commutes", "refresh_tokens", "verification_tokens"} {
+		if _, err := tx.Exec(r.Context(),
+			`DELETE FROM `+table+` WHERE user_id = $1`, u.ID); err != nil {
+			slog.Error("delete account data failed", "table", table, "err", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit delete account failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
