@@ -87,6 +87,14 @@ var (
 		Name: "plan_no_route_total",
 		Help: "Plan requests that returned zero journeys.",
 	})
+
+	// Set only when every purge statement succeeds. A failing purge only logs,
+	// so without this an account purge that stopped running would go unnoticed
+	// while deleted accounts and expired tokens pile up.
+	metricPurgeLastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "account_purge_last_success_timestamp_seconds",
+		Help: "Unix time of the last fully successful account and token purge.",
+	})
 )
 
 // initFeedMetrics creates every feed counter series at zero, before the first

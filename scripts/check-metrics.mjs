@@ -50,6 +50,15 @@ export const RULES = [
             'saying which line they are about.',
     },
     {
+        name: 'purge-stale',
+        expr: 'time() - account_purge_last_success_timestamp_seconds > 10800',
+        summary: 'Account and token purge has not succeeded in 3 hours',
+        detail:
+            'The purge runs hourly and only logs on failure, so three missed ' +
+            'runs means it has stopped. Deleted accounts past their 30 days ' +
+            'and expired tokens stay in the database until it recovers.',
+    },
+    {
         // The blind spot in every threshold above: an expression over a metric
         // that no longer exists returns nothing, which reads as healthy. This
         // is the rule that notices the metrics themselves went away — a renamed

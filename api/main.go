@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -228,22 +229,43 @@ func handleVehicles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// purgeExpired hard-deletes accounts soft-deleted more than 30 days ago, then
+// expired tokens on live accounts. Users go first because the delete cascades
+// to their tokens.
+func purgeExpired(ctx context.Context, pool *pgxpool.Pool) error {
+	steps := []struct{ table, sql string }{
+		{"users", `DELETE FROM users WHERE deleted_at < now() - interval '30 days'`},
+		{"refresh_tokens", `DELETE FROM refresh_tokens WHERE expires_at < now()`},
+		{"verification_tokens", `DELETE FROM verification_tokens WHERE expires_at < now()`},
+	}
+	for _, s := range steps {
+		tag, err := pool.Exec(ctx, s.sql)
+		if err != nil {
+			return fmt.Errorf("purge %s: %w", s.table, err)
+		}
+		if n := tag.RowsAffected(); n > 0 {
+			slog.Info("purge", "table", s.table, "deleted", n)
+		}
+	}
+	metricPurgeLastSuccess.SetToCurrentTime()
+	return nil
+}
+
+// startAccountCleanup purges at boot and then hourly. A daily ticker almost
+// never fired, because every push to master redeploys and resets it.
 func startAccountCleanup(ctx context.Context, pool *pgxpool.Pool) {
-	ticker := time.NewTicker(24 * time.Hour)
+	if err := purgeExpired(ctx, pool); err != nil {
+		slog.Error("purge failed", "err", err)
+	}
+	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			tag, err := pool.Exec(ctx,
-				`DELETE FROM users WHERE deleted_at < now() - interval '30 days'`)
-			if err != nil {
-				slog.Error("account cleanup failed", "err", err)
-				continue
-			}
-			if n := tag.RowsAffected(); n > 0 {
-				slog.Info("account cleanup", "purged", n)
+			if err := purgeExpired(ctx, pool); err != nil {
+				slog.Error("purge failed", "err", err)
 			}
 		}
 	}

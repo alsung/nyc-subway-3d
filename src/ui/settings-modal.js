@@ -127,7 +127,7 @@ export function buildSettingsModal(container) {
         let confirmPending = false;
         const confirmRow = document.createElement('div');
         confirmRow.className = 'settings-delete-confirm hidden';
-        confirmRow.innerHTML = '<p>This cannot be undone. Your account and all saved commutes will be permanently deleted after 30 days.</p>';
+        confirmRow.innerHTML = '<p>This cannot be undone. Your saved commutes are deleted right away, and your account is permanently removed after 30 days.</p>';
         const confirmBtn = document.createElement('button');
         confirmBtn.className = 'settings-delete-btn settings-delete-confirm-btn';
         confirmBtn.type = 'button';
