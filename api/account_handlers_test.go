@@ -209,14 +209,11 @@ func TestDeleteAccount_ReleasesEmail(t *testing.T) {
 	}
 }
 
-// The Google handler verifies a real ID token, so this exercises its insert
-// statement directly until the handler has a test seam.
 func TestDeleteAccount_GoogleReinsert(t *testing.T) {
-	pool := testPool(t)
-	a := accountApp(pool)
+	a, pool := authTestApp(t)
 	const email = "google-resignup@test.com"
 	oldID := createTestUserWith(t, pool, email, "google")
-	t.Cleanup(func() { pool.Exec(testCtx(), `DELETE FROM users WHERE email = $1`, email) })
+	cleanupEmail(t, pool, email)
 
 	w := httptest.NewRecorder()
 	a.handleDeleteAccount(w, authedRequest("DELETE", "/api/auth/account", nil, oldID))
@@ -224,18 +221,13 @@ func TestDeleteAccount_GoogleReinsert(t *testing.T) {
 		t.Fatalf("delete: got status %d, want 200", w.Code)
 	}
 
-	var newID, tier string
-	err := pool.QueryRow(testCtx(),
-		`INSERT INTO users (email, display_name, avatar_url, provider, email_verified)
-		 VALUES ($1, $2, $3, 'google', true)
-		 RETURNING id, tier`,
-		email, "Again", "",
-	).Scan(&newID, &tier)
-	if err != nil {
-		t.Fatalf("google insert after delete: %v", err)
+	stubGoogle(t, &googleClaims{Email: email, Name: "Again"}, nil)
+	w = postJSON(a.handleGoogleAuth, "/api/auth/google", googleAuthRequest{IDToken: "stub"})
+	if w.Code != 200 {
+		t.Fatalf("google sign-in after delete: got status %d, want 200: %s", w.Code, w.Body.String())
 	}
-	if newID == oldID {
-		t.Fatal("google insert reused the deleted account's id")
+	if resp := requireSession(t, w, "google"); resp.User.ID == oldID {
+		t.Fatal("google sign-in reused the deleted account's id")
 	}
 }
 

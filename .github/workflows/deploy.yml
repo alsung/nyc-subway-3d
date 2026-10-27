@@ -23,8 +23,8 @@ jobs:
     name: JavaScript unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -35,8 +35,8 @@ jobs:
     name: Startup probes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -82,9 +82,31 @@ jobs:
   test-go:
     name: Go tests (api)
     runs-on: ubuntu-latest
+    # Same image and credentials as docker-compose.yml, so the account, store
+    # and auth handler tests run here instead of skipping. Steps start only
+    # after the health check passes. REQUIRE_TEST_DB turns a missing database
+    # into a failure: without it, losing this service would quietly put every
+    # database test back to SKIP while the job stayed green.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: localexpress
+          POSTGRES_PASSWORD: localexpress
+          POSTGRES_DB: localexpress
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U localexpress"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://localexpress:localexpress@localhost:5432/localexpress?sslmode=disable
+      REQUIRE_TEST_DB: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
       - run: cd api && go test ./... -race
@@ -104,7 +126,7 @@ jobs:
     needs: [test-go]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: superfly/flyctl-actions/setup-flyctl@master
       # --ha=false: the feed cache is in-process, so a second machine would poll
       # MTA independently and serve inconsistent data. Exactly one instance.
