@@ -1,0 +1,21 @@
+# Tests allowed to skip in CI. scripts/go-test-ci.sh fails the run if any other
+# test skips, or if a test listed here no longer does. One name per line; text
+# after # is a note. Delete a line in the same PR that un-skips its test.
+
+# Known bugs, written ahead of the fix.
+TestRegister_PasswordOver72Bytes           # P10-3 #113: bcrypt's ErrPasswordTooLong becomes a 500
+TestRefresh_ConcurrentSameToken            # P10-3 #113: refresh rotation is not atomic
+
+# Need GTFS_DIR, an extracted MTA static feed. feed-check.yml runs TestFeed*
+# weekly; the other three run nowhere in CI.
+TestFeedTripsDoNotOvertakeWithinAService
+TestFeedShapeHasNotCollapsed
+TestFeedStillRunsPastMidnight
+TestFeedStillRoutesReferenceJourneys
+TestPlanEndpointLive
+TestPlanAgainstRealFeed
+TestTimetableAgainstRealFeed
+
+# Need RT_LIVE=1 and network access to MTA. feed-check.yml runs these weekly.
+TestRTFeedStillCarriesStopTimes
+TestRTFeedVehiclesCarryTimes

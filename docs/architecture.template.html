@@ -1,0 +1,811 @@
+<title>Local Express Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: six service lanes laid left to right in the order a request travels,
+   each lane keyed to an MTA trunk color, with a sticky inspector on the right. */
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --sunk: #e4e8ee;
+  --ink: #12161c;
+  --muted: #586273;
+  --line: #d3d9e2;
+  --edge: #7c8798;
+  --focus: #0039a6;
+
+  /* Lane colors are the MTA's own trunk colors. */
+  --lane-web: #00933c;   /* 4 5 6 */
+  --lane-edge: #808183;  /* L, darkened for contrast on white */
+  --lane-api: #0039a6;   /* A C E */
+  --lane-state: #b58f00; /* N Q R W, darkened so it reads as text */
+  --lane-db: #e8590c;    /* B D F M */
+  --lane-ext: #b933ad;   /* 7 */
+  --lane-ci: #996633;    /* J Z */
+
+  --m-get: #00933c; --m-post: #0039a6; --m-put: #b933ad; --m-patch: #b58f00; --m-delete: #d6241b;
+  --ok: #1d7a3e; --warn: #9a6a00; --bad: #c0281f;
+
+  --font-ui: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0e12; --surface: #151a21; --sunk: #10141a; --ink: #e7ebf1; --muted: #8e99aa;
+    --line: #263040; --edge: #6c7a90; --focus: #6e9bff;
+    --lane-web: #2fbf68; --lane-edge: #a7a9ac; --lane-api: #5b8cff; --lane-state: #fccc0a;
+    --lane-db: #ff7a3d; --lane-ext: #d867cd; --lane-ci: #c4925a;
+    --m-get: #2fbf68; --m-post: #5b8cff; --m-put: #d867cd; --m-patch: #fccc0a; --m-delete: #ff5a50;
+    --ok: #3ecf75; --warn: #f0b429; --bad: #ff6b61;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0e12; --surface: #151a21; --sunk: #10141a; --ink: #e7ebf1; --muted: #8e99aa;
+  --line: #263040; --edge: #6c7a90; --focus: #6e9bff;
+  --lane-web: #2fbf68; --lane-edge: #a7a9ac; --lane-api: #5b8cff; --lane-state: #fccc0a;
+  --lane-db: #ff7a3d; --lane-ext: #d867cd; --lane-ci: #c4925a;
+  --m-get: #2fbf68; --m-post: #5b8cff; --m-put: #d867cd; --m-patch: #fccc0a; --m-delete: #ff5a50;
+  --ok: #3ecf75; --warn: #f0b429; --bad: #ff6b61;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+code, .mono { font-family: var(--font-code); font-size: 12.5px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.wrap { max-width: 1680px; margin: 0 auto; }
+
+/* Header reads like a station sign: black band, white type, route bullets. */
+.sign {
+  margin: 20px 0 0; background: #111418; color: #fff; border-radius: 6px;
+  padding: 18px 22px 16px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 28px;
+  border-top: 6px solid #fff; box-shadow: inset 0 6px 0 #111418;
+}
+:root[data-theme="dark"] .sign, :root:not([data-theme="light"]) .sign { border-top-color: #111418; }
+.sign h1 { font-size: clamp(24px, 3.4vw, 34px); font-weight: 800; letter-spacing: -0.01em; line-height: 1.05; }
+.sign .sub { color: #b8c0cc; font-size: 13px; margin-top: 4px; }
+.bullets { display: flex; gap: 6px; }
+.bullet {
+  width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-weight: 800; font-size: 14px; color: #fff; flex: none;
+}
+.bullet.sm { width: 18px; height: 18px; font-size: 10px; }
+.bullet.dark-text { color: #111; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-left: auto; }
+.stat { display: flex; flex-direction: column; }
+.stat b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.stat span { font-size: 11px; color: #b8c0cc; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+
+nav.tabs { display: flex; gap: 2px; margin: 16px 0 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button {
+  background: none; border: 0; padding: 10px 14px; cursor: pointer; color: var(--muted);
+  font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+nav.tabs .count { font-weight: 500; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------- system map */
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .map-layout { grid-template-columns: minmax(0, 1fr); } }
+.map-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.map {
+  position: relative; min-width: 1150px; padding: 16px 14px 22px;
+  display: grid; grid-template-columns: 0.9fr 0.9fr 1.5fr 0.95fr 0.9fr 0.95fr; gap: 0 30px;
+}
+.map svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.lane { display: flex; flex-direction: column; gap: 8px; min-width: 0; position: relative; z-index: 1; }
+.lane-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 3px solid var(--lane); margin-bottom: 2px; }
+.lane-head h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
+.lane-head .host { font-family: var(--font-code); font-size: 11px; color: var(--muted); display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.group-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; margin: 8px 0 -2px; }
+
+.node {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--lane);
+  border-radius: 4px; padding: 6px 8px; transition: opacity .15s, border-color .15s, box-shadow .15s;
+}
+.node:hover { border-color: var(--lane); }
+.node .t { font-weight: 600; font-size: 12.5px; display: block; overflow-wrap: anywhere; }
+.node .d { color: var(--muted); font-size: 11.5px; display: block; overflow-wrap: anywhere; }
+.node.route { display: flex; gap: 6px; align-items: baseline; padding: 5px 7px; }
+.node.route .p { font-family: var(--font-code); font-size: 11.5px; overflow-wrap: anywhere; flex: 1; min-width: 0; }
+.node.route .tags { display: flex; gap: 3px; flex: none; }
+.method {
+  font-family: var(--font-code); font-size: 10px; font-weight: 600; padding: 1px 4px; border-radius: 3px;
+  color: var(--surface); background: var(--m); flex: none; min-width: 44px; text-align: center;
+}
+.tag {
+  font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 4px;
+  border-radius: 3px; border: 1px solid var(--line); color: var(--muted);
+}
+.tag.auth { border-color: var(--lane-api); color: var(--lane-api); }
+.tag.flag { border-color: var(--lane-state); color: var(--lane-state); }
+.tag.none { border-style: dashed; }
+.mw-strip { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 6px; background: var(--sunk); border-radius: 4px; }
+.mw-strip .node { width: auto; padding: 3px 6px; border-left-width: 1px; }
+.mw-strip .node .t { font-family: var(--font-code); font-size: 10.5px; font-weight: 500; }
+.mw-strip .node .d { display: none; }
+.mw-strip .arrow { color: var(--muted); font-size: 11px; }
+.machine-meta { font-family: var(--font-code); font-size: 10.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; }
+
+.map.has-sel .node { opacity: .28; }
+.map.has-sel .node.hi { opacity: 1; }
+.map.has-sel .node.sel { opacity: 1; box-shadow: 0 0 0 2px var(--lane); }
+.edges path { fill: none; stroke: var(--edge); stroke-width: 1; opacity: .16; transition: opacity .15s; }
+.edges path.long { opacity: 0; }
+.edges path.write { stroke-dasharray: 0; }
+.edges path.hi { opacity: .95; stroke-width: 1.6; stroke: var(--c, var(--edge)); }
+.edges path.hi.write { stroke-width: 2.2; }
+.edges path.hi.read { stroke-dasharray: 4 3; }
+
+/* ------------------------------------------------------------- inspector */
+.inspector {
+  position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 16px; max-height: calc(100vh - 24px); overflow: auto; min-width: 0;
+}
+@media (max-width: 1100px) { .inspector { position: static; max-height: none; } }
+.inspector .kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.inspector h3 { font-size: 17px; margin: 6px 0 4px; overflow-wrap: anywhere; }
+.inspector h3.code { font-family: var(--font-code); font-size: 15px; font-weight: 600; }
+.inspector .lede { color: var(--muted); margin: 0 0 10px; }
+.inspector section { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.inspector h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.inspector ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.inspector li { overflow-wrap: anywhere; }
+.inspector .empty { color: var(--muted); font-style: italic; }
+.chain { display: flex; flex-direction: column; gap: 0; }
+.chain .hop { display: grid; grid-template-columns: 16px 1fr; gap: 8px; align-items: start; }
+.chain .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--c); background: var(--surface); margin: 4px 0 0 3px; position: relative; }
+.chain .hop:not(:last-child) .dot::after { content: ""; position: absolute; left: 2px; top: 8px; width: 2px; height: 22px; background: var(--line); }
+.chain .hop .lbl { font-size: 12.5px; padding-bottom: 6px; }
+.chain .hop .lbl small { color: var(--muted); display: block; font-size: 11px; }
+.pillrow { display: flex; flex-wrap: wrap; gap: 4px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-size: 11.5px;
+  border: 1px solid var(--c, var(--line)); color: var(--ink); background: var(--surface); cursor: pointer;
+}
+.pill i { font-style: normal; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.linkish { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; text-align: left; }
+.legend { display: grid; gap: 6px; font-size: 12.5px; }
+.legend .row { display: flex; align-items: center; gap: 8px; }
+.legend svg { flex: none; }
+
+/* ------------------------------------------------------------- tables */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.toolbar input {
+  font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink);
+  min-width: 0; flex: 1 1 220px; max-width: 360px;
+}
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; cursor: pointer; font-size: 12.5px; font-weight: 500; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.tscroll { overflow-x: auto; }
+table.grid { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 900px; }
+table.grid th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); }
+table.grid td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.grid tr.click { cursor: pointer; }
+table.grid tr.click:hover td { background: var(--sunk); }
+.res { display: flex; flex-wrap: wrap; gap: 3px; }
+.res span { font-family: var(--font-code); font-size: 11px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--c); white-space: nowrap; }
+.res span.w { background: color-mix(in srgb, var(--c) 16%, transparent); }
+
+/* ------------------------------------------------------------- database */
+.er { position: relative; }
+.er-grid { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 40px 56px; position: relative; z-index: 1; min-width: 900px; padding: 4px; }
+.er svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.er svg.edges path { stroke: var(--lane-db); opacity: .7; stroke-width: 1.5; fill: none; }
+.tcard { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--lane-db); border-radius: 6px; min-width: 0; }
+.tcard header { padding: 9px 12px 7px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+.tcard header b { font-family: var(--font-code); font-size: 14px; }
+.tcard header small { color: var(--muted); font-family: var(--font-code); font-size: 10.5px; }
+.tcard .cols { font-family: var(--font-code); font-size: 11.5px; }
+.tcard .col { display: grid; grid-template-columns: 30px 1fr auto; gap: 6px; padding: 3px 12px; border-bottom: 1px dashed var(--line); align-items: baseline; }
+.tcard .col:last-child { border-bottom: 0; }
+.tcard .col .k { font-size: 9.5px; font-weight: 600; color: var(--lane-db); }
+.tcard .col .ty { color: var(--muted); font-size: 10.5px; text-align: right; }
+.tcard .col .fk { color: var(--muted); font-size: 10.5px; grid-column: 2 / 4; }
+.tcard footer { padding: 8px 12px 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); display: grid; gap: 4px; }
+.tcard footer code { font-size: 11px; color: var(--ink); }
+.who { display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ------------------------------------------------------------- pipeline / gaps */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.card h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.card .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.jobs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.job { border: 1px solid var(--line); border-left: 3px solid var(--lane-ci); border-radius: 4px; padding: 5px 8px; font-size: 12px; min-width: 0; }
+.job small { display: block; color: var(--muted); font-family: var(--font-code); font-size: 10.5px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 12.5px; }
+.kv dt { font-family: var(--font-code); font-size: 12px; }
+.kv dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.finding { display: grid; grid-template-columns: 8px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.finding:first-of-type { border-top: 0; }
+.finding .bar { border-radius: 4px; background: var(--c); }
+.finding h3 { font-size: 14.5px; margin-bottom: 4px; }
+.finding p { margin: 0 0 6px; color: var(--muted); max-width: 72ch; }
+.section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 22px 0 10px; font-weight: 600; }
+.foot { margin-top: 26px; color: var(--muted); font-size: 12.5px; max-width: 80ch; }
+.foot code { color: var(--ink); }
+
+@media (max-width: 640px) {
+  .stats { margin-left: 0; }
+  .er-grid { grid-template-columns: minmax(240px, 1fr); min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="sign">
+    <div>
+      <div class="bullets" aria-hidden="true">
+        <span class="bullet" style="background:#00933c">W</span>
+        <span class="bullet" style="background:#a7a9ac">V</span>
+        <span class="bullet" style="background:#0039a6">A</span>
+        <span class="bullet dark-text" style="background:#fccc0a">S</span>
+        <span class="bullet" style="background:#ff6319">D</span>
+        <span class="bullet" style="background:#b933ad">X</span>
+      </div>
+      <h1 style="margin-top:10px">Local Express architecture</h1>
+      <div class="sub">Every machine, endpoint, table and outside service, read from the nyc-subway-3d source.</div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+
+  <div id="view-map" role="tabpanel">
+    <div class="map-layout">
+      <div class="map-scroll" id="map-scroll"><div class="map" id="map"><svg class="edges" id="edges" aria-hidden="true"></svg></div></div>
+      <aside class="inspector" id="inspector" aria-live="polite"></aside>
+    </div>
+  </div>
+  <div id="view-endpoints" role="tabpanel" hidden></div>
+  <div id="view-database" role="tabpanel" hidden></div>
+  <div id="view-pipeline" role="tabpanel" hidden></div>
+  <div id="view-gaps" role="tabpanel" hidden></div>
+
+  <p class="foot">
+    Built by <code>scripts/build-architecture.mjs</code>, which reads <code>api/main.go</code> for routes and middleware,
+    follows each handler through the Go call graph to the SQL, caches and outside hosts it reaches, replays
+    <code>api/migrations</code> for the schema, and scans <code>src/</code>, <code>scripts/</code>, <code>vercel.json</code>,
+    <code>api/fly.toml</code> and <code>.github/workflows</code>. Items marked <em>declared</em> are infrastructure no file names,
+    kept by hand in that script.
+  </p>
+</div>
+
+<!-- scripts/build-architecture.mjs fills this in; edit the template, not docs/architecture.html. -->
+<script id="arch-data" type="application/json">__ARCH_DATA__</script>
+<script>
+(() => {
+const D = JSON.parse(document.getElementById('arch-data').textContent);
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const key = (r) => `${r.method} ${r.path}`;
+const LANE = { web: 'var(--lane-web)', edge: 'var(--lane-edge)', api: 'var(--lane-api)', state: 'var(--lane-state)', db: 'var(--lane-db)', ext: 'var(--lane-ext)', ci: 'var(--lane-ci)' };
+const METHOD = { GET: 'var(--m-get)', POST: 'var(--m-post)', PUT: 'var(--m-put)', PATCH: 'var(--m-patch)', DELETE: 'var(--m-delete)' };
+const ACCESS = { public: 'Public', auth: 'Signed in', optional: 'Optional sign-in', internal: 'Internal' };
+const extById = Object.fromEntries(D.externals.map((e) => [e.id, e]));
+const declared = Object.fromEntries(D.declared.services.map((s) => [s.id, s]));
+const label = (id) => extById[id]?.label ?? declared[id]?.label ?? id;
+
+// Area for each route, from its first path segment under /api.
+const AREA = { health: 'Operations', metrics: 'Operations', gtfs: 'Transit data', arrivals: 'Transit data', vehicles: 'Transit data', alerts: 'Transit data', plan: 'Trip planning', auth: 'Accounts and sessions', features: 'Feature flags', commutes: 'Saved commutes' };
+const areaOf = (r) => { const seg = r.path.split('/').filter(Boolean); const k = seg[0] === 'api' ? seg[1] : seg[0]; return AREA[k] ?? (k[0].toUpperCase() + k.slice(1)); };
+
+// ------------------------------------------------------------------ graph
+const nodes = new Map();   // id -> { id, lane, kind, title, sub, data }
+const edges = [];          // { from, to, type }
+const add = (n) => (nodes.set(n.id, n), n);
+const link = (from, to, type = 'call') => { if (nodes.has(from) && nodes.has(to)) edges.push({ from, to, type }); };
+
+// Browser lane: modules that call the API or load static data.
+const feFiles = new Set();
+for (const r of D.routes) for (const c of r.callers) feFiles.add(c.split(':')[0]);
+for (const list of Object.values(D.frontend.statics)) for (const c of list) feFiles.add(c.split(':')[0]);
+for (const list of Object.values(D.frontend.externals)) for (const f of list) feFiles.add(f);
+for (const f of [...feFiles].sort()) add({ id: `fe:${f}`, lane: 'web', kind: 'Browser module', title: f.replace(/^src\//, ''), sub: f === 'index.html' ? 'page shell, loads third-party scripts' : '', data: { file: f } });
+add({ id: 'fe:storage', lane: 'web', kind: 'Browser storage', title: 'localStorage (prefs)', sub: 'refresh token, settings', data: {} });
+
+// Vercel lane.
+add({ id: 'svc:vercel', lane: 'edge', kind: 'Hosting', title: 'Vercel project', sub: `${D.vercel.buildCommand} → ${D.vercel.outputDirectory}/`, data: declared.vercel });
+const staticOut = new Set();
+for (const b of D.build) for (const o of b.outputs) staticOut.add(o.replace(/^public/, ''));
+for (const s of Object.keys(D.frontend.statics)) staticOut.add(s);
+for (const s of [...staticOut].sort()) add({ id: `static:${s}`, lane: 'edge', kind: 'Static file', title: s, sub: 'built at deploy, served from dist/', data: { path: s } });
+for (const r of D.vercel.redirects) add({ id: `redirect:${r.source}`, lane: 'edge', kind: 'Redirect', title: r.source.replace('{/}?', ''), sub: `→ ${new URL(r.destination).host}`, data: r });
+add({ id: 'svc:vercel-analytics', lane: 'edge', kind: 'Analytics', title: 'Vercel Web Analytics', sub: '@vercel/analytics', data: declared['vercel-analytics'] });
+
+// API lane.
+for (const m of D.middleware) add({ id: `mw:${m.name}`, lane: 'api', kind: 'Middleware', title: m.name.replace('Middleware', ''), sub: m.detail, data: m });
+for (const r of D.routes) add({ id: `route:${key(r)}`, lane: 'api', kind: 'Endpoint', title: key(r), data: r });
+
+// In-process state lane.
+for (const j of D.jobs) add({ id: `job:${j.name}`, lane: 'state', kind: j.interval === 'at boot' ? 'Boot step' : 'Background job', title: j.name, sub: j.interval === 'at boot' ? 'runs once before serving' : `every ${j.interval}`, data: j });
+for (const c of D.caches) add({ id: `cache:${c.id}`, lane: 'state', kind: 'In-memory cache', title: c.label, sub: c.id, data: c });
+
+// Postgres lane.
+add({ id: 'db:server', lane: 'db', kind: 'Machine (declared)', title: D.declared.machines[0].label, sub: D.declared.machines[0].provider, data: D.declared.machines[0] });
+for (const t of D.schema.tables) add({ id: `table:${t.name}`, lane: 'db', kind: 'Table', title: t.name, sub: `${t.columns.length} columns · ${t.migration.replace('.up.sql', '')}`, data: t });
+
+// Third parties lane.
+for (const e of D.externals) add({ id: `ext:${e.id}`, lane: 'ext', kind: `Third party · ${e.kind}`, title: e.label, sub: e.host, data: e });
+for (const id of ['fly-grafana', 'namecheap', 'github']) add({ id: `svc:${id}`, lane: 'ext', kind: `Third party · ${declared[id].kind} (declared)`, title: declared[id].label, sub: '', data: declared[id] });
+
+// Edges.
+for (const r of D.routes) {
+  const id = `route:${key(r)}`;
+  for (const c of r.callers) link(`fe:${c.split(':')[0]}`, id);
+  for (const t of r.reads) link(id, `table:${t}`, 'read');
+  for (const t of r.writes) link(id, `table:${t}`, 'write');
+  for (const c of r.caches) link(id, `cache:${c}`, 'read');
+  for (const x of r.externals) link(id, `ext:${x}`);
+  if (r.pingsDatabase) link(id, 'db:server', 'read');
+  for (const m of r.machineCallers) {
+    if (/UptimeRobot/.test(m)) link('ext:uptimerobot', id);
+    if (/Prometheus/.test(m)) link('ext:fly-prom', id);
+  }
+}
+for (const j of D.jobs) {
+  const id = `job:${j.name}`;
+  for (const c of j.caches) link(id, `cache:${c}`, 'write');
+  for (const t of j.reads) link(id, `table:${t}`, 'read');
+  for (const t of j.writes) link(id, `table:${t}`, 'write');
+  for (const x of j.externals) link(`ext:${x}`, id);
+  if (j.name === 'runMigrations') for (const t of D.schema.tables) link(id, `table:${t.name}`, 'write');
+}
+for (const [path, list] of Object.entries(D.frontend.statics)) for (const c of list) link(`static:${path}`, `fe:${c.split(':')[0]}`);
+for (const [x, files] of Object.entries(D.frontend.externals)) for (const f of files) link(`fe:${f}`, x === 'vercel-analytics' ? 'svc:vercel-analytics' : `ext:${x}`);
+for (const b of D.build) for (const o of b.outputs) for (const x of b.externals) link(`ext:${x}`, `static:${o.replace(/^public/, '')}`, 'build');
+for (const r of D.vercel.redirects) if (r.external) link(`redirect:${r.source}`, `ext:${r.external}`);
+for (const s of staticOut) link('svc:vercel', `static:${s}`, 'build');
+link('fe:src/core/auth.js', 'fe:storage');
+link('svc:fly-grafana', 'ext:fly-prom', 'read');
+for (const t of D.schema.tables) link('db:server', `table:${t.name}`, 'own');
+
+// ------------------------------------------------------------------ header + tabs
+const nCallers = D.routes.filter((r) => r.mux !== 'root');
+$('#stats').innerHTML = [
+  [D.routes.length, 'endpoints'], [D.schema.tables.length, 'tables'], [D.jobs.length, 'jobs + boot steps'],
+  [D.externals.length + 3, 'outside services'], [D.workflows.reduce((n, w) => n + w.jobs.length, 0), 'CI jobs'],
+].map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
+
+const findings = computeFindings();
+const TABS = [
+  ['map', 'System map'], ['endpoints', 'Endpoints', D.routes.length], ['database', 'Database', D.schema.tables.length],
+  ['pipeline', 'Build and CI'], ['gaps', 'Gaps', findings.length],
+];
+$('#tabs').innerHTML = TABS.map(([id, l, n]) => `<button role="tab" id="tab-${id}" aria-controls="view-${id}" data-tab="${id}">${l}${n != null ? `<span class="count">${n}</span>` : ''}</button>`).join('');
+let rendered = {};
+function showTab(id) {
+  for (const [t] of TABS) {
+    $(`#tab-${t}`).setAttribute('aria-selected', String(t === id));
+    $(`#view-${t}`).hidden = t !== id;
+  }
+  if (!rendered[id]) { ({ endpoints: renderEndpoints, database: renderDatabase, pipeline: renderPipeline, gaps: renderGaps })[id]?.(); rendered[id] = true; }
+  if (id === 'map') requestAnimationFrame(drawEdges);
+  if (id === 'database') requestAnimationFrame(drawER);
+  try { history.replaceState(null, '', `#${id}`); } catch {}
+}
+$('#tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
+
+// ------------------------------------------------------------------ map
+const LANES = [
+  ['web', 'Browser', 'localexpress.nyc', 'W'],
+  ['edge', 'Vercel', 'static hosting + build', 'V'],
+  ['api', 'Fly API machine', `${D.fly.app}.fly.dev`, 'A'],
+  ['state', 'In-process state', 'same machine, in memory', 'S'],
+  ['db', 'Fly Postgres', 'DATABASE_URL', 'D'],
+  ['ext', 'Third parties', 'outside our control', 'X'],
+];
+const map = $('#map');
+const nodeEl = new Map();
+
+function nodeButton(n) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.style.setProperty('--lane', LANE[n.lane]);
+  b.dataset.id = n.id;
+  if (n.kind === 'Endpoint') {
+    const r = n.data;
+    b.className = 'node route';
+    const tags = [];
+    if (r.access === 'auth') tags.push('<span class="tag auth">auth</span>');
+    if (r.access === 'optional') tags.push('<span class="tag">opt</span>');
+    if (r.feature) tags.push(`<span class="tag flag" title="feature flag ${esc(r.feature)}">flag</span>`);
+    if (!r.callers.length && !r.machineCallers.length) tags.push('<span class="tag none" title="no caller in the frontend">unused</span>');
+    b.innerHTML = `<span class="method" style="--m:${METHOD[r.method]}">${r.method}</span><span class="p">${esc(r.path)}</span><span class="tags">${tags.join('')}</span>`;
+    b.setAttribute('aria-label', `${r.method} ${r.path}`);
+  } else {
+    b.className = 'node';
+    b.innerHTML = `<span class="t">${esc(n.title)}</span>${n.sub ? `<span class="d">${esc(n.sub)}</span>` : ''}`;
+  }
+  nodeEl.set(n.id, b);
+  return b;
+}
+
+for (const [lane, title, host, letter] of LANES) {
+  const col = document.createElement('div');
+  col.className = 'lane';
+  col.style.setProperty('--lane', LANE[lane]);
+  const dark = lane === 'state' ? ' dark-text' : '';
+  col.innerHTML = `<div class="lane-head"><span class="bullet sm${dark}" style="background:${LANE[lane]}">${letter}</span><h2>${title}<span class="host">${esc(host)}</span></h2></div>`;
+  const inLane = [...nodes.values()].filter((n) => n.lane === lane);
+  if (lane === 'api') {
+    const meta = document.createElement('div');
+    meta.className = 'machine-meta';
+    meta.innerHTML = [`${D.fly.region}`, `${D.fly.cpus}× ${D.fly.cpuKind} cpu`, D.fly.memory, `min ${D.fly.minMachines} machine`, `Go ${D.fly.goVersion}`, `:${D.fly.port}`].map((s) => `<span>${esc(s)}</span>`).join('');
+    col.append(meta);
+    const strip = document.createElement('div');
+    strip.className = 'mw-strip';
+    inLane.filter((n) => n.kind === 'Middleware').forEach((n, i) => {
+      if (i) strip.insertAdjacentHTML('beforeend', '<span class="arrow">→</span>');
+      strip.append(nodeButton(n));
+    });
+    col.append(strip);
+    const groups = new Map();
+    for (const n of inLane.filter((n) => n.kind === 'Endpoint')) {
+      const a = areaOf(n.data);
+      if (!groups.has(a)) groups.set(a, []);
+      groups.get(a).push(n);
+    }
+    for (const [a, list] of groups) {
+      col.insertAdjacentHTML('beforeend', `<div class="group-label">${esc(a)}</div>`);
+      list.forEach((n) => col.append(nodeButton(n)));
+    }
+  } else if (lane === 'state') {
+    col.insertAdjacentHTML('beforeend', '<div class="group-label">Background jobs and boot</div>');
+    inLane.filter((n) => n.kind !== 'In-memory cache').forEach((n) => col.append(nodeButton(n)));
+    col.insertAdjacentHTML('beforeend', '<div class="group-label">Caches</div>');
+    inLane.filter((n) => n.kind === 'In-memory cache').forEach((n) => col.append(nodeButton(n)));
+  } else if (lane === 'ext') {
+    const kinds = { data: 'Transit and map data', auth: 'Identity', email: 'Email', tiles: 'Map tiles', monitoring: 'Monitoring', dns: 'DNS', ci: 'CI', other: 'Other' };
+    const byKind = new Map();
+    for (const n of inLane) { const k = n.data.kind; if (!byKind.has(k)) byKind.set(k, []); byKind.get(k).push(n); }
+    for (const k of Object.keys(kinds)) if (byKind.has(k)) {
+      col.insertAdjacentHTML('beforeend', `<div class="group-label">${kinds[k]}</div>`);
+      byKind.get(k).forEach((n) => col.append(nodeButton(n)));
+    }
+  } else {
+    inLane.forEach((n) => col.append(nodeButton(n)));
+  }
+  map.append(col);
+}
+
+const LANE_X = Object.fromEntries(LANES.map(([l], i) => [l, i]));
+const edgeEls = [];
+function drawEdges() {
+  const svg = $('#edges');
+  if (!map.offsetParent) return;
+  const box = map.getBoundingClientRect();
+  svg.setAttribute('width', map.scrollWidth); svg.setAttribute('height', map.scrollHeight);
+  svg.innerHTML = '';
+  edgeEls.length = 0;
+  for (const e of edges) {
+    const a = nodeEl.get(e.from), b = nodeEl.get(e.to);
+    if (!a || !b) continue;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const la = LANE_X[nodes.get(e.from).lane], lb = LANE_X[nodes.get(e.to).lane];
+    let x1, x2;
+    if (la === lb) { x1 = ra.left - box.left; x2 = rb.left - box.left; }
+    else if (la < lb) { x1 = ra.right - box.left; x2 = rb.left - box.left; }
+    else { x1 = ra.left - box.left; x2 = rb.right - box.left; }
+    const y1 = ra.top + ra.height / 2 - box.top, y2 = rb.top + rb.height / 2 - box.top;
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const dx = la === lb ? -28 : (x2 - x1) * 0.45;
+    p.setAttribute('d', la === lb ? `M${x1},${y1} C${x1 + dx},${y1} ${x2 + dx},${y2} ${x2},${y2}` : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`);
+    p.setAttribute('class', `${e.type}${Math.abs(la - lb) > 1 ? ' long' : ''}`);
+    p.style.setProperty('--c', LANE[nodes.get(e.type === 'build' || la > lb ? e.from : e.to).lane]);
+    svg.append(p);
+    edgeEls.push({ e, p });
+  }
+  applySelection();
+}
+
+let selected = null;
+function neighbors(id) {
+  const set = new Set([id]);
+  const hiEdges = new Set();
+  const n = nodes.get(id);
+  for (const e of edges) {
+    if (e.from === id || e.to === id) { set.add(e.from); set.add(e.to); hiEdges.add(e); }
+  }
+  // An endpoint also lights up the middleware every request passes through.
+  if (n?.kind === 'Endpoint' && n.data.mux !== 'root') for (const m of D.middleware) set.add(`mw:${m.name}`);
+  // A table shows who calls the routes that touch it.
+  if (n?.kind === 'Table' || n?.kind === 'In-memory cache' || n?.kind?.startsWith('Third party')) {
+    for (const e of edges) if (e.to === id || e.from === id) {
+      const other = e.from === id ? e.to : e.from;
+      if (nodes.get(other)?.kind === 'Endpoint') for (const e2 of edges) if (e2.to === other && nodes.get(e2.from)?.lane === 'web') { set.add(e2.from); hiEdges.add(e2); }
+    }
+  }
+  return { set, hiEdges };
+}
+function applySelection() {
+  map.classList.toggle('has-sel', !!selected);
+  const { set, hiEdges } = selected ? neighbors(selected) : { set: new Set(), hiEdges: new Set() };
+  for (const [id, el] of nodeEl) { el.classList.toggle('hi', set.has(id)); el.classList.toggle('sel', id === selected); el.setAttribute('aria-pressed', String(id === selected)); }
+  for (const { e, p } of edgeEls) p.classList.toggle('hi', hiEdges.has(e));
+}
+function select(id, { scroll = false } = {}) {
+  selected = selected === id ? null : id;
+  applySelection();
+  renderInspector();
+  if (scroll && selected) nodeEl.get(selected)?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+}
+map.addEventListener('click', (e) => { const b = e.target.closest('.node'); if (b) select(b.dataset.id); });
+window.addEventListener('resize', () => { if (!$('#view-map').hidden) drawEdges(); if (!$('#view-database').hidden) drawER(); });
+document.fonts?.ready.then(() => { drawEdges(); });
+
+// ------------------------------------------------------------------ inspector
+const pill = (id, extra = '') => { const n = nodes.get(id); if (!n) return ''; return `<button class="pill" data-goto="${esc(id)}" style="--c:${LANE[n.lane]}">${extra ? `<i>${extra}</i>` : ''}${esc(n.kind === 'Endpoint' ? n.title : n.title)}</button>`; };
+const list = (items, empty = 'None') => items.length ? `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>` : `<p class="empty">${empty}</p>`;
+const sect = (title, body) => `<section><h4>${title}</h4>${body}</section>`;
+
+function routesTouching(pred) { return D.routes.filter(pred).map((r) => pill(`route:${key(r)}`)); }
+function jobsTouching(pred) { return D.jobs.filter(pred).map((j) => pill(`job:${j.name}`)); }
+
+function renderInspector() {
+  const el = $('#inspector');
+  if (!selected) { el.innerHTML = overview(); return; }
+  const n = nodes.get(selected);
+  const head = (code) => `<div class="kind"><span class="bullet sm${n.lane === 'state' ? ' dark-text' : ''}" style="background:${LANE[n.lane]}">${LANES[LANE_X[n.lane]][3]}</span>${esc(n.kind)}</div><h3 class="${code ? 'code' : ''}">${esc(n.title)}</h3>`;
+  let html = '';
+  if (n.kind === 'Endpoint') {
+    const r = n.data;
+    const hops = [];
+    if (r.mux === 'root') hops.push(['Fly proxy', 'HTTPS on 443, forwarded to :' + D.fly.port, 'var(--lane-api)'], ['root mux', 'served outside the middleware so promhttp controls its own encoding', 'var(--lane-api)']);
+    else {
+      hops.push(['Fly proxy', `force_https, forwards to :${D.fly.port}`, 'var(--lane-api)']);
+      for (const m of D.middleware) hops.push([m.name, m.detail, 'var(--lane-api)']);
+      for (const c of r.chain) hops.push([c, c === 'requireAuth' ? 'Bearer JWT required, 401 otherwise' : c === 'optionalAuth' ? 'reads the JWT when present' : `403 unless the caller's tier can use this flag (feature cache)`, c.startsWith('requireFeature') ? 'var(--lane-state)' : 'var(--lane-api)']);
+    }
+    hops.push([r.handler, `api/${r.file}:${r.handlerLine}`, 'var(--lane-api)']);
+    html += head(true);
+    html += `<p class="lede">${ACCESS[r.access]}${r.conditions.length ? ` · registered only when <code>${esc(r.conditions.join(' && '))}</code>` : ''}${r.inOpenAPI ? ' · in openapi.yml' : r.mux === 'root' ? '' : ' · <strong>missing from openapi.yml</strong>'}</p>`;
+    if (r.variants?.length) html += `<p class="lede">Without a database it is registered as <code>${esc(r.variants[0].chain.join(' → ') || 'no middleware')}</code> instead.</p>`;
+    html += sect('Request path', `<div class="chain">${hops.map(([t, s, c]) => `<div class="hop" style="--c:${c}"><span class="dot"></span><div class="lbl"><code>${esc(t)}</code><small>${esc(s)}</small></div></div>`).join('')}</div>`);
+    const res = [
+      ...r.writes.map((t) => pill(`table:${t}`, 'writes')), ...r.reads.map((t) => pill(`table:${t}`, 'reads')),
+      ...(r.pingsDatabase ? [pill('db:server', 'pings')] : []),
+      ...r.caches.map((c) => pill(`cache:${c}`, 'reads')), ...r.externals.map((x) => pill(`ext:${x}`, 'calls')),
+    ];
+    html += sect('Touches', res.length ? `<div class="pillrow">${res.join('')}</div>` : '<p class="empty">Nothing outside the handler</p>');
+    if (r.libs.length) html += sect('Crypto and logic', `<div class="pillrow">${r.libs.map((l) => `<span class="pill">${esc(l)}</span>`).join('')}</div>`);
+    if (r.metrics.length) html += sect('Metrics it records', list(r.metrics.map((m) => `<code>${esc(D.metrics.find((x) => x.var === m)?.name ?? m)}</code>`)));
+    html += sect('Called from', list([...r.callers.map((c) => `<code>${esc(c)}</code>`), ...r.machineCallers.map(esc)], 'No caller in src/ or index.html'));
+    html += sect(`Code it reaches (${r.calls.length})`, r.calls.length ? `<details><summary>Show functions and package state</summary>${list(r.calls.map((c) => `<code>${esc(c)}</code>`))}</details>` : '<p class="empty">None</p>');
+  } else if (n.kind === 'Table') {
+    const t = n.data;
+    html += head(true) + `<p class="lede">Created in <code>${esc(t.migration)}</code></p>`;
+    html += sect('Columns', list(t.columns.map((c) => `<code>${esc(c.name)}</code> <span style="color:var(--muted)">${esc(c.type)}${c.pk ? ' · primary key' : ''}${c.unique ? ' · unique' : ''}${c.fk ? ` · → ${esc(c.fk.table)}.${esc(c.fk.column)}${c.fk.onDelete ? ` on delete ${esc(c.fk.onDelete.toLowerCase())}` : ''}` : ''}${c.default ? ` · default ${esc(c.default)}` : ''}</span>`)));
+    html += sect('Indexes', list(t.indexes.map((i) => `<code>${esc(i.name)}</code> <span style="color:var(--muted)">${i.unique ? 'unique ' : ''}(${esc(i.columns.join(', '))})${i.where ? ` where ${esc(i.where)}` : ''}</span>`)));
+    if (t.seeds.length) html += sect('Seeded rows', `<div class="pillrow">${t.seeds.map((s) => `<span class="pill">${esc(s)}</span>`).join('')}</div>`);
+    html += sect('Written by', `<div class="pillrow">${[...routesTouching((r) => r.writes.includes(t.name)), ...jobsTouching((j) => j.writes.includes(t.name))].join('') || '<span class="empty">Nothing</span>'}</div>`);
+    html += sect('Read by', `<div class="pillrow">${[...routesTouching((r) => r.reads.includes(t.name)), ...jobsTouching((j) => j.reads.includes(t.name))].join('') || '<span class="empty">Nothing</span>'}</div>`);
+  } else if (n.kind === 'In-memory cache') {
+    html += head() + `<p class="lede">Package state in the API process. Lost on every deploy and rebuilt by the jobs that fill it.</p>`;
+    html += sect('Filled by', `<div class="pillrow">${jobsTouching((j) => j.caches.includes(n.data.id)).join('') || '<span class="empty">Nothing</span>'}</div>`);
+    html += sect('Read by', `<div class="pillrow">${routesTouching((r) => r.caches.includes(n.data.id)).join('') || '<span class="empty">Nothing</span>'}</div>`);
+  } else if (n.kind === 'Background job' || n.kind === 'Boot step') {
+    const j = n.data;
+    html += head(true) + `<p class="lede">${j.interval === 'at boot' ? 'Runs once in main() before the server listens. A failure exits the process.' : `Goroutine started from main(), ticks every ${esc(j.interval)}.`}${j.needsDatabase ? ' Needs DATABASE_URL.' : ''} <code>api/${esc(j.file)}:${j.line}</code></p>`;
+    const res = [...j.writes.map((t) => pill(`table:${t}`, 'writes')), ...j.reads.map((t) => pill(`table:${t}`, 'reads')), ...j.caches.map((c) => pill(`cache:${c}`, 'fills')), ...j.externals.map((x) => pill(`ext:${x}`, 'fetches'))];
+    if (j.name === 'runMigrations') res.push(...D.schema.tables.map((t) => pill(`table:${t.name}`, 'migrates')));
+    html += sect('Touches', res.length ? `<div class="pillrow">${res.join('')}</div>` : '<p class="empty">Nothing</p>');
+    if (j.env.length) html += sect('Env vars', list(j.env.map((e) => `<code>${esc(e)}</code>`)));
+    if (j.metrics.length) html += sect('Metrics it records', list(j.metrics.map((m) => `<code>${esc(D.metrics.find((x) => x.var === m)?.name ?? m)}</code>`)));
+  } else if (n.lane === 'ext' && n.data.host !== undefined) {
+    const x = n.data;
+    html += head() + `<p class="lede"><code>${esc(x.host)}</code></p>`;
+    const users = [
+      ...routesTouching((r) => r.externals.includes(x.id)),
+      ...jobsTouching((j) => j.externals.includes(x.id)),
+      ...(D.frontend.externals[x.id] ?? []).map((f) => pill(`fe:${f}`)),
+    ];
+    const scripts = D.build.filter((b) => b.externals.includes(x.id)).map((b) => `<code>${esc(b.file)}</code>${b.outputs.length ? ` → ${b.outputs.map((o) => `<code>${esc(o)}</code>`).join(', ')}` : ''}`);
+    if (x.id === 'uptimerobot') users.push(pill('route:GET /health'), pill(`redirect:${D.vercel.redirects[0]?.source}`));
+    if (x.id === 'fly-prom') users.push(pill('route:GET /metrics'), pill('svc:fly-grafana'));
+    html += sect('Used at runtime by', `<div class="pillrow">${users.join('') || '<span class="empty">Nothing at runtime</span>'}</div>`);
+    if (scripts.length) html += sect('Used at build or in CI by', list(scripts));
+  } else if (n.lane === 'web' && n.data.file) {
+    const f = n.data.file;
+    html += head(true);
+    const calls = D.routes.filter((r) => r.callers.some((c) => c.startsWith(f + ':')));
+    html += sect('Calls the API', `<div class="pillrow">${calls.map((r) => pill(`route:${key(r)}`)).join('') || '<span class="empty">No API calls</span>'}</div>`);
+    const st = Object.entries(D.frontend.statics).filter(([, l]) => l.some((c) => c.startsWith(f + ':'))).map(([p]) => pill(`static:${p}`));
+    if (st.length) html += sect('Loads static files', `<div class="pillrow">${st.join('')}</div>`);
+    const ex = Object.entries(D.frontend.externals).filter(([, l]) => l.includes(f)).map(([x]) => pill(x === 'vercel-analytics' ? 'svc:vercel-analytics' : `ext:${x}`));
+    if (ex.length) html += sect('Talks to', `<div class="pillrow">${ex.join('')}</div>`);
+    if (f !== 'index.html') html += `<p class="lede" style="margin-top:10px">Requests go straight to <code>https://${esc(D.fly.app)}.fly.dev</code>, not through Vercel.</p>`;
+  } else if (n.kind.startsWith('Static')) {
+    const p = n.data.path;
+    html += head(true);
+    const from = D.build.filter((b) => b.outputs.some((o) => o.replace(/^public/, '') === p));
+    html += sect('Produced by', list(from.map((b) => `<code>${esc(b.file)}</code>${b.externals.length ? ` from ${b.externals.map((x) => pill(`ext:${x}`)).join(' ')}` : ''}`), 'Committed to the repo'));
+    html += sect('Loaded by', list((D.frontend.statics[p] ?? []).map((c) => `<code>${esc(c)}</code>`), 'No direct fetch in src/'));
+  } else if (n.kind === 'Middleware') {
+    html += head(true) + `<p class="lede">${esc(n.data.detail)}</p><p class="lede"><code>api/${esc(n.data.file)}:${n.data.line}</code></p>`;
+    html += sect('Order', `<p>Every request to the API mux passes ${D.middleware.map((m) => `<code>${esc(m.name)}</code>`).join(' → ')}. <code>/metrics</code> skips all of them.</p>`);
+  } else {
+    html += head() + `<p class="lede">${esc(n.data?.detail ?? n.sub ?? '')}</p>`;
+    if (n.id === 'svc:vercel') html += sect('Config from vercel.json', list([`build: <code>${esc(D.vercel.buildCommand)}</code>`, ...D.vercel.rewrites.map((r) => `rewrite <code>${esc(r)}</code>`), ...D.vercel.headers.map((h) => `header <code>${esc(h)}</code>`), ...D.vercel.redirects.map((r) => `redirect <code>${esc(r.source)}</code> → <code>${esc(r.destination)}</code>`)]));
+    if (n.id === 'db:server') html += sect('Tables', `<div class="pillrow">${D.schema.tables.map((t) => pill(`table:${t.name}`)).join('')}</div>`) + sect('Migrations', list(D.schema.migrations.map((m) => `<code>${esc(m)}</code>`)));
+    if (n.id === 'fe:storage') html += sect('Holds', `<p>The refresh token (7 days, replaced on every refresh) and the app's other saved preferences, written through <code>src/core/prefs.js</code>. The 15-minute access token stays in memory.</p>`);
+    if (n.data?.detail) html += '<p class="lede" style="margin-top:10px"><em>Declared by hand in the generator.</em></p>';
+  }
+  html += `<p style="margin-top:14px"><button class="linkish" data-clear>Clear selection</button></p>`;
+  el.innerHTML = html;
+}
+
+function overview() {
+  const sw = (c, dash, w = 1.6) => `<svg width="34" height="10" aria-hidden="true"><path d="M1,5 H33" stroke="${c}" stroke-width="${w}" ${dash ? 'stroke-dasharray="4 3"' : ''} fill="none"/></svg>`;
+  return `<div class="kind">How to read this</div><h3>Pick anything to trace it</h3>
+  <p class="lede">Lanes run in the order a request travels. Select an endpoint to see the middleware it passes, the code it reaches and the tables, caches and outside services it touches. Select a table or service to see everything that uses it.</p>
+  <section><h4>Lines</h4><div class="legend">
+    <div class="row">${sw('var(--lane-db)', false, 2.2)} writes</div>
+    <div class="row">${sw('var(--lane-db)', true)} reads</div>
+    <div class="row">${sw('var(--lane-ext)', false)} calls or fetches</div>
+  </div></section>
+  <section><h4>Tags on endpoints</h4><div class="legend">
+    <div class="row"><span class="tag auth">auth</span> needs a signed-in user</div>
+    <div class="row"><span class="tag">opt</span> uses the user when signed in</div>
+    <div class="row"><span class="tag flag">flag</span> behind a feature flag</div>
+    <div class="row"><span class="tag none">unused</span> nothing in the frontend calls it</div>
+  </div></section>
+  <section><h4>Start with</h4><div class="pillrow">${['route:POST /api/auth/register', 'route:GET /api/plan', 'table:users', 'ext:mta-rt'].map((id) => pill(id)).join('')}</div></section>`;
+}
+
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('[data-goto]');
+  if (g) { if ($('#view-map').hidden) showTab('map'); selected = null; select(g.dataset.goto, { scroll: true }); return; }
+  if (e.target.closest('[data-clear]')) { selected = null; applySelection(); renderInspector(); }
+});
+
+// ------------------------------------------------------------------ endpoints table
+function resChips(r) {
+  const out = [];
+  for (const t of r.writes) out.push(`<span class="w" style="--c:var(--lane-db)" title="writes">${esc(t)}</span>`);
+  for (const t of r.reads) out.push(`<span style="--c:var(--lane-db)" title="reads">${esc(t)}</span>`);
+  for (const c of r.caches) out.push(`<span style="--c:var(--lane-state)" title="cache">${esc(c)}</span>`);
+  for (const x of r.externals) out.push(`<span style="--c:var(--lane-ext)" title="third party">${esc(label(x))}</span>`);
+  return `<div class="res">${out.join('') || '<span style="--c:var(--line)">none</span>'}</div>`;
+}
+function renderEndpoints() {
+  const v = $('#view-endpoints');
+  v.innerHTML = `<div class="panel"><div class="toolbar">
+    <input id="ep-q" type="search" placeholder="Filter by path, handler or table" aria-label="Filter endpoints">
+    ${['all', 'public', 'auth', 'optional', 'internal'].map((a) => `<button class="chip" data-acc="${a}" aria-pressed="${a === 'all'}">${a === 'all' ? 'All' : ACCESS[a]}</button>`).join('')}
+  </div><div class="tscroll"><table class="grid"><thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Gates</th><th>Handler</th><th>Touches</th><th>Called from</th></tr></thead><tbody id="ep-body"></tbody></table></div></div>`;
+  let acc = 'all';
+  const draw = () => {
+    const q = $('#ep-q').value.trim().toLowerCase();
+    const rows = D.routes.filter((r) => (acc === 'all' || r.access === acc) && (!q || JSON.stringify([r.path, r.handler, r.reads, r.writes, r.caches, r.externals]).toLowerCase().includes(q)));
+    $('#ep-body').innerHTML = rows.map((r) => `<tr class="click" data-goto="route:${esc(key(r))}">
+      <td><span class="method" style="--m:${METHOD[r.method]}">${r.method}</span></td>
+      <td><code>${esc(r.path)}</code></td>
+      <td>${ACCESS[r.access]}</td>
+      <td>${[...r.chain.filter((c) => c.startsWith('requireFeature')).map((c) => `<code>${esc(c.replace('requireFeature', 'flag'))}</code>`), ...r.conditions.map((c) => `<code style="color:var(--muted)">${esc(c)}</code>`)].join('<br>') || '<span style="color:var(--muted)">none</span>'}</td>
+      <td><code>${esc(r.handler)}</code><br><span style="color:var(--muted);font-size:11px">api/${esc(r.file)}:${r.handlerLine}</span></td>
+      <td>${resChips(r)}</td>
+      <td>${r.callers.length ? r.callers.map((c) => `<code style="font-size:11px">${esc(c.replace(/^src\//, ''))}</code>`).join('<br>') : r.machineCallers.length ? r.machineCallers.map(esc).join('<br>') : '<span style="color:var(--bad)">no caller</span>'}</td>
+    </tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted)">No endpoints match.</td></tr>';
+  };
+  v.addEventListener('input', draw);
+  v.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-acc]');
+    if (!c) return;
+    acc = c.dataset.acc;
+    v.querySelectorAll('[data-acc]').forEach((b) => b.setAttribute('aria-pressed', String(b === c)));
+    draw();
+  });
+  draw();
+}
+
+// ------------------------------------------------------------------ database
+function renderDatabase() {
+  const v = $('#view-database');
+  const order = ['users', ...D.schema.tables.map((t) => t.name).filter((n) => n !== 'users' && n !== 'features'), 'features'].filter((n) => D.schema.tables.some((t) => t.name === n));
+  const cards = order.map((name) => {
+    const t = D.schema.tables.find((x) => x.name === name);
+    const w = [...D.routes.filter((r) => r.writes.includes(name)).map((r) => pill(`route:${key(r)}`)), ...D.jobs.filter((j) => j.writes.includes(name)).map((j) => pill(`job:${j.name}`))];
+    const rd = [...D.routes.filter((r) => r.reads.includes(name)).map((r) => pill(`route:${key(r)}`)), ...D.jobs.filter((j) => j.reads.includes(name)).map((j) => pill(`job:${j.name}`))];
+    return `<article class="tcard" data-table="${esc(name)}">
+      <header><b>${esc(name)}</b><small>${esc(t.migration.replace('.up.sql', ''))}</small></header>
+      <div class="cols">${t.columns.map((c) => `<div class="col" data-col="${esc(name)}.${esc(c.name)}"><span class="k">${c.pk ? 'PK' : c.fk ? 'FK' : c.unique ? 'UQ' : ''}</span><span>${esc(c.name)}${c.notNull ? '' : '<span style="color:var(--muted)">?</span>'}</span><span class="ty">${esc(c.type.toLowerCase())}</span>${c.fk ? `<span class="fk">→ ${esc(c.fk.table)}.${esc(c.fk.column)}${c.fk.onDelete ? ` · on delete ${esc(c.fk.onDelete.toLowerCase())}` : ''}</span>` : ''}</div>`).join('')}</div>
+      <footer>
+        ${t.indexes.map((i) => `<div><code>${esc(i.name)}</code> ${i.unique ? 'unique ' : ''}(${esc(i.columns.join(', '))})${i.where ? ` where <code>${esc(i.where)}</code>` : ''}</div>`).join('')}
+        ${t.seeds.length ? `<div>Seeded: ${t.seeds.map((s) => `<code>${esc(s)}</code>`).join(', ')}</div>` : ''}
+        <div>Written by</div><div class="who">${w.join('') || '<span>nothing</span>'}</div>
+        ${rd.length ? `<div>Read by</div><div class="who">${rd.join('')}</div>` : ''}
+      </footer></article>`;
+  }).join('');
+  v.innerHTML = `<div class="panel"><div class="tscroll"><div class="er" id="er"><svg class="edges" id="er-edges" aria-hidden="true"></svg><div class="er-grid">${cards}</div></div></div>
+    <p class="foot" style="margin-top:14px">Columns marked <code>?</code> are nullable. Migrations applied in order: ${D.schema.migrations.map((m) => `<code>${esc(m)}</code>`).join(', ')}. The Postgres server itself is <em>declared</em>: ${esc(D.declared.machines[0].detail)}</p></div>`;
+}
+function drawER() {
+  const er = $('#er'); if (!er || !er.offsetParent) return;
+  const svg = $('#er-edges'); const box = er.getBoundingClientRect();
+  svg.setAttribute('width', er.scrollWidth); svg.setAttribute('height', er.scrollHeight);
+  svg.innerHTML = '';
+  for (const t of D.schema.tables) for (const c of t.columns) if (c.fk) {
+    const a = er.querySelector(`[data-col="${t.name}.${c.name}"]`), b = er.querySelector(`[data-col="${c.fk.table}.${c.fk.column}"]`);
+    if (!a || !b) continue;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const left = ra.left > rb.right;
+    const x1 = (left ? ra.left : ra.right) - box.left, y1 = ra.top + ra.height / 2 - box.top;
+    const x2 = (left ? rb.right : rb.left) - box.left, y2 = rb.top + rb.height / 2 - box.top;
+    const sameCol = Math.abs(ra.left - rb.left) < 10;
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    if (sameCol) { const x = ra.left - box.left; p.setAttribute('d', `M${x},${y1} C${x - 40},${y1} ${x - 40},${y2} ${x},${y2}`); }
+    else { const dx = (x2 - x1) * 0.5; p.setAttribute('d', `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`); }
+    svg.append(p);
+  }
+}
+
+// ------------------------------------------------------------------ pipeline
+function renderPipeline() {
+  const v = $('#view-pipeline');
+  const wf = D.workflows.map((w) => `<div class="card"><h3><span class="bullet sm" style="background:var(--lane-ci)">J</span>${esc(w.name)}</h3>
+    <div class="meta"><code>${esc(w.file)}</code> · ${esc(w.triggers.join(', '))}</div>
+    <div class="jobs">${w.jobs.map((j) => `<div class="job"><strong>${esc(j.name)}</strong><small>${esc(j.id)}${j.needs.length ? ` · after ${esc(j.needs.join(', '))}` : ''}${j.onlyMaster ? ' · master only' : ''}</small>${j.services.length ? `<small>service ${esc(j.services.join(', '))}</small>` : ''}${j.secrets.length ? `<small>secret ${esc(j.secrets.join(', '))}</small>` : ''}</div>`).join('')}</div></div>`).join('');
+  const build = D.build.filter((b) => b.externals.length || b.outputs.length).map((b) => `<div class="finding" style="--c:var(--lane-edge)"><span class="bar"></span><div><h3><code>${esc(b.file)}</code></h3>
+    <p>${b.externals.length ? `Pulls from ${b.externals.map((x) => pill(`ext:${x}`)).join(' ')}` : 'Works from local files'}${b.outputs.length ? ` · writes ${b.outputs.map((o) => `<code>${esc(o)}</code>`).join(', ')}` : ''}</p></div></div>`).join('');
+  const envWhere = (e) => {
+    const users = [...D.routes.filter((r) => r.env.includes(e)).map((r) => key(r)), ...D.jobs.filter((j) => j.env.includes(e)).map((j) => j.name)];
+    return users.length ? users.join(', ') : 'read in main()';
+  };
+  const metricUsers = (m) => [...D.jobs.filter((j) => j.metrics.includes(m.var)).map((j) => j.name), ...D.routes.filter((r) => r.metrics.includes(m.var)).map((r) => key(r))];
+  v.innerHTML = `<div class="section-title" style="margin-top:4px">GitHub Actions</div><div class="cards">${wf}</div>
+    <div class="section-title">Build-time data, run by <code>npm run build</code> on Vercel</div><div class="panel">${build}</div>
+    <div class="cards" style="margin-top:22px">
+      <div class="card"><h3>API env vars</h3><div class="meta">Fly secrets and <code>[env]</code> in fly.toml</div><dl class="kv">${D.env.api.map((e) => `<dt>${esc(e)}</dt><dd>${esc(envWhere(e))}</dd>`).join('')}</dl></div>
+      <div class="card"><h3>Frontend env vars</h3><div class="meta">Vite, inlined at build time on Vercel</div><dl class="kv">${D.env.web.map((e) => `<dt>${esc(e)}</dt><dd>${e.includes('STADIA') ? 'map style URL in src/scene/renderer.js' : e.includes('GOOGLE') ? 'Google sign-in button in src/ui/auth-modal.js' : ''}</dd>`).join('')}</dl></div>
+      <div class="card"><h3>Prometheus metrics</h3><div class="meta">Served at <code>${esc(D.fly.metricsPath)}</code>, scraped by Fly, checked every 30 min in CI</div><dl class="kv">${D.metrics.map((m) => `<dt>${esc(m.name)}</dt><dd>${esc(m.type.toLowerCase())}${m.labels.length ? ` {${esc(m.labels.join(', '))}}` : ''}${metricUsers(m).length ? ` · ${esc(metricUsers(m).join(', '))}` : ''}</dd>`).join('')}</dl></div>
+    </div>`;
+}
+
+// ------------------------------------------------------------------ gaps
+function computeFindings() {
+  const out = [];
+  for (const k of D.drift.noFrontendCaller) out.push({ sev: 'warn', title: `${k} has no caller`, body: 'Nothing in src/ or index.html requests it, and no platform check uses it. Either the UI is missing a call or the endpoint can go.', goto: `route:${k}` });
+  for (const k of D.drift.notInOpenAPI) out.push({ sev: 'bad', title: `${k} is missing from openapi.yml`, body: 'Registered in newMux but not documented.', goto: `route:${k}` });
+  for (const k of D.drift.openAPIOnly) out.push({ sev: 'bad', title: `${k} is documented but not registered`, body: 'openapi.yml lists it; newMux does not serve it.' });
+  for (const k of D.drift.frontendCallsWithoutRoute) out.push({ sev: 'bad', title: `Frontend calls ${k}, which does not exist`, body: 'The request would 404 or hit the SPA fallback.' });
+  // Feature gates that cover only part of a resource.
+  const fam = new Map();
+  for (const r of D.routes) { const base = r.path.replace(/\/\{[^}]+\}$/, ''); if (!fam.has(base)) fam.set(base, []); fam.get(base).push(r); }
+  for (const [base, rs] of fam) {
+    const flags = new Set(rs.map((r) => r.feature).filter(Boolean));
+    if (!flags.size) continue;
+    const ungated = rs.filter((r) => !r.feature);
+    if (ungated.length) out.push({ sev: 'warn', title: `${base}: flag ${[...flags].join(', ')} covers ${rs.length - ungated.length} of ${rs.length} routes`, body: `${ungated.map(key).join(', ')} skip the flag, so a tier that loses the feature can still change or delete existing rows.`, goto: `route:${key(ungated[0])}` });
+  }
+  const dbOnly = D.routes.filter((r) => r.conditions.some((c) => c.includes('dbPool')) && !r.variants?.length);
+  out.push({ sev: 'info', title: `${dbOnly.length} endpoints exist only with a database`, body: 'Without DATABASE_URL, newMux never registers them and they return 404, not 503. /health still reports ok because it only pings when a pool exists.' });
+  const notDeclaredEnv = D.env.api.filter((e) => !['PORT'].includes(e));
+  out.push({ sev: 'info', title: `${notDeclaredEnv.length} API secrets and env vars`, body: notDeclaredEnv.join(', ') });
+  return out;
+}
+function renderGaps() {
+  const sevC = { bad: 'var(--bad)', warn: 'var(--warn)', info: 'var(--lane-api)' };
+  $('#view-gaps').innerHTML = `<div class="panel">${findings.map((f) => `<div class="finding" style="--c:${sevC[f.sev]}"><span class="bar"></span><div><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p>${f.goto ? `<button class="linkish" data-goto="${esc(f.goto)}">Show on the map</button>` : ''}</div></div>`).join('')}
+  <p class="foot">Every item here is computed from the same data as the map, so it updates when the code does. OpenAPI drift: ${D.drift.notInOpenAPI.length + D.drift.openAPIOnly.length === 0 ? 'none, every registered route is documented.' : 'see above.'}</p></div>`;
+}
+
+// ------------------------------------------------------------------ boot
+renderInspector();
+const start = (location.hash || '#map').slice(1);
+showTab(TABS.some(([t]) => t === start) ? start : 'map');
+})();
+</script>
