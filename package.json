@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "gtfs": "bash scripts/download-gtfs.sh --force"
+    "gtfs": "bash scripts/download-gtfs.sh --force",
+    "arch": "node scripts/build-architecture.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

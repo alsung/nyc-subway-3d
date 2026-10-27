@@ -1,0 +1,2339 @@
+{
+  "generatedFrom": "scripts/build-architecture.mjs",
+  "fly": {
+    "app": "nyc-subway-api",
+    "region": "ewr",
+    "memory": "512mb",
+    "cpuKind": "shared",
+    "cpus": "1",
+    "port": "8080",
+    "healthCheck": "/health",
+    "healthInterval": "15s",
+    "metricsPath": "/metrics",
+    "minMachines": "1",
+    "goVersion": "1.27"
+  },
+  "vercel": {
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
+    "redirects": [
+      {
+        "source": "/status{/}?",
+        "destination": "https://stats.uptimerobot.com/rC0xhfYVZZ",
+        "external": "uptimerobot"
+      }
+    ],
+    "rewrites": [
+      "/(.*) → /index.html"
+    ],
+    "headers": [
+      "/assets/(.*): Cache-Control: public, max-age=31536000, immutable"
+    ]
+  },
+  "middleware": [
+    {
+      "name": "metricsMiddleware",
+      "detail": "Counts and times every request by route pattern",
+      "file": "metrics.go",
+      "line": 152
+    },
+    {
+      "name": "rateLimitMiddleware",
+      "detail": "Per-IP token bucket: 10 req/s, burst 30, 429 when empty",
+      "file": "ratelimit.go",
+      "line": 93
+    },
+    {
+      "name": "corsMiddleware",
+      "detail": "Allows https://localexpress.nyc, http://localhost:*, *.vercel.app",
+      "file": "main.go",
+      "line": 70
+    },
+    {
+      "name": "gzipMiddleware",
+      "detail": "Gzips responses when the client accepts it",
+      "file": "main.go",
+      "line": 48
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "handler": "handleHealth",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 276,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 89,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "alerts",
+        "feeds"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "WriteHeader (metrics.go:147)",
+        "alertsCache (alerts.go:129)",
+        "alertsLabeled (alerts.go:133)",
+        "alertsMu (alerts.go:128)",
+        "extensionHealth (alerts.go:141)",
+        "feedCache (feeds.go:40)",
+        "feedsMu (feeds.go:39)",
+        "lastRefresh (feeds.go:41)",
+        "maxFeedAge (main.go:19)",
+        "pingDB (db.go:70)"
+      ],
+      "pingsDatabase": true,
+      "libs": [],
+      "callers": [],
+      "machineCallers": [
+        "Fly health check, every 15s (api/fly.toml)",
+        "UptimeRobot HTTP monitor"
+      ],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/gtfs/{file}",
+      "handler": "handleGTFSFile",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 277,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 179,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "gtfsFiles"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "Write (main.go:68)",
+        "gtfsFiles (gtfs.go:43)",
+        "gtfsMu (gtfs.go:42)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/arrivals/{stationId}",
+      "handler": "handleArrivals",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 278,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 192,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "feeds"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "buildArrivalIndex (arrivals.go:57)",
+        "cachedFeeds (feeds.go:147)",
+        "feedCache (feeds.go:40)",
+        "feedsMu (feeds.go:39)",
+        "lastRefresh (feeds.go:41)",
+        "normalizeStopId (arrivals.go:43)",
+        "stopEventTime (arrivals.go:136)",
+        "tripDestination (arrivals.go:125)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/rt-loader.js:26"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/vehicles",
+      "handler": "handleVehicles",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 279,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 216,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "feeds"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "cachedFeeds (feeds.go:147)",
+        "feedCache (feeds.go:40)",
+        "feedsMu (feeds.go:39)",
+        "lastRefresh (feeds.go:41)",
+        "maxStopsPerVehicle (vehicles.go:18)",
+        "parseVehiclePositions (vehicles.go:73)",
+        "trimStops (vehicles.go:171)",
+        "vehicleStatusStoppedAt (vehicles.go:23)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/rt-loader.js:18"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/alerts",
+      "handler": "handleAlerts",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 280,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 139,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "alerts"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "alertKind (alerts.go:303)",
+        "alertsCache (alerts.go:129)",
+        "alertsMu (alerts.go:128)",
+        "alertsRefreshed (alerts.go:130)",
+        "cachedAlerts (alerts.go:506)",
+        "englishText (alerts.go:312)",
+        "fieldBytes (alerts.go:192)",
+        "fieldVarint (alerts.go:216)",
+        "informedEntities (alerts.go:389)",
+        "isSurfaced (alerts.go:282)",
+        "mercuryActivePeriodTx (alerts.go:57)",
+        "mercuryAlertType (alerts.go:55)",
+        "mercuryDisplayBefore (alerts.go:56)",
+        "mercuryField (alerts.go:53)",
+        "mercuryUpdatedAt (alerts.go:54)",
+        "parseAlerts (alerts.go:331)",
+        "readMercury (alerts.go:174)",
+        "translationText (alerts.go:243)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/rt-loader.js:44"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/alerts/summary",
+      "handler": "handleAlertsSummary",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 281,
+      "variants": [],
+      "access": "public",
+      "file": "main.go",
+      "handlerLine": 162,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "alerts"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "alertKind (alerts.go:303)",
+        "alertsCache (alerts.go:129)",
+        "alertsMu (alerts.go:128)",
+        "alertsRefreshed (alerts.go:130)",
+        "cachedAlerts (alerts.go:506)",
+        "englishText (alerts.go:312)",
+        "fieldBytes (alerts.go:192)",
+        "fieldVarint (alerts.go:216)",
+        "informedEntities (alerts.go:389)",
+        "isSurfaced (alerts.go:282)",
+        "mercuryActivePeriodTx (alerts.go:57)",
+        "mercuryAlertType (alerts.go:55)",
+        "mercuryDisplayBefore (alerts.go:56)",
+        "mercuryField (alerts.go:53)",
+        "mercuryUpdatedAt (alerts.go:54)",
+        "parseAlerts (alerts.go:331)",
+        "readMercury (alerts.go:174)",
+        "summarise (alerts.go:412)",
+        "translationText (alerts.go:243)",
+        "trunkOrder (alerts.go:111)",
+        "trunkRoutes (alerts.go:113)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/rt-loader.js:35"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/plan",
+      "handler": "handlePlan",
+      "mux": "api",
+      "chain": [
+        "optionalAuth",
+        "requireFeature(trip_planner)"
+      ],
+      "feature": "trip_planner",
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 283,
+      "variants": [
+        {
+          "conditions": [
+            "!(a.dbPool != nil)"
+          ],
+          "chain": []
+        }
+      ],
+      "access": "optional",
+      "file": "plan.go",
+      "handlerLine": 103,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "features",
+        "feeds",
+        "timetable"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [
+        "metricPlanNoRoute"
+      ],
+      "calls": [
+        "MaxRounds (raptor.go:29)",
+        "NextDeparture (departures.go:102)",
+        "Plan (raptor.go:151)",
+        "RunsOn (timetable.go:441)",
+        "cachedDepartures (feeds.go:138)",
+        "cachedFeeds (feeds.go:147)",
+        "candidateDays (raptor.go:102)",
+        "currentTimetable (gtfs.go:152)",
+        "departures (feeds.go:42)",
+        "earliestTrip (raptor.go:122)",
+        "feedCache (feeds.go:40)",
+        "feedLoc (timezone.go:21)",
+        "feedLocOnce (timezone.go:20)",
+        "feedLocation (timezone.go:37)",
+        "feedTimezone (timezone.go:17)",
+        "feedsMu (feeds.go:39)",
+        "gtfsMu (gtfs.go:42)",
+        "lastRefresh (feeds.go:41)",
+        "maxEarlySeconds (raptor.go:346)",
+        "maxInt32 (raptor.go:308)",
+        "maxShiftSeconds (raptor.go:350)",
+        "metricPlanNoRoute (metrics.go:86)",
+        "platformsFor (plan.go:50)",
+        "platformsForAll (plan.go:76)",
+        "realtimeShift (raptor.go:328)",
+        "reconstruct (raptor.go:365)",
+        "resolve (raptor.go:353)",
+        "secondsSinceMidnight (raptor.go:113)",
+        "secsToClock (plan.go:91)",
+        "serviceDaySeconds (raptor.go:33)",
+        "timetable (gtfs.go:44)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "RAPTOR planner"
+      ],
+      "callers": [
+        "src/core/rt-loader.js:56"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "handler": "handleRegister",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 290,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 150,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users",
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [
+        "resend"
+      ],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "WriteHeader (metrics.go:147)",
+        "appBaseURL (email.go:14)",
+        "devAutoVerify (email.go:13)",
+        "emailFromAddr (email.go:15)",
+        "generateRefreshToken (auth.go:66)",
+        "jwtSecret (auth.go:26)",
+        "resendAPIKey (email.go:12)",
+        "sendEmail (email.go:33)",
+        "sendVerificationEmail (email.go:74)",
+        "signAccessToken (auth.go:35)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "JWT (HS256, 15 min)",
+        "bcrypt",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/auth-modal.js:205"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "handler": "handleLogin",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 291,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 265,
+      "reads": [
+        "users"
+      ],
+      "writes": [
+        "refresh_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "generateRefreshToken (auth.go:66)",
+        "jwtSecret (auth.go:26)",
+        "signAccessToken (auth.go:35)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "JWT (HS256, 15 min)",
+        "bcrypt",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/auth-modal.js:181"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "handler": "handleRefresh",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 292,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 343,
+      "reads": [
+        "users"
+      ],
+      "writes": [
+        "refresh_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "generateRefreshToken (auth.go:66)",
+        "hashToken (auth.go:77)",
+        "jwtSecret (auth.go:26)",
+        "signAccessToken (auth.go:35)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "JWT (HS256, 15 min)",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/core/auth.js:67"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "handler": "handleLogout",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 293,
+      "variants": [],
+      "access": "auth",
+      "file": "auth_handlers.go",
+      "handlerLine": 432,
+      "reads": [],
+      "writes": [
+        "refresh_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "hashToken (auth.go:77)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "refresh token (SHA-256)"
+      ],
+      "callers": [],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "handler": "handleMe",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 294,
+      "variants": [],
+      "access": "auth",
+      "file": "auth_handlers.go",
+      "handlerLine": 739,
+      "reads": [
+        "users"
+      ],
+      "writes": [],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/verify-email",
+      "handler": "handleVerifyEmail",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 295,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 455,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users",
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "generateRefreshToken (auth.go:66)",
+        "hashToken (auth.go:77)",
+        "jwtSecret (auth.go:26)",
+        "signAccessToken (auth.go:35)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "JWT (HS256, 15 min)",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/verify-page.js:30"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/resend-verification",
+      "handler": "handleResendVerification",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 296,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 542,
+      "reads": [
+        "users"
+      ],
+      "writes": [
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [
+        "resend"
+      ],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "appBaseURL (email.go:14)",
+        "emailFromAddr (email.go:15)",
+        "generateRefreshToken (auth.go:66)",
+        "resendAPIKey (email.go:12)",
+        "sendEmail (email.go:33)",
+        "sendVerificationEmail (email.go:74)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "refresh token (SHA-256)"
+      ],
+      "callers": [],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "handler": "handleForgotPassword",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 297,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 619,
+      "reads": [
+        "users"
+      ],
+      "writes": [
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [
+        "resend"
+      ],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "appBaseURL (email.go:14)",
+        "emailFromAddr (email.go:15)",
+        "generateRefreshToken (auth.go:66)",
+        "resendAPIKey (email.go:12)",
+        "sendEmail (email.go:33)",
+        "sendPasswordResetEmail (email.go:89)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/auth-modal.js:224"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "handler": "handleResetPassword",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 298,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 681,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users",
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "hashToken (auth.go:77)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "bcrypt",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/reset-password-page.js:65"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/account",
+      "handler": "handleUpdateAccount",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 299,
+      "variants": [],
+      "access": "auth",
+      "file": "auth_handlers.go",
+      "handlerLine": 774,
+      "reads": [],
+      "writes": [
+        "users"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/auth.js:109"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/auth/account",
+      "handler": "handleDeleteAccount",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 300,
+      "variants": [],
+      "access": "auth",
+      "file": "auth_handlers.go",
+      "handlerLine": 822,
+      "reads": [],
+      "writes": [
+        "commutes",
+        "refresh_tokens",
+        "users",
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/auth.js:125"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/change-password",
+      "handler": "handleChangePassword",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 301,
+      "variants": [],
+      "access": "auth",
+      "file": "auth_handlers.go",
+      "handlerLine": 877,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "bcrypt"
+      ],
+      "callers": [
+        "src/core/auth.js:136"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/features",
+      "handler": "handleGetFeatures",
+      "mux": "api",
+      "chain": [
+        "optionalAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 302,
+      "variants": [],
+      "access": "optional",
+      "file": "feature_handlers.go",
+      "handlerLine": 90,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "fc (feature_handlers.go:34)",
+        "featureAccessible (feature_handlers.go:77)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/features.js:11"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/features/{name}",
+      "handler": "handleUpdateFeature",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 303,
+      "variants": [],
+      "access": "auth",
+      "file": "feature_handlers.go",
+      "handlerLine": 115,
+      "reads": [],
+      "writes": [
+        "features"
+      ],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "fc (feature_handlers.go:34)",
+        "isAdmin (feature_handlers.go:200)",
+        "loadFeatures (feature_handlers.go:36)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "admin allowlist (ADMIN_EMAILS)"
+      ],
+      "callers": [],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/commutes",
+      "handler": "handleListCommutes",
+      "mux": "api",
+      "chain": [
+        "requireAuth",
+        "requireFeature(saved_commutes)"
+      ],
+      "feature": "saved_commutes",
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 305,
+      "variants": [],
+      "access": "auth",
+      "file": "commute_handlers.go",
+      "handlerLine": 22,
+      "reads": [
+        "commutes"
+      ],
+      "writes": [],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "ListCommutes (pg_store.go:21)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/commutes.js:27"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/commutes",
+      "handler": "handleCreateCommute",
+      "mux": "api",
+      "chain": [
+        "requireAuth",
+        "requireFeature(saved_commutes)"
+      ],
+      "feature": "saved_commutes",
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 307,
+      "variants": [],
+      "access": "auth",
+      "file": "commute_handlers.go",
+      "handlerLine": 36,
+      "reads": [],
+      "writes": [
+        "commutes"
+      ],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "CreateCommute (pg_store.go:47)",
+        "ErrLimitReached (store.go:10)",
+        "WriteHeader (metrics.go:147)",
+        "maxCommutesPerUser (pg_store.go:11)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/commutes.js:38"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/commutes/{id}",
+      "handler": "handleUpdateCommute",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 309,
+      "variants": [],
+      "access": "auth",
+      "file": "commute_handlers.go",
+      "handlerLine": 77,
+      "reads": [],
+      "writes": [
+        "commutes"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "ErrNotFound (store.go:9)",
+        "UpdateCommuteLabel (pg_store.go:78)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/commutes.js:54"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/commutes/{id}",
+      "handler": "handleDeleteCommute",
+      "mux": "api",
+      "chain": [
+        "requireAuth"
+      ],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil"
+      ],
+      "line": 311,
+      "variants": [],
+      "access": "auth",
+      "file": "commute_handlers.go",
+      "handlerLine": 102,
+      "reads": [],
+      "writes": [
+        "commutes"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "DeleteCommute (pg_store.go:97)",
+        "ErrNotFound (store.go:9)",
+        "WriteHeader (metrics.go:147)",
+        "userContextKey (auth.go:18)",
+        "userFromContext (auth.go:88)"
+      ],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [
+        "src/core/commutes.js:65"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/google",
+      "handler": "handleGoogleAuth",
+      "mux": "api",
+      "chain": [],
+      "feature": null,
+      "conditions": [
+        "a.dbPool != nil",
+        "a.googleClientID != \"\""
+      ],
+      "line": 315,
+      "variants": [],
+      "access": "public",
+      "file": "auth_handlers.go",
+      "handlerLine": 48,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users"
+      ],
+      "caches": [],
+      "externals": [
+        "google"
+      ],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "generateRefreshToken (auth.go:66)",
+        "jwtSecret (auth.go:26)",
+        "signAccessToken (auth.go:35)",
+        "verifyGoogleIDToken (google.go:18)"
+      ],
+      "pingsDatabase": false,
+      "libs": [
+        "JWT (HS256, 15 min)",
+        "refresh token (SHA-256)"
+      ],
+      "callers": [
+        "src/ui/auth-modal.js:259"
+      ],
+      "machineCallers": [],
+      "inOpenAPI": true
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "handler": "promhttp.Handler",
+      "mux": "root",
+      "chain": [],
+      "feature": null,
+      "conditions": [],
+      "line": 326,
+      "variants": [],
+      "access": "internal",
+      "file": "main.go",
+      "handlerLine": 326,
+      "reads": [],
+      "writes": [],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [],
+      "pingsDatabase": false,
+      "libs": [],
+      "callers": [],
+      "machineCallers": [
+        "Fly managed Prometheus scrape (api/fly.toml [metrics])"
+      ],
+      "inOpenAPI": false
+    }
+  ],
+  "jobs": [
+    {
+      "name": "startFeedRefresher",
+      "file": "feeds.go",
+      "line": 159,
+      "interval": "30s",
+      "needsDatabase": false,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "feeds"
+      ],
+      "externals": [
+        "mta-rt"
+      ],
+      "env": [],
+      "metrics": [
+        "metricFeedLastRefresh",
+        "metricFeedRefresh"
+      ],
+      "calls": [
+        "buildDepartureIndex (departures.go:38)",
+        "decodeFeed (feeds.go:53)",
+        "departures (feeds.go:42)",
+        "feedCache (feeds.go:40)",
+        "feedHTTPClient (feeds.go:45)",
+        "feedLoc (timezone.go:21)",
+        "feedLocOnce (timezone.go:20)",
+        "feedLocation (timezone.go:37)",
+        "feedRefreshInterval (feeds.go:30)",
+        "feedTimezone (timezone.go:17)",
+        "feedURLs (feeds.go:19)",
+        "feedsMu (feeds.go:39)",
+        "fetchFeed (feeds.go:62)",
+        "lastRefresh (feeds.go:41)",
+        "metricFeedLastRefresh (metrics.go:67)",
+        "metricFeedRefresh (metrics.go:54)",
+        "realtimeHorizon (departures.go:34)",
+        "refreshFeeds (feeds.go:91)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "startAlertsRefresher",
+      "file": "alerts.go",
+      "line": 512,
+      "interval": "60s",
+      "needsDatabase": false,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "alerts"
+      ],
+      "externals": [
+        "mta-alerts"
+      ],
+      "env": [],
+      "metrics": [
+        "metricAlertsEntities",
+        "metricAlertsLabeled"
+      ],
+      "calls": [
+        "alertsCache (alerts.go:129)",
+        "alertsLabeled (alerts.go:133)",
+        "alertsMu (alerts.go:128)",
+        "alertsRefreshInterval (alerts.go:41)",
+        "alertsRefreshed (alerts.go:130)",
+        "alertsURL (alerts.go:37)",
+        "countLabeled (alerts.go:148)",
+        "decodeFeed (feeds.go:53)",
+        "feedHTTPClient (feeds.go:45)",
+        "fetchFeed (feeds.go:62)",
+        "fieldBytes (alerts.go:192)",
+        "fieldVarint (alerts.go:216)",
+        "mercuryActivePeriodTx (alerts.go:57)",
+        "mercuryAlertType (alerts.go:55)",
+        "mercuryDisplayBefore (alerts.go:56)",
+        "mercuryField (alerts.go:53)",
+        "mercuryUpdatedAt (alerts.go:54)",
+        "metricAlertsEntities (metrics.go:72)",
+        "metricAlertsLabeled (metrics.go:81)",
+        "readMercury (alerts.go:174)",
+        "refreshAlerts (alerts.go:476)",
+        "translationText (alerts.go:243)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "startFeatureCacheRefresher",
+      "file": "feature_handlers.go",
+      "line": 62,
+      "interval": "60s",
+      "needsDatabase": true,
+      "reads": [
+        "features"
+      ],
+      "writes": [],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "fc (feature_handlers.go:34)",
+        "loadFeatures (feature_handlers.go:36)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "startAccountCleanup",
+      "file": "main.go",
+      "line": 256,
+      "interval": "1h",
+      "needsDatabase": true,
+      "reads": [],
+      "writes": [
+        "refresh_tokens",
+        "users",
+        "verification_tokens"
+      ],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [
+        "metricPurgeLastSuccess"
+      ],
+      "calls": [
+        "metricPurgeLastSuccess (metrics.go:94)",
+        "purgeExpired (main.go:235)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "loadGTFSStatic",
+      "file": "gtfs.go",
+      "line": 86,
+      "interval": "at boot",
+      "needsDatabase": false,
+      "reads": [],
+      "writes": [],
+      "caches": [
+        "gtfsFiles",
+        "timetable"
+      ],
+      "externals": [
+        "mta-static"
+      ],
+      "env": [
+        "GTFS_STATIC_URL"
+      ],
+      "metrics": [],
+      "calls": [
+        "BuildTimetable (timetable.go:461)",
+        "TripCount (timetable.go:503)",
+        "bomPrefix (timetable.go:114)",
+        "buildPatterns (timetable.go:223)",
+        "buildStopPatterns (timetable.go:493)",
+        "columns (timetable.go:117)",
+        "defaultGTFSStaticURL (gtfs.go:15)",
+        "defaultTransferSeconds (timetable.go:356)",
+        "gtfsFiles (gtfs.go:43)",
+        "gtfsMu (gtfs.go:42)",
+        "newReader (timetable.go:125)",
+        "parseCalendar (timetable.go:362)",
+        "parseGTFSTime (timetable.go:88)",
+        "parseGTFSZip (gtfs.go:50)",
+        "parseStopTimes (timetable.go:141)",
+        "parseTransfers (timetable.go:300)",
+        "parseTrips (timetable.go:188)",
+        "routingGTFSFiles (gtfs.go:30)",
+        "servedGTFSFiles (gtfs.go:18)",
+        "timetable (gtfs.go:44)",
+        "wantedGTFSFile (gtfs.go:37)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "runMigrations",
+      "file": "db.go",
+      "line": 42,
+      "interval": "at boot",
+      "needsDatabase": true,
+      "reads": [],
+      "writes": [],
+      "caches": [],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "migrationsFS (db.go:17)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    },
+    {
+      "name": "loadFeatures",
+      "file": "feature_handlers.go",
+      "line": 36,
+      "interval": "at boot",
+      "needsDatabase": true,
+      "reads": [
+        "features"
+      ],
+      "writes": [],
+      "caches": [
+        "features"
+      ],
+      "externals": [],
+      "env": [],
+      "metrics": [],
+      "calls": [
+        "fc (feature_handlers.go:34)"
+      ],
+      "pingsDatabase": false,
+      "libs": []
+    }
+  ],
+  "caches": [
+    {
+      "id": "feeds",
+      "label": "Real-time feed cache"
+    },
+    {
+      "id": "alerts",
+      "label": "Service alerts cache"
+    },
+    {
+      "id": "timetable",
+      "label": "RAPTOR timetable"
+    },
+    {
+      "id": "gtfsFiles",
+      "label": "Static GTFS files"
+    },
+    {
+      "id": "features",
+      "label": "Feature flag cache"
+    }
+  ],
+  "schema": {
+    "migrations": [
+      "001_initial_schema",
+      "002_auth_tokens",
+      "003_verification_tokens",
+      "004_commutes",
+      "005_email_unique_active"
+    ],
+    "tables": [
+      {
+        "name": "users",
+        "migration": "001_initial_schema.up.sql",
+        "columns": [
+          {
+            "name": "id",
+            "type": "UUID",
+            "pk": true,
+            "unique": false,
+            "notNull": true,
+            "default": "gen_random_uuid()",
+            "fk": null
+          },
+          {
+            "name": "email",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "display_name",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "''",
+            "fk": null
+          },
+          {
+            "name": "avatar_url",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "''",
+            "fk": null
+          },
+          {
+            "name": "password_hash",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "''",
+            "fk": null
+          },
+          {
+            "name": "provider",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "'email'",
+            "fk": null
+          },
+          {
+            "name": "email_verified",
+            "type": "BOOLEAN",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "false",
+            "fk": null
+          },
+          {
+            "name": "tier",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "'free'",
+            "fk": null
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "now()",
+            "fk": null
+          },
+          {
+            "name": "updated_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "now()",
+            "fk": null
+          },
+          {
+            "name": "deleted_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": false,
+            "default": null,
+            "fk": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "users_email_active_key",
+            "unique": true,
+            "columns": [
+              "email"
+            ],
+            "where": "deleted_at IS NULL",
+            "migration": "005_email_unique_active.up.sql"
+          }
+        ],
+        "seeds": []
+      },
+      {
+        "name": "features",
+        "migration": "001_initial_schema.up.sql",
+        "columns": [
+          {
+            "name": "name",
+            "type": "TEXT",
+            "pk": true,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "required_tier",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "'everyone'",
+            "fk": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "''",
+            "fk": null
+          }
+        ],
+        "indexes": [],
+        "seeds": [
+          "trip_planner",
+          "car_positioning",
+          "detailed_car_positioning",
+          "saved_commutes",
+          "smart_notifications",
+          "ai_assistant",
+          "commute_analytics",
+          "elevator_alerts"
+        ]
+      },
+      {
+        "name": "refresh_tokens",
+        "migration": "002_auth_tokens.up.sql",
+        "columns": [
+          {
+            "name": "id",
+            "type": "UUID",
+            "pk": true,
+            "unique": false,
+            "notNull": true,
+            "default": "gen_random_uuid()",
+            "fk": null
+          },
+          {
+            "name": "user_id",
+            "type": "UUID",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": {
+              "table": "users",
+              "column": "id",
+              "onDelete": "CASCADE"
+            }
+          },
+          {
+            "name": "token_hash",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "expires_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "now()",
+            "fk": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_refresh_tokens_user_id",
+            "unique": false,
+            "columns": [
+              "user_id"
+            ],
+            "where": null,
+            "migration": "002_auth_tokens.up.sql"
+          },
+          {
+            "name": "idx_refresh_tokens_token_hash",
+            "unique": false,
+            "columns": [
+              "token_hash"
+            ],
+            "where": null,
+            "migration": "002_auth_tokens.up.sql"
+          }
+        ],
+        "seeds": []
+      },
+      {
+        "name": "verification_tokens",
+        "migration": "003_verification_tokens.up.sql",
+        "columns": [
+          {
+            "name": "id",
+            "type": "UUID",
+            "pk": true,
+            "unique": false,
+            "notNull": true,
+            "default": "gen_random_uuid()",
+            "fk": null
+          },
+          {
+            "name": "user_id",
+            "type": "UUID",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": {
+              "table": "users",
+              "column": "id",
+              "onDelete": "CASCADE"
+            }
+          },
+          {
+            "name": "token_hash",
+            "type": "TEXT",
+            "pk": false,
+            "unique": true,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "kind",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "expires_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "now()",
+            "fk": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_verification_tokens_user_id",
+            "unique": false,
+            "columns": [
+              "user_id"
+            ],
+            "where": null,
+            "migration": "003_verification_tokens.up.sql"
+          },
+          {
+            "name": "idx_verification_tokens_token_hash",
+            "unique": false,
+            "columns": [
+              "token_hash"
+            ],
+            "where": null,
+            "migration": "003_verification_tokens.up.sql"
+          }
+        ],
+        "seeds": []
+      },
+      {
+        "name": "commutes",
+        "migration": "004_commutes.up.sql",
+        "columns": [
+          {
+            "name": "id",
+            "type": "UUID",
+            "pk": true,
+            "unique": false,
+            "notNull": true,
+            "default": "gen_random_uuid()",
+            "fk": null
+          },
+          {
+            "name": "user_id",
+            "type": "UUID",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": {
+              "table": "users",
+              "column": "id",
+              "onDelete": "CASCADE"
+            }
+          },
+          {
+            "name": "origin_stop_id",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "origin_name",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "dest_stop_id",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "dest_name",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": null,
+            "fk": null
+          },
+          {
+            "name": "label",
+            "type": "TEXT",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "''",
+            "fk": null
+          },
+          {
+            "name": "created_at",
+            "type": "TIMESTAMPTZ",
+            "pk": false,
+            "unique": false,
+            "notNull": true,
+            "default": "now()",
+            "fk": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_commutes_user_id",
+            "unique": false,
+            "columns": [
+              "user_id"
+            ],
+            "where": null,
+            "migration": "004_commutes.up.sql"
+          }
+        ],
+        "seeds": []
+      }
+    ]
+  },
+  "externals": [
+    {
+      "id": "mta-rt",
+      "label": "MTA GTFS-RT feeds",
+      "kind": "data",
+      "host": "mtagtfsfeeds/nyct"
+    },
+    {
+      "id": "mta-alerts",
+      "label": "MTA service alerts",
+      "kind": "data",
+      "host": "mtagtfsfeeds/camsys"
+    },
+    {
+      "id": "mta-static",
+      "label": "MTA GTFS static (S3)",
+      "kind": "data",
+      "host": "rrgtfsfeeds.s3.amazonaws.com"
+    },
+    {
+      "id": "resend",
+      "label": "Resend",
+      "kind": "email",
+      "host": "api.resend.com"
+    },
+    {
+      "id": "google",
+      "label": "Google Identity",
+      "kind": "auth",
+      "host": "accounts.google.com"
+    },
+    {
+      "id": "stadia",
+      "label": "Stadia Maps",
+      "kind": "tiles",
+      "host": "tiles.stadiamaps.com"
+    },
+    {
+      "id": "nygov",
+      "label": "data.ny.gov (Socrata)",
+      "kind": "data",
+      "host": "data.ny.gov"
+    },
+    {
+      "id": "overpass",
+      "label": "OpenStreetMap Overpass",
+      "kind": "data",
+      "host": "overpass.kumi.systems"
+    },
+    {
+      "id": "fly-prom",
+      "label": "Fly managed Prometheus",
+      "kind": "monitoring",
+      "host": "api.fly.io/prometheus"
+    },
+    {
+      "id": "uptimerobot",
+      "label": "UptimeRobot",
+      "kind": "monitoring",
+      "host": "stats.uptimerobot.com"
+    },
+    {
+      "id": "gforms",
+      "label": "Google Forms (feedback)",
+      "kind": "other",
+      "host": "forms.gle"
+    }
+  ],
+  "frontend": {
+    "statics": {
+      "/stations.json": [
+        "src/core/gtfs-loader.js:57"
+      ],
+      "/entrances.json": [
+        "src/core/gtfs-loader.js:82"
+      ],
+      "/platforms.json": [
+        "src/core/rt-loader.js:67"
+      ],
+      "/car-positions.json": [
+        "src/core/rt-loader.js:80"
+      ]
+    },
+    "externals": {
+      "stadia": [
+        "src/scene/renderer.js",
+        "index.html"
+      ],
+      "google": [
+        "index.html"
+      ],
+      "gforms": [
+        "index.html"
+      ],
+      "vercel-analytics": [
+        "src/main.js"
+      ]
+    },
+    "modules": [
+      "core/alert-status.js",
+      "core/alert-text.js",
+      "core/arrivals.js",
+      "core/auth.js",
+      "core/car-position.js",
+      "core/color.js",
+      "core/commutes.js",
+      "core/corridors.js",
+      "core/entrances.js",
+      "core/features.js",
+      "core/geo.js",
+      "core/gtfs-loader.js",
+      "core/gtfs-parser.js",
+      "core/plan.js",
+      "core/platforms.js",
+      "core/polyline.js",
+      "core/prefs.js",
+      "core/rt-loader.js",
+      "core/rt-parser.js",
+      "core/station-alerts.js",
+      "core/station-meta.js",
+      "core/train-motion.js",
+      "core/trunks.js",
+      "data/embedded.js",
+      "main.js",
+      "scene/entrances.js",
+      "scene/lines.js",
+      "scene/platform-layer.js",
+      "scene/renderer.js",
+      "scene/train-layer.js",
+      "ui/alerts-panel.js",
+      "ui/auth-button.js",
+      "ui/auth-modal.js",
+      "ui/camera.js",
+      "ui/lines-panel.js",
+      "ui/popup.js",
+      "ui/reset-password-page.js",
+      "ui/route-bullet.js",
+      "ui/search.js",
+      "ui/settings-modal.js",
+      "ui/trip-planner.js",
+      "ui/verify-page.js"
+    ],
+    "dependencies": {
+      "@vercel/analytics": "^2.0.1",
+      "maplibre-gl": "^5.24.0"
+    }
+  },
+  "build": [
+    {
+      "file": "scripts/build-car-positions.mjs",
+      "externals": [],
+      "outputs": [
+        "public/platforms.json",
+        "public/entrances.json",
+        "public/car-positions.json"
+      ]
+    },
+    {
+      "file": "scripts/build-corridor-fixture.mjs",
+      "externals": [],
+      "outputs": [
+        "public/gtfs"
+      ]
+    },
+    {
+      "file": "scripts/build-icons.mjs",
+      "externals": [],
+      "outputs": []
+    },
+    {
+      "file": "scripts/check-metrics.mjs",
+      "externals": [
+        "fly-prom"
+      ],
+      "outputs": []
+    },
+    {
+      "file": "scripts/download-gtfs.sh",
+      "externals": [
+        "mta-static",
+        "nygov"
+      ],
+      "outputs": [
+        "public/gtfs",
+        "public/stations.json",
+        "public/entrances.json"
+      ]
+    },
+    {
+      "file": "scripts/fetch-platforms.mjs",
+      "externals": [
+        "overpass"
+      ],
+      "outputs": [
+        "public/platforms.json",
+        "public/stations.json",
+        "public/gtfs"
+      ]
+    },
+    {
+      "file": "scripts/go-test-ci.sh",
+      "externals": [],
+      "outputs": []
+    },
+    {
+      "file": "scripts/measure-startup.mjs",
+      "externals": [],
+      "outputs": []
+    },
+    {
+      "file": "scripts/verify-build.mjs",
+      "externals": [],
+      "outputs": []
+    }
+  ],
+  "workflows": [
+    {
+      "file": ".github/workflows/deploy.yml",
+      "name": "Deploy",
+      "triggers": [
+        "push",
+        "pull request"
+      ],
+      "jobs": [
+        {
+          "id": "test-js",
+          "name": "JavaScript unit tests",
+          "needs": [],
+          "services": [],
+          "secrets": [],
+          "onlyMaster": false
+        },
+        {
+          "id": "startup-smoke",
+          "name": "Startup probes",
+          "needs": [],
+          "services": [],
+          "secrets": [],
+          "onlyMaster": false
+        },
+        {
+          "id": "test-go",
+          "name": "Go tests (api)",
+          "needs": [],
+          "services": [
+            "postgres:16"
+          ],
+          "secrets": [],
+          "onlyMaster": false
+        },
+        {
+          "id": "deploy-api",
+          "name": "Deploy API → Fly.io",
+          "needs": [
+            "test-go"
+          ],
+          "services": [],
+          "secrets": [
+            "FLY_API_TOKEN"
+          ],
+          "onlyMaster": true
+        }
+      ]
+    },
+    {
+      "file": ".github/workflows/feed-check.yml",
+      "name": "Feed invariants",
+      "triggers": [
+        "cron 0 8 * * 1"
+      ],
+      "jobs": [
+        {
+          "id": "invariants",
+          "name": "Feed invariants",
+          "needs": [],
+          "services": [],
+          "secrets": [],
+          "onlyMaster": false
+        }
+      ]
+    },
+    {
+      "file": ".github/workflows/metrics-check.yml",
+      "name": "Metrics check",
+      "triggers": [
+        "cron */30 * * * *"
+      ],
+      "jobs": [
+        {
+          "id": "check",
+          "name": "Metrics check",
+          "needs": [],
+          "services": [],
+          "secrets": [
+            "FLY_METRICS_TOKEN"
+          ],
+          "onlyMaster": false
+        }
+      ]
+    }
+  ],
+  "env": {
+    "api": [
+      "ADMIN_EMAILS",
+      "APP_BASE_URL",
+      "DATABASE_URL",
+      "DEV_AUTO_VERIFY",
+      "GOOGLE_CLIENT_ID",
+      "GTFS_STATIC_URL",
+      "JWT_SECRET",
+      "PORT",
+      "RESEND_API_KEY"
+    ],
+    "web": [
+      "VITE_GOOGLE_CLIENT_ID",
+      "VITE_STADIA_API_KEY"
+    ]
+  },
+  "metrics": [
+    {
+      "var": "metricHTTPRequests",
+      "type": "Counter",
+      "name": "http_requests_total",
+      "help": "Total HTTP requests by route, method and status.",
+      "labels": [
+        "route",
+        "method",
+        "status"
+      ],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricHTTPDuration",
+      "type": "Histogram",
+      "name": "http_request_duration_seconds",
+      "help": "HTTP request duration by route and method.",
+      "labels": [
+        "route",
+        "method"
+      ],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricFeedRefresh",
+      "type": "Counter",
+      "name": "feed_refresh_total",
+      "help": "GTFS-RT feed refresh attempts by feed group and result.",
+      "labels": [
+        "group",
+        "result"
+      ],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricFeedLastRefresh",
+      "type": "Gauge",
+      "name": "feed_last_refresh_timestamp_seconds",
+      "help": "Unix time of the last successful refresh, per feed group.",
+      "labels": [
+        "group"
+      ],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricAlertsEntities",
+      "type": "Gauge",
+      "name": "alerts_entities",
+      "help": "Alerts currently cached from the MTA alerts feed.",
+      "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricAlertsLabeled",
+      "type": "Gauge",
+      "name": "alerts_labeled",
+      "help": "Cached alerts carrying a readable Mercury label.",
+      "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricPlanNoRoute",
+      "type": "Counter",
+      "name": "plan_no_route_total",
+      "help": "Plan requests that returned zero journeys.",
+      "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricPurgeLastSuccess",
+      "type": "Gauge",
+      "name": "account_purge_last_success_timestamp_seconds",
+      "help": "Unix time of the last fully successful account and token purge.",
+      "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricRateLimited",
+      "type": "Counter",
+      "name": "rate_limited_total",
+      "help": "Requests rejected by the per-IP rate limiter.",
+      "labels": [],
+      "file": "ratelimit.go"
+    }
+  ],
+  "declared": {
+    "healthMonitors": [
+      "UptimeRobot HTTP monitor"
+    ],
+    "machines": [
+      {
+        "id": "fly-db",
+        "label": "nyc-subway-db",
+        "provider": "Fly.io Postgres",
+        "detail": "Fly Postgres app in ewr on a 1 GB volume, with volume snapshots kept 5 days. The API reaches it through the DATABASE_URL secret."
+      }
+    ],
+    "services": [
+      {
+        "id": "vercel",
+        "label": "Vercel",
+        "kind": "hosting",
+        "detail": "Builds every push with vercel.json buildCommand, serves dist/ and the SPA rewrite. Production alias localexpress.nyc."
+      },
+      {
+        "id": "vercel-analytics",
+        "label": "Vercel Web Analytics",
+        "kind": "monitoring",
+        "detail": "Page views from @vercel/analytics inject()."
+      },
+      {
+        "id": "namecheap",
+        "label": "Namecheap DNS",
+        "kind": "dns",
+        "detail": "Registrar and DNS for localexpress.nyc (expires 2027-09-02). The send. subdomain holds the Resend sending records."
+      },
+      {
+        "id": "fly-grafana",
+        "label": "Fly managed Grafana",
+        "kind": "monitoring",
+        "detail": "Dashboard grafana/nyc-subway-api.json over the same Prometheus. No alerting; rules run in CI."
+      },
+      {
+        "id": "github",
+        "label": "GitHub Actions",
+        "kind": "ci",
+        "detail": "Tests, Fly deploy, scheduled metrics and feed checks; opens issues when a check fails."
+      }
+    ]
+  },
+  "drift": {
+    "notInOpenAPI": [],
+    "openAPIOnly": [],
+    "frontendCallsWithoutRoute": [],
+    "noFrontendCaller": [
+      "GET /api/gtfs/{file}",
+      "POST /api/auth/logout",
+      "GET /api/auth/me",
+      "POST /api/auth/resend-verification",
+      "PUT /api/features/{name}"
+    ]
+  }
+}

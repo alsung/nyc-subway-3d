@@ -30,6 +30,9 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm test
+      # Fails when a route, handler, migration, job or outside host changed
+      # without regenerating the architecture map (npm run arch).
+      - run: node scripts/build-architecture.mjs --check
 
   startup-smoke:
     name: Startup probes
@@ -109,7 +112,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
-      - run: cd api && go test ./... -race
+          # go.sum is in api/, not the repo root where setup-go looks for it.
+          cache-dependency-path: api/go.sum
+      # Prints every test as -v does, then fails if the set of skipped tests
+      # differs from api/testdata/allowed-skips.txt.
+      - run: ./scripts/go-test-ci.sh
 
   # The frontend is NOT deployed from here. Vercel's Git integration builds and
   # deploys every push itself, using vercel.json's buildCommand. This workflow
