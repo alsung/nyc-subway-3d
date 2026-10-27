@@ -12,6 +12,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
+		// CI sets REQUIRE_TEST_DB so a lost database service fails loudly
+		// instead of skipping every database test behind a green run.
+		if os.Getenv("REQUIRE_TEST_DB") == "1" {
+			t.Fatal("TEST_DATABASE_URL is required when REQUIRE_TEST_DB=1")
+		}
 		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
 	}
 

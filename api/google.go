@@ -13,7 +13,9 @@ type googleClaims struct {
 	Picture string
 }
 
-func verifyGoogleIDToken(ctx context.Context, token, clientID string) (*googleClaims, error) {
+// A variable rather than a function so handler tests can stand in for Google,
+// which only signs tokens for real accounts.
+var verifyGoogleIDToken = func(ctx context.Context, token, clientID string) (*googleClaims, error) {
 	payload, err := idtoken.Validate(ctx, token, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid id token: %w", err)
