@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Builds docs/architecture.json and docs/architecture.html from the source, so
-// the architecture diagram follows the code instead of someone's memory of it.
+// Builds docs/architecture.json, docs/architecture.html and the Mermaid diagram
+// in README.md from the source, so the architecture diagram follows the code
+// instead of someone's memory of it.
 //
 // Derived from code: routes and their middleware (api/main.go newMux), what
 // each handler reads and writes (SQL tables, in-memory caches, third-party
@@ -16,8 +17,8 @@
 // gofmt'd top-level declarations. tests/unit/build-architecture.test.js pins
 // known answers so a pattern that stops matching fails loudly.
 //
-//   npm run arch                                  write both files
-//   node scripts/build-architecture.mjs --check   exit 1 if either is out of
+//   npm run arch                                  write all three
+//   node scripts/build-architecture.mjs --check   exit 1 if any is out of
 //                                                 date or the code calls a
 //                                                 host not listed in EXTERNALS
 
@@ -548,15 +549,162 @@ export function renderHTML(json, template) {
         + template.replace('__ARCH_DATA__', () => data) + '</html>\n';
 }
 
+// ---------------------------------------------------------------- README diagram
+
+// GitHub renders Mermaid in Markdown but runs no scripts, so the README gets
+// service-level flowcharts instead of the HTML page: routes grouped by their
+// first path segment, with tables, caches and third parties as nodes. Requests
+// and background jobs are separate charts because their edges cross each
+// other. The full per-route detail stays in the HTML page.
+const mermaidId = (prefix, name) => `${prefix}_${name.replace(/[^A-Za-z0-9]/g, '_')}`;
+const mermaidText = (s) => s.replace(/"/g, '#quot;').replace(/</g, '#lt;').replace(/>/g, '#gt;');
+const routeGroup = (path) => path.match(/^\/api\/([^/]+)/)?.[1] ?? path.slice(1);
+const accessLabel = (reads, writes, t) => [reads.has(t) && 'reads', writes.has(t) && 'writes'].filter(Boolean).join(', ');
+
+// Collects nodes per subgraph and edges, then prints subgraphs in the order
+// they were declared, which is the left-to-right order Mermaid lays out.
+function chart() {
+    const groups = new Map();
+    const edges = new Set();
+    return {
+        node(group, title, line) {
+            if (!groups.has(group)) groups.set(group, { title, nodes: new Set() });
+            groups.get(group).nodes.add(line);
+        },
+        edge(from, to, label = '', dotted = false) {
+            edges.add(`    ${from} ${dotted ? '-.->' : '-->'}${label ? `|${label}|` : ''} ${to}`);
+        },
+        render() {
+            const out = ['flowchart LR'];
+            for (const [id, g] of groups) out.push(`    subgraph ${id}["${g.title}"]`, ...[...g.nodes].map((n) => `        ${n}`), '    end');
+            return [...out, ...edges].join('\n') + '\n';
+        },
+    };
+}
+
+export function renderMermaid(arch) {
+    const labelOf = (id) => arch.externals.find((e) => e.id === id)?.label
+        ?? arch.declared.services.find((s) => s.id === id)?.label ?? id;
+    const db = arch.declared.machines.find((m) => m.id === 'fly-db');
+    // Mermaid clips subgraph titles wider than their contents, so these stay
+    // short; the README paragraph above the charts names the Fly apps.
+    const apiTitle = `API · ${arch.fly.app}`;
+    const pgTitle = `Postgres · ${db?.label ?? 'database'}`;
+    const tableNode = (name) => {
+        const pk = arch.schema.tables.find((t) => t.name === name).columns.filter((c) => c.pk).map((c) => c.name).join(', ');
+        return `${mermaidId('t', name)}[("${name}<br/>PK ${pk}")]`;
+    };
+    const cacheNode = (id) => `${mermaidId('c', id)}(["${mermaidText(arch.caches.find((c) => c.id === id).label)}"])`;
+    const externalNode = (id) => `${mermaidId('x', id)}["${mermaidText(labelOf(id))}"]`;
+
+    // Requests: callers on the left, route groups, then what they touch.
+    const req = chart();
+    req.node('web', 'Browser · Vercel', `fe["Web app (Vite, MapLibre)<br/>${arch.frontend.modules.length} modules"]`);
+    const groups = new Map();
+    for (const r of arch.routes) {
+        const g = routeGroup(r.path);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(r);
+    }
+    const monitors = {
+        'fly-health': [/Fly health check/, `Fly health check<br/>every ${arch.fly.healthInterval}`, 'checks'],
+        uptimerobot: [/UptimeRobot/, mermaidText(labelOf('uptimerobot')), 'checks'],
+        'fly-prom': [/Prometheus/, mermaidText(labelOf('fly-prom')), 'scrapes'],
+    };
+    for (const [g, rs] of groups) {
+        const id = mermaidId('r', g);
+        const label = rs.length === 1
+            ? mermaidText(`${rs[0].method} ${rs[0].path}`)
+            : `${mermaidText(`/api/${g}/*`)}<br/>${rs.length} routes`;
+        req.node('api', apiTitle, `${id}["${label}"]`);
+        if (rs.some((r) => r.callers.length)) req.edge('fe', id);
+        for (const caller of new Set(rs.flatMap((r) => r.machineCallers))) {
+            const [x, [, text, verb]] = Object.entries(monitors).find(([, [re]]) => re.test(caller)) ?? [null, []];
+            if (!x) continue;
+            req.node('mon', 'Monitoring', `${mermaidId('x', x)}["${text}"]`);
+            req.edge(mermaidId('x', x), id, verb);
+        }
+    }
+    for (const [g, rs] of groups) {
+        const reads = new Set(rs.flatMap((r) => r.reads));
+        const writes = new Set(rs.flatMap((r) => r.writes));
+        for (const t of [...new Set([...reads, ...writes])].sort()) {
+            req.node('pg', pgTitle, tableNode(t));
+            req.edge(mermaidId('r', g), mermaidId('t', t), accessLabel(reads, writes, t));
+        }
+        for (const c of [...new Set(rs.flatMap((r) => r.caches))].sort()) {
+            req.node('mem', 'In-memory caches (API)', cacheNode(c));
+            req.edge(mermaidId('r', g), mermaidId('c', c), '', true);
+        }
+        for (const x of [...new Set(rs.flatMap((r) => r.externals))].sort()) {
+            req.node('ext', 'Third-party services', externalNode(x));
+            req.edge(mermaidId('r', g), mermaidId('x', x));
+        }
+    }
+    for (const x of Object.keys(arch.frontend.externals).sort()) {
+        req.node('ext', 'Third-party services', externalNode(x));
+        req.edge('fe', mermaidId('x', x));
+    }
+    for (const t of arch.schema.tables) {
+        for (const c of t.columns.filter((col) => col.fk)) {
+            req.node('pg', pgTitle, tableNode(t.name));
+            req.node('pg', pgTitle, tableNode(c.fk.table));
+            req.edge(mermaidId('t', t.name), mermaidId('t', c.fk.table), c.name, true);
+        }
+    }
+
+    // Background jobs: what fills each cache, and what runs on a timer.
+    const bg = chart();
+    for (const j of arch.jobs) {
+        const id = mermaidId('j', j.name);
+        bg.node('jobs', 'Background jobs', `${id}[["${j.name}<br/>${j.interval === 'at boot' ? 'at boot' : `every ${j.interval}`}"]]`);
+        for (const x of j.externals) {
+            bg.node('ext', 'Third-party services', externalNode(x));
+            bg.edge(mermaidId('x', x), id, 'fetches');
+        }
+    }
+    for (const j of arch.jobs) {
+        const id = mermaidId('j', j.name);
+        for (const c of j.caches) {
+            bg.node('mem', 'In-memory caches (API)', cacheNode(c));
+            bg.edge(id, mermaidId('c', c), 'fills');
+        }
+        const reads = new Set(j.reads);
+        const writes = new Set(j.writes);
+        for (const t of [...new Set([...reads, ...writes])].sort()) {
+            bg.node('pg', pgTitle, tableNode(t));
+            bg.edge(id, mermaidId('t', t), accessLabel(reads, writes, t));
+        }
+    }
+    return { requests: req.render(), jobs: bg.render() };
+}
+
+const README = 'README.md';
+const README_START = '<!-- arch:start -->';
+const README_END = '<!-- arch:end -->';
+
+// Replaces only the text between the markers; the rest of the README is
+// written by hand.
+export function updateReadme(readme, { requests, jobs }) {
+    const start = readme.indexOf(README_START);
+    const end = readme.indexOf(README_END);
+    if (start === -1 || end < start) throw new Error(`${README} needs ${README_START} and ${README_END} around the generated diagram`);
+    const block = `${README_START}\n<!-- Generated by npm run arch from the code. Edits here are overwritten. -->\n`
+        + `**Requests**\n\n\`\`\`mermaid\n${requests}\`\`\`\n\n`
+        + `**Background jobs**\n\n\`\`\`mermaid\n${jobs}\`\`\`\n`;
+    return readme.slice(0, start) + block + readme.slice(end);
+}
+
 function main() {
     const data = buildArchitecture();
     const json = JSON.stringify(data, null, 2) + '\n';
     const html = renderHTML(json, read(TEMPLATE));
+    const readme = updateReadme(read(README), renderMermaid(data));
     const summary = `${data.routes.length} routes, ${data.schema.tables.length} tables, ${data.jobs.length} jobs`;
 
     if (process.argv.includes('--check')) {
         const problems = [];
-        for (const [path, want] of [[JSON_OUT, json], [HTML_OUT, html]]) {
+        for (const [path, want] of [[JSON_OUT, json], [HTML_OUT, html], [README, readme]]) {
             const have = existsSync(join(ROOT, path)) ? read(path) : '';
             if (have !== want) problems.push(`${path} is out of date. Run: npm run arch`);
         }
@@ -572,7 +720,8 @@ function main() {
     }
     writeFileSync(join(ROOT, JSON_OUT), json);
     writeFileSync(join(ROOT, HTML_OUT), html);
-    console.log(`wrote ${JSON_OUT} and ${HTML_OUT}: ${summary}`);
+    writeFileSync(join(ROOT, README), readme);
+    console.log(`wrote ${JSON_OUT}, ${HTML_OUT} and the ${README} diagram: ${summary}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
