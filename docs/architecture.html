@@ -2465,6 +2465,23 @@ table.grid tr.click:hover td { background: var(--sunk); }
           "onlyMaster": false
         }
       ]
+    },
+    {
+      "file": ".github/workflows/pages.yml",
+      "name": "Architecture map",
+      "triggers": [
+        "push"
+      ],
+      "jobs": [
+        {
+          "id": "deploy",
+          "name": "Publish architecture map",
+          "needs": [],
+          "services": [],
+          "secrets": [],
+          "onlyMaster": false
+        }
+      ]
     }
   ],
   "env": {

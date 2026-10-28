@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildArchitecture, unknownHosts, renderHTML } from '../../scripts/build-architecture.mjs';
+import { buildArchitecture, unknownHosts, renderHTML, renderMermaid, updateReadme } from '../../scripts/build-architecture.mjs';
 
 // These run against the real repository. The generator reads source with
 // patterns, so the failure to guard against is a pattern that quietly stops
@@ -90,5 +90,52 @@ describe('renderHTML', () => {
     it('cannot be broken out of its script tag by the data', () => {
         const html = renderHTML('{"x":"</script><b>"}', '<script>__ARCH_DATA__</script>');
         expect(html).toContain('<script>{"x":"\\u003c/script>\\u003cb>"}</script>');
+    });
+});
+
+describe('renderMermaid', () => {
+    const { requests, jobs } = renderMermaid(arch);
+
+    it('shows every table with its primary key', () => {
+        for (const t of arch.schema.tables) {
+            const pk = t.columns.filter((c) => c.pk).map((c) => c.name).join(', ');
+            expect(requests + jobs).toContain(`[("${t.name}<br/>PK ${pk}")]`);
+        }
+    });
+
+    it('draws the third parties a request reaches and a job fetches', () => {
+        expect(requests).toContain('r_auth --> x_resend');
+        expect(requests).toContain('x_fly_prom -->|scrapes| r_metrics');
+        expect(jobs).toContain('x_mta_rt -->|fetches| j_startFeedRefresher');
+        expect(jobs).toContain('j_startAccountCleanup -->|writes| t_users');
+    });
+
+    it('keeps node ids and labels inside what Mermaid parses', () => {
+        for (const line of (requests + jobs).split('\n')) {
+            const node = line.match(/^\s+(\w+)[[(]/);
+            if (node) expect(node[1]).toMatch(/^[A-Za-z0-9_]+$/);
+            const label = line.match(/"([^"]*)"/g)?.join('') ?? '';
+            expect(label.replace(/<br\/>/g, '')).not.toMatch(/[<>]/);
+        }
+        expect(renderMermaid({ ...arch, caches: [{ id: 'feeds', label: 'a "<b>" cache' }, ...arch.caches.slice(1)] }).requests)
+            .toContain('a #quot;#lt;b#gt;#quot; cache');
+    });
+});
+
+describe('updateReadme', () => {
+    const charts = { requests: 'flowchart LR\n    a --> b\n', jobs: 'flowchart LR\n    c --> d\n' };
+
+    it('replaces only the text between the markers', () => {
+        const readme = 'before\n<!-- arch:start -->\nold\n<!-- arch:end -->\nafter\n';
+        const out = updateReadme(readme, charts);
+        expect(out.startsWith('before\n<!-- arch:start -->\n')).toBe(true);
+        expect(out.endsWith('<!-- arch:end -->\nafter\n')).toBe(true);
+        expect(out).not.toContain('old');
+        expect(out).toContain('```mermaid\nflowchart LR\n    a --> b\n```');
+        expect(updateReadme(out, charts)).toBe(out);
+    });
+
+    it('refuses a README without the markers', () => {
+        expect(() => updateReadme('no markers here', charts)).toThrow(/arch:start/);
     });
 });
