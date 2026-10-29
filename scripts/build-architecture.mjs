@@ -218,9 +218,20 @@ function touches(decls, root, tableNames) {
 
 // ---------------------------------------------------------------- routes
 
+// Per-route limiters declared in newMux, e.g.
+// passwordLimit := rateLimitMiddleware(newIPRateLimiter("password", rate.Every(6*time.Second), 5))
+function routeLimiters(body) {
+    return [...body.matchAll(/(\w+) := rateLimitMiddleware\(newIPRateLimiter\("(\w+)", rate\.Every\((\d+)\*time\.Second\), (\d+)\)\)/g)]
+        .map(([, name, limiter, secs, burst]) => ({
+            name, limiter, burst: Number(burst), perMinute: 60 / Number(secs),
+            detail: `${60 / Number(secs)}/min, burst ${burst} per IP, 429 when empty`,
+        }));
+}
+
 function routes(decls) {
     const mux = decls.get('newMux');
     const body = mux.body;
+    const limiters = routeLimiters(body);
     const out = [];
     const regs = [...body.matchAll(/(?:mux|root)\.Handle(?:Func)?\("([A-Z]+) ([^"]+)",/g)];
     for (const m of regs) {
@@ -236,6 +247,7 @@ function routes(decls) {
         const conds = conditionsAt(body, stmtStart);
         const handler = stmt.match(/(?:a\.)?(handle\w+)/)?.[1] ?? (stmt.includes('promhttp') ? 'promhttp.Handler' : null);
         const chain = [];
+        for (const l of limiters) if (stmt.includes(`${l.name}(`)) chain.push(l.name);
         if (/requireAuth\(/.test(stmt)) chain.push('requireAuth');
         if (/optionalAuth\(/.test(stmt)) chain.push('optionalAuth');
         const feature = stmt.match(/requireFeature\("(\w+)"\)/)?.[1] ?? null;
@@ -273,7 +285,7 @@ function middleware(decls) {
     const mux = decls.get('newMux').body;
     const wrap = mux.match(/root\.Handle\("\/", (.+)\)\n/)?.[1] ?? '';
     const order = [...wrap.matchAll(/(\w+Middleware)/g)].map((m) => m[1]);
-    const rl = mux.match(/newIPRateLimiter\(([\d.]+), (\d+)\)/);
+    const rl = mux.match(/newIPRateLimiter\("global", ([\d.]+), (\d+)\)/);
     const cors = decls.get('corsMiddleware')?.body ?? '';
     const origins = [
         ...[...cors.matchAll(/origin == "([^"]+)"/g)].map((m) => m[1]),
@@ -516,6 +528,7 @@ export function buildArchitecture(root = ROOT) {
         fly,
         vercel: vercelConfig(),
         middleware: middleware(decls),
+        routeLimiters: routeLimiters(decls.get('newMux').body),
         routes: routeList,
         jobs: jobs(decls, tableNames),
         caches: Object.entries(CACHES).map(([id, c]) => ({ id, label: c.label })),

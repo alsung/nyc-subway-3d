@@ -41,19 +41,28 @@
       "name": "rateLimitMiddleware",
       "detail": "Per-IP token bucket: 10 req/s, burst 30, 429 when empty",
       "file": "ratelimit.go",
-      "line": 93
+      "line": 112
     },
     {
       "name": "corsMiddleware",
       "detail": "Allows https://localexpress.nyc, http://localhost:*, *.vercel.app",
       "file": "main.go",
-      "line": 70
+      "line": 71
     },
     {
       "name": "gzipMiddleware",
       "detail": "Gzips responses when the client accepts it",
       "file": "main.go",
-      "line": 48
+      "line": 49
+    }
+  ],
+  "routeLimiters": [
+    {
+      "name": "passwordLimit",
+      "limiter": "password",
+      "burst": 5,
+      "perMinute": 10,
+      "detail": "10/min, burst 5 per IP, 429 when empty"
     }
   ],
   "routes": [
@@ -65,11 +74,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 276,
+      "line": 277,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 89,
+      "handlerLine": 90,
       "reads": [],
       "writes": [],
       "caches": [
@@ -88,7 +97,7 @@
         "feedCache (feeds.go:40)",
         "feedsMu (feeds.go:39)",
         "lastRefresh (feeds.go:41)",
-        "maxFeedAge (main.go:19)",
+        "maxFeedAge (main.go:20)",
         "pingDB (db.go:70)"
       ],
       "pingsDatabase": true,
@@ -108,11 +117,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 277,
+      "line": 278,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 179,
+      "handlerLine": 180,
       "reads": [],
       "writes": [],
       "caches": [
@@ -122,7 +131,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "Write (main.go:68)",
+        "Write (main.go:69)",
         "gtfsFiles (gtfs.go:43)",
         "gtfsMu (gtfs.go:42)"
       ],
@@ -140,11 +149,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 278,
+      "line": 279,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 192,
+      "handlerLine": 193,
       "reads": [],
       "writes": [],
       "caches": [
@@ -179,11 +188,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 279,
+      "line": 280,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 216,
+      "handlerLine": 217,
       "reads": [],
       "writes": [],
       "caches": [
@@ -218,11 +227,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 280,
+      "line": 281,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 139,
+      "handlerLine": 140,
       "reads": [],
       "writes": [],
       "caches": [
@@ -267,11 +276,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 281,
+      "line": 282,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 162,
+      "handlerLine": 163,
       "reads": [],
       "writes": [],
       "caches": [
@@ -324,7 +333,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 283,
+      "line": 284,
       "variants": [
         {
           "conditions": [
@@ -396,12 +405,14 @@
       "path": "/api/auth/register",
       "handler": "handleRegister",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 290,
+      "line": 296,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -447,12 +458,14 @@
       "path": "/api/auth/login",
       "handler": "handleLogin",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 291,
+      "line": 297,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -494,7 +507,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 292,
+      "line": 298,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -538,7 +551,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 293,
+      "line": 299,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -576,7 +589,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 294,
+      "line": 300,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -609,7 +622,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 295,
+      "line": 301,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -646,12 +659,14 @@
       "path": "/api/auth/resend-verification",
       "handler": "handleResendVerification",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 296,
+      "line": 302,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -689,12 +704,14 @@
       "path": "/api/auth/forgot-password",
       "handler": "handleForgotPassword",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 297,
+      "line": 303,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -734,12 +751,14 @@
       "path": "/api/auth/reset-password",
       "handler": "handleResetPassword",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 298,
+      "line": 304,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -780,7 +799,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 299,
+      "line": 305,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -817,7 +836,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 300,
+      "line": 306,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -851,13 +870,14 @@
       "handler": "handleChangePassword",
       "mux": "api",
       "chain": [
+        "passwordLimit",
         "requireAuth"
       ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 301,
+      "line": 307,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -897,7 +917,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 302,
+      "line": 309,
       "variants": [],
       "access": "optional",
       "file": "feature_handlers.go",
@@ -936,7 +956,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 303,
+      "line": 310,
       "variants": [],
       "access": "auth",
       "file": "feature_handlers.go",
@@ -979,7 +999,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 305,
+      "line": 312,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1020,7 +1040,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 307,
+      "line": 314,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1063,7 +1083,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 309,
+      "line": 316,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1102,7 +1122,7 @@
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 311,
+      "line": 318,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1141,7 +1161,7 @@
         "a.dbPool != nil",
         "a.googleClientID != \"\""
       ],
-      "line": 315,
+      "line": 322,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -1169,7 +1189,7 @@
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:259"
+        "src/ui/auth-modal.js:260"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1182,11 +1202,11 @@
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 326,
+      "line": 333,
       "variants": [],
       "access": "internal",
       "file": "main.go",
-      "handlerLine": 326,
+      "handlerLine": 333,
       "reads": [],
       "writes": [],
       "caches": [],
@@ -1318,7 +1338,7 @@
     {
       "name": "startAccountCleanup",
       "file": "main.go",
-      "line": 256,
+      "line": 257,
       "interval": "1h",
       "needsDatabase": true,
       "reads": [],
@@ -1335,7 +1355,7 @@
       ],
       "calls": [
         "metricPurgeLastSuccess (metrics.go:94)",
-        "purgeExpired (main.go:235)"
+        "purgeExpired (main.go:236)"
       ],
       "pingsDatabase": false,
       "libs": []
@@ -2291,8 +2311,10 @@
       "var": "metricRateLimited",
       "type": "Counter",
       "name": "rate_limited_total",
-      "help": "Requests rejected by the per-IP rate limiter.",
-      "labels": [],
+      "help": "Requests rejected by a per-IP rate limiter.",
+      "labels": [
+        "limiter"
+      ],
       "file": "ratelimit.go"
     }
   ],

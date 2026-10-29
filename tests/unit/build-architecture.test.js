@@ -53,6 +53,14 @@ describe('routes', () => {
     it('lists middleware in the order requests pass through it', () => {
         expect(arch.middleware.map((m) => m.name))
             .toEqual(['metricsMiddleware', 'rateLimitMiddleware', 'corsMiddleware', 'gzipMiddleware']);
+        expect(arch.middleware[1].detail).toBe('Per-IP token bucket: 10 req/s, burst 30, 429 when empty');
+    });
+
+    it('reads per-route rate limits, outermost first', () => {
+        expect(arch.routeLimiters).toEqual([expect.objectContaining({ name: 'passwordLimit', perMinute: 10, burst: 5 })]);
+        expect(route('POST', '/api/auth/login').chain).toEqual(['passwordLimit']);
+        expect(route('POST', '/api/auth/change-password').chain).toEqual(['passwordLimit', 'requireAuth']);
+        expect(route('POST', '/api/auth/refresh').chain).toEqual([]);
     });
 });
 
