@@ -218,13 +218,16 @@ function touches(decls, root, tableNames) {
 
 // ---------------------------------------------------------------- routes
 
-// Per-route limiters declared in newMux, e.g.
-// passwordLimit := rateLimitMiddleware(newIPRateLimiter("password", rate.Every(6*time.Second), 5))
+// Per-route limiters declared in newMux. Each call makes a new bucket table,
+// so every route it wraps is limited on its own:
+// passwordLimit := func(name string) func(http.Handler) http.Handler {
+//     return rateLimitMiddleware(newIPRateLimiter(name, rate.Every(6*time.Second), 5))
+// }
 function routeLimiters(body) {
-    return [...body.matchAll(/(\w+) := rateLimitMiddleware\(newIPRateLimiter\("(\w+)", rate\.Every\((\d+)\*time\.Second\), (\d+)\)\)/g)]
-        .map(([, name, limiter, secs, burst]) => ({
-            name, limiter, burst: Number(burst), perMinute: 60 / Number(secs),
-            detail: `${60 / Number(secs)}/min, burst ${burst} per IP, 429 when empty`,
+    return [...body.matchAll(/(\w+) := func\(name string\) func\(http\.Handler\) http\.Handler \{\s*return rateLimitMiddleware\(newIPRateLimiter\(name, rate\.Every\((\d+)\*time\.Second\), (\d+)\)\)/g)]
+        .map(([, name, secs, burst]) => ({
+            name, burst: Number(burst), perMinute: 60 / Number(secs),
+            detail: `${60 / Number(secs)}/min, burst ${burst} per IP for this route, 429 when empty`,
         }));
 }
 
@@ -247,7 +250,7 @@ function routes(decls) {
         const conds = conditionsAt(body, stmtStart);
         const handler = stmt.match(/(?:a\.)?(handle\w+)/)?.[1] ?? (stmt.includes('promhttp') ? 'promhttp.Handler' : null);
         const chain = [];
-        for (const l of limiters) if (stmt.includes(`${l.name}(`)) chain.push(l.name);
+        for (const l of limiters) if (stmt.includes(`${l.name}("`)) chain.push(l.name);
         if (/requireAuth\(/.test(stmt)) chain.push('requireAuth');
         if (/optionalAuth\(/.test(stmt)) chain.push('optionalAuth');
         const feature = stmt.match(/requireFeature\("(\w+)"\)/)?.[1] ?? null;
@@ -276,9 +279,12 @@ function conditionsAt(body, idx) {
         const cond = line.match(/^\s*if (.+) \{$/);
         if (cond) { stack.push(cond[1].trim()); continue; }
         if (/^\s*\} else \{$/.test(line)) { stack.push(`!(${stack.pop()})`); continue; }
-        if (/^\s*\}\s*$/.test(line)) stack.pop();
+        if (/^\s*\}\s*$/.test(line)) { stack.pop(); continue; }
+        // Any other block (a func literal, a for loop) still ends with a
+        // bare }, so it holds a place on the stack without being a condition.
+        if (/\{\s*$/.test(line)) stack.push(null);
     }
-    return stack.filter((c) => !/err != nil/.test(c));
+    return stack.filter((c) => c !== null && !/err != nil/.test(c));
 }
 
 function middleware(decls) {

@@ -52,15 +52,21 @@ describe('routes', () => {
 
     it('lists middleware in the order requests pass through it', () => {
         expect(arch.middleware.map((m) => m.name))
-            .toEqual(['metricsMiddleware', 'rateLimitMiddleware', 'corsMiddleware', 'gzipMiddleware']);
-        expect(arch.middleware[1].detail).toBe('Per-IP token bucket: 10 req/s, burst 30, 429 when empty');
+            .toEqual(['metricsMiddleware', 'corsMiddleware', 'rateLimitMiddleware', 'gzipMiddleware']);
+        expect(arch.middleware[2].detail).toBe('Per-IP token bucket: 10 req/s, burst 30, 429 when empty');
     });
 
     it('reads per-route rate limits, outermost first', () => {
         expect(arch.routeLimiters).toEqual([expect.objectContaining({ name: 'passwordLimit', perMinute: 10, burst: 5 })]);
-        expect(route('POST', '/api/auth/login').chain).toEqual(['passwordLimit']);
+        for (const path of ['register', 'login', 'resend-verification', 'forgot-password', 'reset-password']) {
+            expect(route('POST', `/api/auth/${path}`).chain).toEqual(['passwordLimit']);
+        }
         expect(route('POST', '/api/auth/change-password').chain).toEqual(['passwordLimit', 'requireAuth']);
         expect(route('POST', '/api/auth/refresh').chain).toEqual([]);
+        // The limiter is a func literal inside the database block; its closing
+        // brace must not end the block.
+        expect(route('POST', '/api/auth/login').conditions).toEqual(['a.dbPool != nil']);
+        expect(route('DELETE', '/api/commutes/{id}').conditions).toEqual(['a.dbPool != nil']);
     });
 });
 

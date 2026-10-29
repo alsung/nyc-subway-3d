@@ -196,6 +196,51 @@ func TestPasswordLimit_Login(t *testing.T) {
 	}
 }
 
+// Each password route has its own bucket: using up login's doesn't block a
+// password reset from the same IP.
+func TestPasswordLimit_SeparateBucketPerRoute(t *testing.T) {
+	a, _ := authTestApp(t)
+	h := newMux(a)
+	login := `{"email":"nobody-ratelimit@example.com","password":"wrong-password"}`
+
+	for i := 1; i <= 6; i++ {
+		muxRequest(h, "POST", "/api/auth/login", "1.2.3.4", login)
+	}
+	if rec := muxRequest(h, "POST", "/api/auth/login", "1.2.3.4", login); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("login after 6 attempts: got %d, want 429", rec.Code)
+	}
+	rec := muxRequest(h, "POST", "/api/auth/forgot-password", "1.2.3.4", `{"email":"nobody-ratelimit@example.com"}`)
+	if rec.Code != http.StatusOK {
+		t.Errorf("forgot-password after login was limited: got %d, want 200", rec.Code)
+	}
+}
+
+// The global 429 must carry CORS headers, or the browser hides the response
+// and the app reports a network error.
+func TestGlobalLimit_429HasCORSHeaders(t *testing.T) {
+	h := newMux(&app{})
+	var rec *httptest.ResponseRecorder
+	for i := 0; i < 40; i++ {
+		req := httptest.NewRequest("GET", "/api/vehicles", nil)
+		req.Header.Set("Fly-Client-IP", "1.2.3.4")
+		req.Header.Set("Origin", "https://localexpress.nyc")
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			break
+		}
+	}
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("40 requests never hit the global limit (last %d)", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://localexpress.nyc" {
+		t.Errorf("Access-Control-Allow-Origin = %q on 429, want https://localexpress.nyc", got)
+	}
+	if want := `{"error":"Too many attempts. Try again in 1 second."}`; rec.Body.String() != want {
+		t.Errorf("body = %q, want %q", rec.Body.String(), want)
+	}
+}
+
 // The limit runs before requireAuth, so calls without a token still use up
 // the bucket and never reach bcrypt.
 func TestPasswordLimit_ChangePasswordBeforeAuth(t *testing.T) {

@@ -122,7 +122,11 @@ func rateLimitMiddleware(limiter *ipRateLimiter) func(http.Handler) http.Handler
 				w.Header().Set("Retry-After", strconv.Itoa(secs))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				fmt.Fprintf(w, `{"error":"Too many attempts. Try again in %d seconds."}`, secs)
+				unit := "seconds"
+				if secs == 1 {
+					unit = "second"
+				}
+				fmt.Fprintf(w, `{"error":"Too many attempts. Try again in %d %s."}`, secs, unit)
 				return
 			}
 			next.ServeHTTP(w, r)
