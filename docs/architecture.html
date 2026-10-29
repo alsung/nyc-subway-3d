@@ -329,22 +329,30 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "line": 152
     },
     {
-      "name": "rateLimitMiddleware",
-      "detail": "Per-IP token bucket: 10 req/s, burst 30, 429 when empty",
-      "file": "ratelimit.go",
-      "line": 93
-    },
-    {
       "name": "corsMiddleware",
       "detail": "Allows https://localexpress.nyc, http://localhost:*, *.vercel.app",
       "file": "main.go",
-      "line": 70
+      "line": 71
+    },
+    {
+      "name": "rateLimitMiddleware",
+      "detail": "Per-IP token bucket: 10 req/s, burst 30, 429 when empty",
+      "file": "ratelimit.go",
+      "line": 112
     },
     {
       "name": "gzipMiddleware",
       "detail": "Gzips responses when the client accepts it",
       "file": "main.go",
-      "line": 48
+      "line": 49
+    }
+  ],
+  "routeLimiters": [
+    {
+      "name": "passwordLimit",
+      "burst": 5,
+      "perMinute": 10,
+      "detail": "10/min, burst 5 per IP for this route, 429 when empty"
     }
   ],
   "routes": [
@@ -356,11 +364,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 276,
+      "line": 277,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 89,
+      "handlerLine": 90,
       "reads": [],
       "writes": [],
       "caches": [
@@ -379,7 +387,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "feedCache (feeds.go:40)",
         "feedsMu (feeds.go:39)",
         "lastRefresh (feeds.go:41)",
-        "maxFeedAge (main.go:19)",
+        "maxFeedAge (main.go:20)",
         "pingDB (db.go:70)"
       ],
       "pingsDatabase": true,
@@ -399,11 +407,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 277,
+      "line": 278,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 179,
+      "handlerLine": 180,
       "reads": [],
       "writes": [],
       "caches": [
@@ -413,7 +421,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "Write (main.go:68)",
+        "Write (main.go:69)",
         "gtfsFiles (gtfs.go:43)",
         "gtfsMu (gtfs.go:42)"
       ],
@@ -431,11 +439,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 278,
+      "line": 279,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 192,
+      "handlerLine": 193,
       "reads": [],
       "writes": [],
       "caches": [
@@ -470,11 +478,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 279,
+      "line": 280,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 216,
+      "handlerLine": 217,
       "reads": [],
       "writes": [],
       "caches": [
@@ -509,11 +517,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 280,
+      "line": 281,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 139,
+      "handlerLine": 140,
       "reads": [],
       "writes": [],
       "caches": [
@@ -558,11 +566,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 281,
+      "line": 282,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 162,
+      "handlerLine": 163,
       "reads": [],
       "writes": [],
       "caches": [
@@ -615,7 +623,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 283,
+      "line": 284,
       "variants": [
         {
           "conditions": [
@@ -687,12 +695,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/register",
       "handler": "handleRegister",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 290,
+      "line": 299,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -738,12 +748,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/login",
       "handler": "handleLogin",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 291,
+      "line": 300,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -785,7 +797,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 292,
+      "line": 301,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -829,7 +841,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 293,
+      "line": 302,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -867,7 +879,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 294,
+      "line": 303,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -900,7 +912,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 295,
+      "line": 304,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -937,12 +949,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/resend-verification",
       "handler": "handleResendVerification",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 296,
+      "line": 305,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -980,12 +994,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/forgot-password",
       "handler": "handleForgotPassword",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 297,
+      "line": 306,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -1025,12 +1041,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/reset-password",
       "handler": "handleResetPassword",
       "mux": "api",
-      "chain": [],
+      "chain": [
+        "passwordLimit"
+      ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 298,
+      "line": 307,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -1071,7 +1089,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 299,
+      "line": 308,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -1108,7 +1126,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 300,
+      "line": 309,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -1142,13 +1160,14 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "handler": "handleChangePassword",
       "mux": "api",
       "chain": [
+        "passwordLimit",
         "requireAuth"
       ],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 301,
+      "line": 310,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
@@ -1188,7 +1207,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 302,
+      "line": 312,
       "variants": [],
       "access": "optional",
       "file": "feature_handlers.go",
@@ -1227,7 +1246,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 303,
+      "line": 313,
       "variants": [],
       "access": "auth",
       "file": "feature_handlers.go",
@@ -1270,7 +1289,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 305,
+      "line": 315,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1311,7 +1330,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 307,
+      "line": 317,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1354,7 +1373,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 309,
+      "line": 319,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1393,7 +1412,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 311,
+      "line": 321,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
@@ -1432,7 +1451,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "a.dbPool != nil",
         "a.googleClientID != \"\""
       ],
-      "line": 315,
+      "line": 325,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
@@ -1460,7 +1479,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:259"
+        "src/ui/auth-modal.js:260"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1473,11 +1492,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 326,
+      "line": 340,
       "variants": [],
       "access": "internal",
       "file": "main.go",
-      "handlerLine": 326,
+      "handlerLine": 340,
       "reads": [],
       "writes": [],
       "caches": [],
@@ -1609,7 +1628,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
     {
       "name": "startAccountCleanup",
       "file": "main.go",
-      "line": 256,
+      "line": 257,
       "interval": "1h",
       "needsDatabase": true,
       "reads": [],
@@ -1626,7 +1645,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       ],
       "calls": [
         "metricPurgeLastSuccess (metrics.go:94)",
-        "purgeExpired (main.go:235)"
+        "purgeExpired (main.go:236)"
       ],
       "pingsDatabase": false,
       "libs": []
@@ -2582,8 +2601,10 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "var": "metricRateLimited",
       "type": "Counter",
       "name": "rate_limited_total",
-      "help": "Requests rejected by the per-IP rate limiter.",
-      "labels": [],
+      "help": "Requests rejected by a per-IP rate limiter.",
+      "labels": [
+        "limiter"
+      ],
       "file": "ratelimit.go"
     }
   ],
@@ -2927,7 +2948,10 @@ function renderInspector() {
     else {
       hops.push(['Fly proxy', `force_https, forwards to :${D.fly.port}`, 'var(--lane-api)']);
       for (const m of D.middleware) hops.push([m.name, m.detail, 'var(--lane-api)']);
-      for (const c of r.chain) hops.push([c, c === 'requireAuth' ? 'Bearer JWT required, 401 otherwise' : c === 'optionalAuth' ? 'reads the JWT when present' : `403 unless the caller's tier can use this flag (feature cache)`, c.startsWith('requireFeature') ? 'var(--lane-state)' : 'var(--lane-api)']);
+      for (const c of r.chain) {
+        const limit = D.routeLimiters.find((l) => l.name === c);
+        hops.push([c, limit ? limit.detail : c === 'requireAuth' ? 'Bearer JWT required, 401 otherwise' : c === 'optionalAuth' ? 'reads the JWT when present' : `403 unless the caller's tier can use this flag (feature cache)`, c.startsWith('requireFeature') ? 'var(--lane-state)' : 'var(--lane-api)']);
+      }
     }
     hops.push([r.handler, `api/${r.file}:${r.handlerLine}`, 'var(--lane-api)']);
     html += head(true);

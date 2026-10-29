@@ -568,7 +568,10 @@ function renderInspector() {
     else {
       hops.push(['Fly proxy', `force_https, forwards to :${D.fly.port}`, 'var(--lane-api)']);
       for (const m of D.middleware) hops.push([m.name, m.detail, 'var(--lane-api)']);
-      for (const c of r.chain) hops.push([c, c === 'requireAuth' ? 'Bearer JWT required, 401 otherwise' : c === 'optionalAuth' ? 'reads the JWT when present' : `403 unless the caller's tier can use this flag (feature cache)`, c.startsWith('requireFeature') ? 'var(--lane-state)' : 'var(--lane-api)']);
+      for (const c of r.chain) {
+        const limit = D.routeLimiters.find((l) => l.name === c);
+        hops.push([c, limit ? limit.detail : c === 'requireAuth' ? 'Bearer JWT required, 401 otherwise' : c === 'optionalAuth' ? 'reads the JWT when present' : `403 unless the caller's tier can use this flag (feature cache)`, c.startsWith('requireFeature') ? 'var(--lane-state)' : 'var(--lane-api)']);
+      }
     }
     hops.push([r.handler, `api/${r.file}:${r.handlerLine}`, 'var(--lane-api)']);
     html += head(true);

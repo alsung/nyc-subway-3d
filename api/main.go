@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/time/rate"
 )
 
 const maxFeedAge = 3 * time.Minute
@@ -287,18 +288,27 @@ func newMux(a *app) http.Handler {
 	}
 
 	if a.dbPool != nil {
-		mux.HandleFunc("POST /api/auth/register", a.handleRegister)
-		mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+		// Routes that check a password or send an email get a much tighter
+		// per-IP limit than the global one: 10 a minute, burst 5. Each route
+		// has its own bucket, so failed logins don't block a password reset.
+		// It wraps requireAuth too, so it runs before token checks and bcrypt.
+		passwordLimit := func(name string) func(http.Handler) http.Handler {
+			return rateLimitMiddleware(newIPRateLimiter(name, rate.Every(6*time.Second), 5))
+		}
+
+		mux.Handle("POST /api/auth/register", passwordLimit("register")(http.HandlerFunc(a.handleRegister)))
+		mux.Handle("POST /api/auth/login", passwordLimit("login")(http.HandlerFunc(a.handleLogin)))
 		mux.HandleFunc("POST /api/auth/refresh", a.handleRefresh)
 		mux.Handle("POST /api/auth/logout", requireAuth(http.HandlerFunc(a.handleLogout)))
 		mux.Handle("GET /api/auth/me", requireAuth(http.HandlerFunc(a.handleMe)))
 		mux.HandleFunc("POST /api/auth/verify-email", a.handleVerifyEmail)
-		mux.HandleFunc("POST /api/auth/resend-verification", a.handleResendVerification)
-		mux.HandleFunc("POST /api/auth/forgot-password", a.handleForgotPassword)
-		mux.HandleFunc("POST /api/auth/reset-password", a.handleResetPassword)
+		mux.Handle("POST /api/auth/resend-verification", passwordLimit("resend-verification")(http.HandlerFunc(a.handleResendVerification)))
+		mux.Handle("POST /api/auth/forgot-password", passwordLimit("forgot-password")(http.HandlerFunc(a.handleForgotPassword)))
+		mux.Handle("POST /api/auth/reset-password", passwordLimit("reset-password")(http.HandlerFunc(a.handleResetPassword)))
 		mux.Handle("PATCH /api/auth/account", requireAuth(http.HandlerFunc(a.handleUpdateAccount)))
 		mux.Handle("DELETE /api/auth/account", requireAuth(http.HandlerFunc(a.handleDeleteAccount)))
-		mux.Handle("POST /api/auth/change-password", requireAuth(http.HandlerFunc(a.handleChangePassword)))
+		mux.Handle("POST /api/auth/change-password",
+			passwordLimit("change-password")(requireAuth(http.HandlerFunc(a.handleChangePassword))))
 		mux.Handle("GET /api/features", optionalAuth(http.HandlerFunc(a.handleGetFeatures)))
 		mux.Handle("PUT /api/features/{name}", requireAuth(http.HandlerFunc(a.handleUpdateFeature)))
 
@@ -321,10 +331,14 @@ func newMux(a *app) http.Handler {
 	// would double-encode and break scraping with no visible error; and Fly
 	// scrapes every few seconds, which would otherwise swamp the request
 	// counter with traffic nobody made.
-	rl := newIPRateLimiter(10, 30)
+	//
+	// corsMiddleware runs before the rate limiter so a 429 still carries
+	// Access-Control-Allow-Origin; without it the browser can't read the
+	// error and the app reports a network failure.
+	rl := newIPRateLimiter("global", 10, 30)
 	root := http.NewServeMux()
 	root.Handle("GET /metrics", promhttp.Handler())
-	root.Handle("/", metricsMiddleware(rateLimitMiddleware(rl)(corsMiddleware(gzipMiddleware(mux)))))
+	root.Handle("/", metricsMiddleware(corsMiddleware(rateLimitMiddleware(rl)(gzipMiddleware(mux)))))
 	return root
 }
 

@@ -227,6 +227,7 @@ export function buildAuthModal(container) {
                 body: JSON.stringify({ email }),
             });
             const data = await res.json();
+            if (!res.ok) { showError(data.error || 'Could not send the reset link'); return; }
             showSuccess(data.message || 'If that email is registered, a reset link has been sent');
         } catch { showError('Network error'); }
         finally { setLoading(fpSubmit, false); }
