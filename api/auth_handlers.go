@@ -41,6 +41,48 @@ type userView struct {
 	Provider    string `json:"provider"`
 }
 
+// refreshTokenTTL is how long a refresh token stays valid; each refresh
+// replaces it with a new one.
+const refreshTokenTTL = 7 * 24 * time.Hour
+
+// issueSession signs an access token, stores a new refresh token and writes
+// both with the user. Every sign-in path ends here. On failure it logs and
+// writes a 500.
+func (a *app) issueSession(w http.ResponseWriter, r *http.Request, status int, user userView) {
+	accessToken, err := signAccessToken(user.ID, user.Email, user.Tier)
+	if err != nil {
+		slog.Error("sign access token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rawRefresh, hashedRefresh, err := generateRefreshToken()
+	if err != nil {
+		slog.Error("generate refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.dbPool.Exec(r.Context(),
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		user.ID, hashedRefresh, time.Now().Add(refreshTokenTTL),
+	)
+	if err != nil {
+		slog.Error("insert refresh token failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(authResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawRefresh,
+		User:         user,
+	})
+}
+
 type googleAuthRequest struct {
 	IDToken string `json:"idToken"`
 }
@@ -107,43 +149,13 @@ func (a *app) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	accessToken, err := signAccessToken(userID, email, tier)
-	if err != nil {
-		slog.Error("sign access token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	rawRefresh, hashedRefresh, err := generateRefreshToken()
-	if err != nil {
-		slog.Error("generate refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	_, err = a.dbPool.Exec(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
-	)
-	if err != nil {
-		slog.Error("insert refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
-		User: userView{
-			ID:          userID,
-			Email:       email,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Tier:        tier,
-			Provider:    "google",
-		},
+	a.issueSession(w, r, http.StatusOK, userView{
+		ID:          userID,
+		Email:       email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+		Provider:    "google",
 	})
 }
 
@@ -194,41 +206,13 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if devAutoVerify {
-		accessToken, err := signAccessToken(userID, email, tier)
-		if err != nil {
-			slog.Error("sign access token failed", "err", err)
-			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-		rawRefresh, hashedRefresh, err := generateRefreshToken()
-		if err != nil {
-			slog.Error("generate refresh token failed", "err", err)
-			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-		_, err = a.dbPool.Exec(r.Context(),
-			`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-			 VALUES ($1, $2, $3)`,
-			userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
-		)
-		if err != nil {
-			slog.Error("insert refresh token failed", "err", err)
-			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(authResponse{
-			AccessToken:  accessToken,
-			RefreshToken: rawRefresh,
-			User: userView{
-				ID:          userID,
-				Email:       email,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Tier:        tier,
-				Provider:    "email",
-			},
+		a.issueSession(w, r, http.StatusCreated, userView{
+			ID:          userID,
+			Email:       email,
+			DisplayName: displayName,
+			AvatarURL:   avatarURL,
+			Tier:        tier,
+			Provider:    "email",
 		})
 		return
 	}
@@ -300,43 +284,13 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := signAccessToken(userID, email, tier)
-	if err != nil {
-		slog.Error("sign access token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	rawRefresh, hashedRefresh, err := generateRefreshToken()
-	if err != nil {
-		slog.Error("generate refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	_, err = a.dbPool.Exec(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
-	)
-	if err != nil {
-		slog.Error("insert refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
-		User: userView{
-			ID:          userID,
-			Email:       email,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Tier:        tier,
-			Provider:    provider,
-		},
+	a.issueSession(w, r, http.StatusOK, userView{
+		ID:          userID,
+		Email:       email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+		Provider:    provider,
 	})
 }
 
@@ -354,14 +308,16 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	hashed := hashToken(req.RefreshToken)
 
-	var tokenID, userID string
+	// Rotation is one DELETE, so when several requests carry the same token
+	// only one gets the row back. Expired tokens are deleted here too and
+	// then refused.
+	var userID string
 	var expiresAt time.Time
 	err := a.dbPool.QueryRow(r.Context(),
-		`SELECT rt.id, rt.user_id, rt.expires_at
-		 FROM refresh_tokens rt
-		 WHERE rt.token_hash = $1`,
+		`DELETE FROM refresh_tokens WHERE token_hash = $1
+		 RETURNING user_id, expires_at`,
 		hashed,
-	).Scan(&tokenID, &userID, &expiresAt)
+	).Scan(&userID, &expiresAt)
 
 	if err != nil {
 		http.Error(w, `{"error":"invalid refresh token"}`, http.StatusUnauthorized)
@@ -369,13 +325,9 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if time.Now().After(expiresAt) {
-		a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE id = $1`, tokenID)
 		http.Error(w, `{"error":"refresh token expired"}`, http.StatusUnauthorized)
 		return
 	}
-
-	// Delete old token (rotation)
-	a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE id = $1`, tokenID)
 
 	var email, displayName, avatarURL, tier, provider string
 	err = a.dbPool.QueryRow(r.Context(),
@@ -389,43 +341,13 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := signAccessToken(userID, email, tier)
-	if err != nil {
-		slog.Error("sign access token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	rawRefresh, hashedRefresh, err := generateRefreshToken()
-	if err != nil {
-		slog.Error("generate refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	_, err = a.dbPool.Exec(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
-	)
-	if err != nil {
-		slog.Error("insert refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
-		User: userView{
-			ID:          userID,
-			Email:       email,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Tier:        tier,
-			Provider:    provider,
-		},
+	a.issueSession(w, r, http.StatusOK, userView{
+		ID:          userID,
+		Email:       email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+		Provider:    provider,
 	})
 }
 
@@ -436,12 +358,12 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashed := hashToken(req.RefreshToken)
-	u := userFromContext(r.Context())
-
+	// Holding the refresh token is enough to revoke it, so this needs no
+	// access token: the client can sign out after its access token expires.
+	// The reply is the same whether or not the token existed.
 	a.dbPool.Exec(r.Context(),
-		`DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2`,
-		hashed, u.ID,
+		`DELETE FROM refresh_tokens WHERE token_hash = $1`,
+		hashToken(req.RefreshToken),
 	)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -495,43 +417,13 @@ func (a *app) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := signAccessToken(userID, email, tier)
-	if err != nil {
-		slog.Error("sign access token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	rawRefresh, hashedRefresh, err := generateRefreshToken()
-	if err != nil {
-		slog.Error("generate refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	_, err = a.dbPool.Exec(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		 VALUES ($1, $2, $3)`,
-		userID, hashedRefresh, time.Now().Add(7*24*time.Hour),
-	)
-	if err != nil {
-		slog.Error("insert refresh token failed", "err", err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(authResponse{
-		AccessToken:  accessToken,
-		RefreshToken: rawRefresh,
-		User: userView{
-			ID:          userID,
-			Email:       email,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Tier:        tier,
-			Provider:    provider,
-		},
+	a.issueSession(w, r, http.StatusOK, userView{
+		ID:          userID,
+		Email:       email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		Tier:        tier,
+		Provider:    provider,
 	})
 }
 

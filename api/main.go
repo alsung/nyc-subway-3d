@@ -299,7 +299,7 @@ func newMux(a *app) http.Handler {
 		mux.Handle("POST /api/auth/register", passwordLimit("register")(http.HandlerFunc(a.handleRegister)))
 		mux.Handle("POST /api/auth/login", passwordLimit("login")(http.HandlerFunc(a.handleLogin)))
 		mux.HandleFunc("POST /api/auth/refresh", a.handleRefresh)
-		mux.Handle("POST /api/auth/logout", requireAuth(http.HandlerFunc(a.handleLogout)))
+		mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
 		mux.Handle("GET /api/auth/me", requireAuth(http.HandlerFunc(a.handleMe)))
 		mux.HandleFunc("POST /api/auth/verify-email", a.handleVerifyEmail)
 		mux.Handle("POST /api/auth/resend-verification", passwordLimit("resend-verification")(http.HandlerFunc(a.handleResendVerification)))

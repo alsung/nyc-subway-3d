@@ -6,14 +6,23 @@ vi.mock('../../src/core/prefs.js', () => ({
     writePref: vi.fn(),
 }));
 
-const { getUser, onAuthChange, signIn, signOut, parseJWT, authFetch, tryRestoreSession } =
+const { getUser, onAuthChange, signIn, signOut, parseJWT, authFetch, tryRestoreSession, refreshTokens } =
     await import('../../src/core/auth.js');
-const { writePref } = await import('../../src/core/prefs.js');
+const { readPref, writePref } = await import('../../src/core/prefs.js');
 
 beforeEach(() => {
-    signOut();
     vi.restoreAllMocks();
+    readPref.mockImplementation(() => null);
+    // signOut() sends a logout request, so every test starts with a fetch
+    // stub that answers it; tests that care about fetch replace it.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true }));
+    signOut();
 });
+
+const json = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
+const isRefresh = (url) => String(url).endsWith('/api/auth/refresh');
+const isLogout = (url) => String(url).endsWith('/api/auth/logout');
+const newSession = { accessToken: 'new-access', refreshToken: 'new-refresh', user: { id: '1' } };
 
 describe('parseJWT', () => {
     it('decodes a standard JWT payload', () => {
@@ -144,5 +153,85 @@ describe('tryRestoreSession', () => {
 
         expect(mockFetch).not.toHaveBeenCalled();
         expect(getUser()).toBeNull();
+    });
+});
+
+describe('refresh', () => {
+    it('shares one refresh between concurrent 401s', async () => {
+        const mockFetch = vi.fn(async (url, opts) => {
+            if (isRefresh(url)) return json(200, newSession);
+            return opts.headers.Authorization === 'Bearer new-access' ? json(200, {}) : json(401, {});
+        });
+        vi.stubGlobal('fetch', mockFetch);
+        signIn('old-access', 'old-refresh', { id: '1' });
+
+        const [a, b] = await Promise.all([authFetch('https://example.com/a'), authFetch('https://example.com/b')]);
+
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+        expect(mockFetch.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1);
+    });
+
+    it('keeps the session when the refresh request fails to send', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+        signIn('a', 'r', { id: '1' });
+
+        expect(await refreshTokens()).toBe(false);
+        expect(getUser()).toEqual({ id: '1' });
+    });
+
+    it('keeps the session when the server errors', async () => {
+        for (const status of [500, 429]) {
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(status, {})));
+            signIn('a', 'r', { id: '1' });
+
+            expect(await refreshTokens()).toBe(false);
+            expect(getUser()).toEqual({ id: '1' });
+        }
+    });
+
+    it('signs out when the server rejects the token, without a logout call', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(json(401, {}));
+        vi.stubGlobal('fetch', mockFetch);
+        signIn('a', 'r', { id: '1' });
+
+        expect(await refreshTokens()).toBe(false);
+        expect(getUser()).toBeNull();
+        expect(mockFetch.mock.calls.filter(([url]) => isLogout(url))).toHaveLength(0);
+    });
+
+    it('uses the token in storage, which another tab may have rotated', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(json(200, newSession));
+        vi.stubGlobal('fetch', mockFetch);
+        signIn('a', 'this-tab-token', { id: '1' });
+        readPref.mockImplementation((key) => (key === 'refreshToken' ? 'other-tab-token' : null));
+
+        await refreshTokens();
+
+        expect(JSON.parse(mockFetch.mock.calls[0][1].body).refreshToken).toBe('other-tab-token');
+    });
+});
+
+describe('signOut', () => {
+    it('revokes the refresh token on the server', () => {
+        const mockFetch = vi.fn().mockResolvedValue(json(200, {}));
+        vi.stubGlobal('fetch', mockFetch);
+        signIn('a', 'r-to-revoke', { id: '1' });
+
+        signOut();
+
+        const [url, opts] = mockFetch.mock.calls[0];
+        expect(isLogout(url)).toBe(true);
+        expect(JSON.parse(opts.body)).toEqual({ refreshToken: 'r-to-revoke' });
+        expect(getUser()).toBeNull();
+    });
+
+    it('sends nothing when already signed out', () => {
+        const mockFetch = vi.fn();
+        vi.stubGlobal('fetch', mockFetch);
+
+        signOut();
+
+        expect(mockFetch).not.toHaveBeenCalled();
     });
 });
