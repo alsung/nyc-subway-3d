@@ -706,7 +706,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 150,
+      "handlerLine": 162,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -725,7 +725,9 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "devAutoVerify (email.go:13)",
         "emailFromAddr (email.go:15)",
         "generateRefreshToken (auth.go:66)",
+        "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
+        "refreshTokenTTL (auth_handlers.go:46)",
         "resendAPIKey (email.go:12)",
         "sendEmail (email.go:33)",
         "sendVerificationEmail (email.go:74)",
@@ -759,7 +761,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 265,
+      "handlerLine": 249,
       "reads": [
         "users"
       ],
@@ -771,8 +773,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "WriteHeader (metrics.go:147)",
         "generateRefreshToken (auth.go:66)",
+        "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
+        "refreshTokenTTL (auth_handlers.go:46)",
         "signAccessToken (auth.go:35)"
       ],
       "pingsDatabase": false,
@@ -801,7 +806,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 343,
+      "handlerLine": 297,
       "reads": [
         "users"
       ],
@@ -813,9 +818,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "WriteHeader (metrics.go:147)",
         "generateRefreshToken (auth.go:66)",
         "hashToken (auth.go:77)",
+        "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
+        "refreshTokenTTL (auth_handlers.go:46)",
         "signAccessToken (auth.go:35)"
       ],
       "pingsDatabase": false,
@@ -824,7 +832,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/core/auth.js:67"
+        "src/core/auth.js:106"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -834,18 +842,16 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "path": "/api/auth/logout",
       "handler": "handleLogout",
       "mux": "api",
-      "chain": [
-        "requireAuth"
-      ],
+      "chain": [],
       "feature": null,
       "conditions": [
         "a.dbPool != nil"
       ],
       "line": 302,
       "variants": [],
-      "access": "auth",
+      "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 432,
+      "handlerLine": 354,
       "reads": [],
       "writes": [
         "refresh_tokens"
@@ -855,15 +861,15 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "hashToken (auth.go:77)",
-        "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "hashToken (auth.go:77)"
       ],
       "pingsDatabase": false,
       "libs": [
         "refresh token (SHA-256)"
       ],
-      "callers": [],
+      "callers": [
+        "src/core/auth.js:52"
+      ],
       "machineCallers": [],
       "inOpenAPI": true
     },
@@ -883,7 +889,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 739,
+      "handlerLine": 631,
       "reads": [
         "users"
       ],
@@ -916,7 +922,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 455,
+      "handlerLine": 377,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -928,9 +934,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "WriteHeader (metrics.go:147)",
         "generateRefreshToken (auth.go:66)",
         "hashToken (auth.go:77)",
+        "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
+        "refreshTokenTTL (auth_handlers.go:46)",
         "signAccessToken (auth.go:35)"
       ],
       "pingsDatabase": false,
@@ -960,7 +969,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 542,
+      "handlerLine": 434,
       "reads": [
         "users"
       ],
@@ -1005,7 +1014,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 619,
+      "handlerLine": 511,
       "reads": [
         "users"
       ],
@@ -1052,7 +1061,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 681,
+      "handlerLine": 573,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1093,7 +1102,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 774,
+      "handlerLine": 666,
       "reads": [],
       "writes": [
         "users"
@@ -1109,7 +1118,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/auth.js:109"
+        "src/core/auth.js:149"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1130,7 +1139,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 822,
+      "handlerLine": 714,
       "reads": [],
       "writes": [
         "commutes",
@@ -1149,7 +1158,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/auth.js:125"
+        "src/core/auth.js:165"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1171,7 +1180,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 877,
+      "handlerLine": 769,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1190,7 +1199,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "bcrypt"
       ],
       "callers": [
-        "src/core/auth.js:136"
+        "src/core/auth.js:177"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1455,7 +1464,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 48,
+      "handlerLine": 90,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1468,8 +1477,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "WriteHeader (metrics.go:147)",
         "generateRefreshToken (auth.go:66)",
+        "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
+        "refreshTokenTTL (auth_handlers.go:46)",
         "signAccessToken (auth.go:35)",
         "verifyGoogleIDToken (google.go:18)"
       ],
@@ -2659,7 +2671,6 @@ table.grid tr.click:hover td { background: var(--sunk); }
     "frontendCallsWithoutRoute": [],
     "noFrontendCaller": [
       "GET /api/gtfs/{file}",
-      "POST /api/auth/logout",
       "GET /api/auth/me",
       "POST /api/auth/resend-verification",
       "PUT /api/features/{name}"

@@ -348,7 +348,6 @@ func TestRefresh_DeletedUser(t *testing.T) {
 }
 
 func TestRefresh_ConcurrentSameToken(t *testing.T) {
-	t.Skip("P10-3 #113: rotation is a SELECT then DELETE, so several requests can succeed")
 	a, pool := authTestApp(t)
 	session := loginSession(t, a, pool, "refresh-race@test.com")
 
@@ -380,6 +379,31 @@ func TestRefresh_ConcurrentSameToken(t *testing.T) {
 	}
 	if ok != 1 || unauthorized != len(codes)-1 {
 		t.Fatalf("got statuses %v, want exactly one 200 and the rest 401", codes)
+	}
+}
+
+// Logout revokes the refresh token without needing an access token, so a
+// client whose access token has expired can still sign out.
+func TestLogout_RevokesWithoutAccessToken(t *testing.T) {
+	a, pool := authTestApp(t)
+	session := loginSession(t, a, pool, "logout-revoke@test.com")
+
+	w := muxRequest(newMux(a), "POST", "/api/auth/logout", "1.2.3.4",
+		`{"refreshToken":"`+session.RefreshToken+`"}`)
+	if w.Code != 200 {
+		t.Fatalf("logout without access token: got %d, want 200", w.Code)
+	}
+
+	w = postJSON(a.handleRefresh, "/api/auth/refresh", refreshRequest{RefreshToken: session.RefreshToken})
+	if w.Code != 401 {
+		t.Errorf("refresh after logout: got %d, want 401", w.Code)
+	}
+
+	// An unknown token gets the same reply, so logout doesn't reveal which
+	// tokens exist.
+	w = postJSON(a.handleLogout, "/api/auth/logout", refreshRequest{RefreshToken: "not-a-token"})
+	if w.Code != 200 {
+		t.Errorf("logout with unknown token: got %d, want 200", w.Code)
 	}
 }
 
