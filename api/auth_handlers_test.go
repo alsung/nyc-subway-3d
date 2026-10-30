@@ -197,7 +197,6 @@ func TestRegister_DuplicateActiveEmail(t *testing.T) {
 }
 
 func TestRegister_PasswordOver72Bytes(t *testing.T) {
-	t.Skip("P10-3 #113: bcrypt's ErrPasswordTooLong still becomes a 500")
 	a, pool := authTestApp(t)
 	const email = "register-long@test.com"
 	cleanupEmail(t, pool, email)
@@ -435,5 +434,97 @@ func TestVerifyEmail_IssuesSession(t *testing.T) {
 	w = postJSON(a.handleVerifyEmail, "/api/auth/verify-email", verifyEmailRequest{Token: raw})
 	if w.Code != 400 {
 		t.Fatalf("reused verification link: got status %d, want 400", w.Code)
+	}
+}
+
+// resetToken stores a password reset link for the user and returns its raw
+// token, as the emailed link would carry it.
+func resetToken(t *testing.T, pool *pgxpool.Pool, userID string) string {
+	t.Helper()
+	raw, _, _ := generateRefreshToken()
+	mustExec(t, pool,
+		`INSERT INTO verification_tokens (user_id, token_hash, kind, expires_at)
+		 VALUES ($1, $2, 'password_reset', now() + interval '1 hour')`,
+		userID, hashToken(raw))
+	return raw
+}
+
+func TestRegister_FieldLimits(t *testing.T) {
+	a, _ := authTestApp(t)
+	cases := map[string]registerRequest{
+		"display name over 100": {Email: "limits@test.com", Password: "password123", DisplayName: strings.Repeat("n", 101)},
+		"email over 254":        {Email: strings.Repeat("e", 250) + "@t.co", Password: "password123", DisplayName: "Limits"},
+	}
+	for name, req := range cases {
+		if w := postJSON(a.handleRegister, "/api/auth/register", req); w.Code != 400 {
+			t.Errorf("%s: got status %d, want 400", name, w.Code)
+		}
+	}
+}
+
+func TestResetPassword_Over72Bytes(t *testing.T) {
+	a, pool := authTestApp(t)
+	id := createTestUserWithPassword(t, pool, "reset-long@test.com", "password123")
+	raw := resetToken(t, pool, id)
+
+	w := postJSON(a.handleResetPassword, "/api/auth/reset-password",
+		resetPasswordRequest{Token: raw, NewPassword: strings.Repeat("a", 73)})
+	if w.Code != 400 {
+		t.Fatalf("got status %d, want 400", w.Code)
+	}
+	if countRows(t, pool, `SELECT count(*) FROM verification_tokens WHERE user_id = $1`, id) != 1 {
+		t.Error("a rejected password must not use up the reset link")
+	}
+}
+
+// Several requests carrying one reset link: exactly one sets the password.
+func TestResetPassword_ConcurrentSameToken(t *testing.T) {
+	a, pool := authTestApp(t)
+	id := createTestUserWithPassword(t, pool, "reset-race@test.com", "password123")
+	raw := resetToken(t, pool, id)
+
+	start := make(chan struct{})
+	codes := make([]int, 5)
+	var wg sync.WaitGroup
+	for i := range codes {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			codes[i] = postJSON(a.handleResetPassword, "/api/auth/reset-password",
+				resetPasswordRequest{Token: raw, NewPassword: "new-password-123"}).Code
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	ok := 0
+	for _, c := range codes {
+		if c == 200 {
+			ok++
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("got statuses %v, want exactly one 200", codes)
+	}
+}
+
+// If the password can't be saved, the request fails and the link still works.
+func TestResetPassword_UpdateFailureKeepsTheLink(t *testing.T) {
+	a, pool := authTestApp(t)
+	id := createTestUserWithPassword(t, pool, "reset-fail@test.com", "password123")
+	raw := resetToken(t, pool, id)
+
+	// NOT VALID skips existing rows, so only this user's next UPDATE fails.
+	mustExec(t, pool, `ALTER TABLE users ADD CONSTRAINT test_block_reset CHECK (id <> '`+id+`') NOT VALID`)
+	t.Cleanup(func() { mustExec(t, pool, `ALTER TABLE users DROP CONSTRAINT IF EXISTS test_block_reset`) })
+
+	w := postJSON(a.handleResetPassword, "/api/auth/reset-password",
+		resetPasswordRequest{Token: raw, NewPassword: "new-password-123"})
+	if w.Code != 500 {
+		t.Fatalf("got status %d, want 500: %s", w.Code, w.Body.String())
+	}
+	if countRows(t, pool, `SELECT count(*) FROM verification_tokens WHERE user_id = $1`, id) != 1 {
+		t.Error("a failed reset must leave the link usable")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,5 +152,43 @@ func TestCORSPreflight(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://localexpress.nyc" {
 		t.Errorf("expected production origin, got %q", got)
+	}
+}
+
+// A declared body over the cap is refused before any handler reads it, with
+// CORS headers so the browser can show the error.
+func TestBodyLimit_DeclaredLengthOverCap(t *testing.T) {
+	h := newMux(&app{})
+	req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(strings.Repeat("x", maxRequestBody+1)))
+	req.Header.Set("Origin", "https://localexpress.nyc")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got %d, want 413", rec.Code)
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "https://localexpress.nyc" {
+		t.Error("413 is missing CORS headers")
+	}
+}
+
+// A body sent without a length is cut off at the cap and fails to decode; a
+// normal one passes through.
+func TestBodyLimit_UndeclaredLengthAndNormalBody(t *testing.T) {
+	a, _ := authTestApp(t)
+	h := newMux(a)
+
+	big := `{"email":"` + strings.Repeat("e", maxRequestBody) + `","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(big))
+	req.ContentLength = -1 // as with a chunked upload
+	req.Header.Set("Fly-Client-IP", "10.9.9.1")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("undeclared oversized body: got %d, want 400", rec.Code)
+	}
+
+	rec = muxRequest(h, "POST", "/api/auth/login", "10.9.9.2", `{"email":"nobody-body@test.com","password":"password123"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("normal login body: got %d, want 401 from the handler", rec.Code)
 	}
 }

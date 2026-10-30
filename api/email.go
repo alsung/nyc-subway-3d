@@ -6,13 +6,26 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 var (
-	resendAPIKey    string
-	devAutoVerify   bool
-	appBaseURL      = "https://localexpress.nyc"
-	emailFromAddr   = "Local Express <noreply@localexpress.nyc>"
+	resendAPIKey  string
+	devAutoVerify bool
+	appBaseURL    = "https://localexpress.nyc"
+	emailFromAddr = "Local Express <noreply@localexpress.nyc>"
+
+	// Emails are sent inside the request that triggers them, so a hung Resend
+	// call would otherwise hold that request open with no limit. Variables so
+	// tests can point them at a stub.
+	resendURL   = "https://api.resend.com/emails"
+	emailClient = &http.Client{Timeout: 10 * time.Second}
+)
+
+// Email kinds, the label values for email_send_total.
+const (
+	emailVerification  = "verification"
+	emailPasswordReset = "password_reset"
 )
 
 func initEmail(apiKey, baseURL string, autoVerify bool) {
@@ -20,6 +33,12 @@ func initEmail(apiKey, baseURL string, autoVerify bool) {
 	devAutoVerify = autoVerify
 	if baseURL != "" {
 		appBaseURL = baseURL
+	}
+	// Every pair exists at zero from startup, so the first failure is an
+	// increase the email-failing rule can see.
+	for _, kind := range []string{emailVerification, emailPasswordReset} {
+		metricEmailSend.WithLabelValues(kind, "success").Add(0)
+		metricEmailSend.WithLabelValues(kind, "failure").Add(0)
 	}
 }
 
@@ -30,11 +49,23 @@ type resendPayload struct {
 	HTML    string   `json:"html"`
 }
 
-func sendEmail(to, subject, html string) error {
+// sendEmail sends through Resend and counts the outcome under kind. Without an
+// API key (local dev) it logs and counts nothing.
+func sendEmail(kind, to, subject, html string) error {
 	if resendAPIKey == "" {
 		slog.Warn("email skipped (no RESEND_API_KEY)", "to", to, "subject", subject)
 		return nil
 	}
+	err := postToResend(to, subject, html)
+	result := "success"
+	if err != nil {
+		result = "failure"
+	}
+	metricEmailSend.WithLabelValues(kind, result).Inc()
+	return err
+}
+
+func postToResend(to, subject, html string) error {
 
 	payload := resendPayload{
 		From:    emailFromAddr,
@@ -48,14 +79,14 @@ func sendEmail(to, subject, html string) error {
 		return fmt.Errorf("marshal email payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", resendURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+resendAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := emailClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
@@ -83,7 +114,7 @@ func sendVerificationEmail(to, token string) error {
 </body>
 </html>`, link)
 
-	return sendEmail(to, "Verify your Local Express account", html)
+	return sendEmail(emailVerification, to, "Verify your Local Express account", html)
 }
 
 func sendPasswordResetEmail(to, token string) error {
@@ -98,5 +129,5 @@ func sendPasswordResetEmail(to, token string) error {
 </body>
 </html>`, link)
 
-	return sendEmail(to, "Reset your Local Express password", html)
+	return sendEmail(emailPasswordReset, to, "Reset your Local Express password", html)
 }

@@ -292,6 +292,9 @@ function middleware(decls) {
     const wrap = mux.match(/root\.Handle\("\/", (.+)\)\n/)?.[1] ?? '';
     const order = [...wrap.matchAll(/(\w+Middleware)/g)].map((m) => m[1]);
     const rl = mux.match(/newIPRateLimiter\("global", ([\d.]+), (\d+)\)/);
+    // A package-level const, so it's read from the file rather than a function body.
+    const bodyKB = read('api/main.go').match(/const maxRequestBody = (\d+) << 10/)?.[1];
+    const body = bodyKB ? `${bodyKB} KB` : null;
     const cors = decls.get('corsMiddleware')?.body ?? '';
     const origins = [
         ...[...cors.matchAll(/origin == "([^"]+)"/g)].map((m) => m[1]),
@@ -302,6 +305,7 @@ function middleware(decls) {
         metricsMiddleware: 'Counts and times every request by route pattern',
         rateLimitMiddleware: rl ? `Per-IP token bucket: ${rl[1]} req/s, burst ${rl[2]}, 429 when empty` : 'Per-IP rate limit',
         corsMiddleware: `Allows ${origins.join(', ')}`,
+        bodyLimitMiddleware: body ? `Refuses request bodies over ${body} with 413` : 'Caps request body size',
         gzipMiddleware: 'Gzips responses when the client accepts it',
     };
     return order.map((name) => ({ name, detail: describe[name] ?? '', file: decls.get(name)?.file, line: decls.get(name)?.line }));

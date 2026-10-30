@@ -59,6 +59,14 @@ export const RULES = [
             'and expired tokens stay in the database until it recovers.',
     },
     {
+        name: 'email-failing',
+        expr: 'increase(email_send_total{result="failure"}[30m]) > 0',
+        summary: 'Verification or password reset emails are failing to send',
+        detail:
+            'A failed Resend call only logs, and the rider simply never gets ' +
+            'the link. Labelled by kind, so it says which email is affected.',
+    },
+    {
         name: 'no-service-today',
         expr: 'timetable_services_active_today == 0',
         summary: 'The static timetable has no service today, so every trip plan is empty',

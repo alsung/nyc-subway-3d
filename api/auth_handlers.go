@@ -41,6 +41,17 @@ type userView struct {
 	Provider    string `json:"provider"`
 }
 
+// Input limits. bcrypt reads only the first 72 bytes of a password and the
+// library refuses longer ones, so they're rejected here with a 400 instead of
+// failing inside the hash as a 500. 254 is the longest valid email address.
+const (
+	maxPasswordBytes = 72
+	maxEmailBytes    = 254
+	maxDisplayName   = 100
+)
+
+const errPasswordTooLong = `{"error":"password must be 72 bytes or fewer"}`
+
 // refreshTokenTTL is how long a refresh token stays valid; each refresh
 // replaces it with a new one.
 const refreshTokenTTL = 7 * 24 * time.Hour
@@ -175,6 +186,18 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Password) < 8 {
 		http.Error(w, `{"error":"password must be at least 8 characters"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.Password) > maxPasswordBytes {
+		http.Error(w, errPasswordTooLong, http.StatusBadRequest)
+		return
+	}
+	if len(req.Email) > maxEmailBytes {
+		http.Error(w, `{"error":"email is too long"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.DisplayName) > maxDisplayName {
+		http.Error(w, `{"error":"displayName must be 100 characters or fewer"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -585,16 +608,31 @@ func (a *app) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"password must be at least 8 characters"}`, http.StatusBadRequest)
 		return
 	}
+	if len(req.NewPassword) > maxPasswordBytes {
+		http.Error(w, errPasswordTooLong, http.StatusBadRequest)
+		return
+	}
 
-	hashed := hashToken(req.Token)
+	// Claiming the link and setting the password commit together. The DELETE
+	// locks the token's row, so when several requests carry the same link only
+	// one gets it back, as with refresh tokens; and if the UPDATE fails, the
+	// rollback leaves the link usable rather than spent.
+	tx, err := a.dbPool.Begin(r.Context())
+	if err != nil {
+		slog.Error("begin reset password failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
 
-	var tokenID, userID string
+	var userID string
 	var expiresAt time.Time
-	err := a.dbPool.QueryRow(r.Context(),
-		`SELECT id, user_id, expires_at FROM verification_tokens
-		 WHERE token_hash = $1 AND kind = 'password_reset'`,
-		hashed,
-	).Scan(&tokenID, &userID, &expiresAt)
+	err = tx.QueryRow(r.Context(),
+		`DELETE FROM verification_tokens
+		 WHERE token_hash = $1 AND kind = 'password_reset'
+		 RETURNING user_id, expires_at`,
+		hashToken(req.Token),
+	).Scan(&userID, &expiresAt)
 
 	if err != nil {
 		http.Error(w, `{"error":"invalid or expired reset link"}`, http.StatusBadRequest)
@@ -602,7 +640,7 @@ func (a *app) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if time.Now().After(expiresAt) {
-		a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
+		tx.Commit(r.Context()) // the expired link is gone either way
 		http.Error(w, `{"error":"reset link has expired, please request a new one"}`, http.StatusBadRequest)
 		return
 	}
@@ -614,12 +652,20 @@ func (a *app) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.dbPool.Exec(r.Context(),
+	if _, err := tx.Exec(r.Context(),
 		`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
 		string(newHash), userID,
-	)
+	); err != nil {
+		slog.Error("reset password update failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit reset password failed", "err", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
 
-	a.dbPool.Exec(r.Context(), `DELETE FROM verification_tokens WHERE id = $1`, tokenID)
 	a.dbPool.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -677,7 +723,7 @@ func (a *app) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"displayName is required"}`, http.StatusBadRequest)
 		return
 	}
-	if len(req.DisplayName) > 100 {
+	if len(req.DisplayName) > maxDisplayName {
 		http.Error(w, `{"error":"displayName must be 100 characters or fewer"}`, http.StatusBadRequest)
 		return
 	}
@@ -781,6 +827,10 @@ func (a *app) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.NewPassword) < 8 {
 		http.Error(w, `{"error":"new password must be at least 8 characters"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) > maxPasswordBytes {
+		http.Error(w, errPasswordTooLong, http.StatusBadRequest)
 		return
 	}
 
