@@ -27,6 +27,7 @@ package main
 // scrapes every few seconds, which would otherwise dominate the request counter.
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -86,6 +87,23 @@ var (
 	metricPlanNoRoute = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "plan_no_route_total",
 		Help: "Plan requests that returned zero journeys.",
+	})
+
+	// Computed at scrape time from the loaded timetable. Zero means the static
+	// feed has no service today, so every trip plan comes back empty; the
+	// published feed carrying only a schedule that hadn't started yet did
+	// exactly that on 2026-10-28. NaN until the timetable loads, so a restart
+	// doesn't read as zero.
+	metricServicesActiveToday = promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "timetable_services_active_today",
+		Help: "Static GTFS service ids that run today in the feed timezone, bridged ones included.",
+	}, func() float64 {
+		tt := currentTimetable()
+		if tt == nil {
+			return math.NaN()
+		}
+		now := time.Now().In(feedLocation())
+		return float64(tt.activeServices(now.Format("20060102"), int(now.Weekday())))
 	})
 
 	// Set only when every purge statement succeeds. A failing purge only logs,

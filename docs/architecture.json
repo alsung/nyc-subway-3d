@@ -35,7 +35,7 @@
       "name": "metricsMiddleware",
       "detail": "Counts and times every request by route pattern",
       "file": "metrics.go",
-      "line": 152
+      "line": 170
     },
     {
       "name": "corsMiddleware",
@@ -88,7 +88,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "alertsCache (alerts.go:129)",
         "alertsLabeled (alerts.go:133)",
         "alertsMu (alerts.go:128)",
@@ -359,8 +359,8 @@
       "calls": [
         "MaxRounds (raptor.go:29)",
         "NextDeparture (departures.go:102)",
-        "Plan (raptor.go:151)",
-        "RunsOn (timetable.go:441)",
+        "Plan (raptor.go:150)",
+        "RunsOn (timetable.go:446)",
         "cachedDepartures (feeds.go:138)",
         "cachedFeeds (feeds.go:147)",
         "candidateDays (raptor.go:102)",
@@ -375,18 +375,19 @@
         "feedsMu (feeds.go:39)",
         "gtfsMu (gtfs.go:42)",
         "lastRefresh (feeds.go:41)",
-        "maxEarlySeconds (raptor.go:346)",
-        "maxInt32 (raptor.go:308)",
-        "maxShiftSeconds (raptor.go:350)",
-        "metricPlanNoRoute (metrics.go:86)",
+        "maxEarlySeconds (raptor.go:345)",
+        "maxInt32 (raptor.go:307)",
+        "maxShiftSeconds (raptor.go:349)",
+        "metricPlanNoRoute (metrics.go:87)",
         "platformsFor (plan.go:50)",
         "platformsForAll (plan.go:76)",
-        "realtimeShift (raptor.go:328)",
-        "reconstruct (raptor.go:365)",
-        "resolve (raptor.go:353)",
+        "realtimeShift (raptor.go:327)",
+        "reconstruct (raptor.go:364)",
+        "resolve (raptor.go:352)",
         "secondsSinceMidnight (raptor.go:113)",
         "secsToClock (plan.go:91)",
         "serviceDaySeconds (raptor.go:33)",
+        "serviceRuns (timetable.go:470)",
         "timetable (gtfs.go:44)"
       ],
       "pingsDatabase": false,
@@ -429,7 +430,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "appBaseURL (email.go:14)",
         "devAutoVerify (email.go:13)",
         "emailFromAddr (email.go:15)",
@@ -482,7 +483,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "generateRefreshToken (auth.go:66)",
         "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
@@ -527,7 +528,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "generateRefreshToken (auth.go:66)",
         "hashToken (auth.go:77)",
         "issueSession (auth_handlers.go:51)",
@@ -643,7 +644,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "generateRefreshToken (auth.go:66)",
         "hashToken (auth.go:77)",
         "issueSession (auth_handlers.go:51)",
@@ -1066,7 +1067,7 @@
       "calls": [
         "CreateCommute (pg_store.go:47)",
         "ErrLimitReached (store.go:10)",
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "maxCommutesPerUser (pg_store.go:11)",
         "userContextKey (auth.go:18)",
         "userFromContext (auth.go:88)"
@@ -1146,7 +1147,7 @@
       "calls": [
         "DeleteCommute (pg_store.go:97)",
         "ErrNotFound (store.go:9)",
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "userContextKey (auth.go:18)",
         "userFromContext (auth.go:88)"
       ],
@@ -1186,7 +1187,7 @@
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:147)",
+        "WriteHeader (metrics.go:165)",
         "generateRefreshToken (auth.go:66)",
         "issueSession (auth_handlers.go:51)",
         "jwtSecret (auth.go:26)",
@@ -1269,8 +1270,8 @@
         "feedsMu (feeds.go:39)",
         "fetchFeed (feeds.go:62)",
         "lastRefresh (feeds.go:41)",
-        "metricFeedLastRefresh (metrics.go:67)",
-        "metricFeedRefresh (metrics.go:54)",
+        "metricFeedLastRefresh (metrics.go:68)",
+        "metricFeedRefresh (metrics.go:55)",
         "realtimeHorizon (departures.go:34)",
         "refreshFeeds (feeds.go:91)"
       ],
@@ -1314,8 +1315,8 @@
         "mercuryDisplayBefore (alerts.go:56)",
         "mercuryField (alerts.go:53)",
         "mercuryUpdatedAt (alerts.go:54)",
-        "metricAlertsEntities (metrics.go:72)",
-        "metricAlertsLabeled (metrics.go:81)",
+        "metricAlertsEntities (metrics.go:73)",
+        "metricAlertsLabeled (metrics.go:82)",
         "readMercury (alerts.go:174)",
         "refreshAlerts (alerts.go:476)",
         "translationText (alerts.go:243)"
@@ -1365,7 +1366,7 @@
         "metricPurgeLastSuccess"
       ],
       "calls": [
-        "metricPurgeLastSuccess (metrics.go:94)",
+        "metricPurgeLastSuccess (metrics.go:112)",
         "purgeExpired (main.go:236)"
       ],
       "pingsDatabase": false,
@@ -1391,23 +1392,24 @@
       ],
       "metrics": [],
       "calls": [
-        "BuildTimetable (timetable.go:461)",
-        "TripCount (timetable.go:503)",
-        "bomPrefix (timetable.go:114)",
-        "buildPatterns (timetable.go:223)",
-        "buildStopPatterns (timetable.go:493)",
-        "columns (timetable.go:117)",
+        "BuildTimetable (timetable.go:508)",
+        "TripCount (timetable.go:551)",
+        "bomPrefix (timetable.go:119)",
+        "buildPatterns (timetable.go:228)",
+        "buildStopPatterns (timetable.go:541)",
+        "columns (timetable.go:122)",
         "defaultGTFSStaticURL (gtfs.go:15)",
-        "defaultTransferSeconds (timetable.go:356)",
+        "defaultTransferSeconds (timetable.go:361)",
+        "firstServiceDate (timetable.go:494)",
         "gtfsFiles (gtfs.go:43)",
         "gtfsMu (gtfs.go:42)",
-        "newReader (timetable.go:125)",
-        "parseCalendar (timetable.go:362)",
-        "parseGTFSTime (timetable.go:88)",
+        "newReader (timetable.go:130)",
+        "parseCalendar (timetable.go:367)",
+        "parseGTFSTime (timetable.go:93)",
         "parseGTFSZip (gtfs.go:50)",
-        "parseStopTimes (timetable.go:141)",
-        "parseTransfers (timetable.go:300)",
-        "parseTrips (timetable.go:188)",
+        "parseStopTimes (timetable.go:146)",
+        "parseTransfers (timetable.go:305)",
+        "parseTrips (timetable.go:193)",
         "routingGTFSFiles (gtfs.go:30)",
         "servedGTFSFiles (gtfs.go:18)",
         "timetable (gtfs.go:44)",
@@ -2307,6 +2309,14 @@
       "type": "Counter",
       "name": "plan_no_route_total",
       "help": "Plan requests that returned zero journeys.",
+      "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricServicesActiveToday",
+      "type": "GaugeFunc",
+      "name": "timetable_services_active_today",
+      "help": "Static GTFS service ids that run today in the feed timezone, bridged ones included.",
       "labels": [],
       "file": "metrics.go"
     },

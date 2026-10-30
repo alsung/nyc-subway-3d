@@ -38,6 +38,11 @@ type Timetable struct {
 
 	// Which service ids run on which dates.
 	Services map[string]Service
+
+	// The earliest start_date across Services. MTA publishes the next schedule
+	// before it begins, so a feed loaded in between starts after today; see
+	// serviceRuns.
+	FirstServiceDate string
 }
 
 // A group of trips sharing the same ordered stop sequence.
@@ -454,6 +459,48 @@ func (s Service) RunsOn(date string, weekday int) bool {
 	return s.Days[weekday]
 }
 
+// serviceRuns reports whether a service id runs on a YYYYMMDD date.
+//
+// It bridges one gap in MTA's feed: the published file carries a single
+// schedule, and MTA replaces it days before that schedule begins. Loaded in
+// between, nothing would run until the start date and every plan would come
+// back empty. Before FirstServiceDate, the services that begin on it run on
+// their weekly pattern instead. They describe the next schedule, not today's,
+// but they are close, and live departures still override them.
+func (t *Timetable) serviceRuns(id, date string, weekday int) bool {
+	svc, ok := t.Services[id]
+	if !ok {
+		return false
+	}
+	if svc.RunsOn(date, weekday) {
+		return true
+	}
+	bridging := t.FirstServiceDate != "" && date < t.FirstServiceDate && svc.Start == t.FirstServiceDate
+	return bridging && !svc.Removed[date] && svc.Days[weekday]
+}
+
+// activeServices counts the service ids that run on a date, bridged ones
+// included. Zero means every plan that day comes back empty.
+func (t *Timetable) activeServices(date string, weekday int) int {
+	n := 0
+	for id := range t.Services {
+		if t.serviceRuns(id, date, weekday) {
+			n++
+		}
+	}
+	return n
+}
+
+func firstServiceDate(services map[string]Service) string {
+	first := ""
+	for _, s := range services {
+		if s.Start != "" && (first == "" || s.Start < first) {
+			first = s.Start
+		}
+	}
+	return first
+}
+
 // BuildTimetable assembles the routing structures from the raw GTFS files.
 //
 // Pure: it takes bytes and returns data, touching no globals and no network, so
@@ -481,6 +528,7 @@ func BuildTimetable(stopTimes, trips, transfers, calendar, calendarDates []byte)
 	tt := &Timetable{
 		Stops: stops, StopIndex: stopIndex,
 		Patterns: patterns, Transfers: tr, Services: svc,
+		FirstServiceDate: firstServiceDate(svc),
 	}
 	tt.buildStopPatterns()
 	return tt, nil
