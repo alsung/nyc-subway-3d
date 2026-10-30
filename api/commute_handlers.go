@@ -7,6 +7,13 @@ import (
 	"net/http"
 )
 
+// Field limits, with room to spare: the longest GTFS stop id is 4 bytes and the
+// longest station name the app sends is 34 characters.
+const (
+	maxStopIDBytes = 16
+	maxCommuteText = 100
+)
+
 type createCommuteRequest struct {
 	OriginStopID string `json:"originStopId"`
 	OriginName   string `json:"originName"`
@@ -47,6 +54,15 @@ func (a *app) handleCreateCommute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.OriginStopID) > maxStopIDBytes || len(req.DestStopID) > maxStopIDBytes {
+		http.Error(w, `{"error":"stop id is too long"}`, http.StatusBadRequest)
+		return
+	}
+	if len(req.OriginName) > maxCommuteText || len(req.DestName) > maxCommuteText || len(req.Label) > maxCommuteText {
+		http.Error(w, `{"error":"names and label must be 100 characters or fewer"}`, http.StatusBadRequest)
+		return
+	}
+
 	label := req.Label
 	if label == "" {
 		label = req.OriginName + " to " + req.DestName
@@ -81,6 +97,11 @@ func (a *app) handleUpdateCommute(w http.ResponseWriter, r *http.Request) {
 	var req updateCommuteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Label) > maxCommuteText {
+		http.Error(w, `{"error":"label must be 100 characters or fewer"}`, http.StatusBadRequest)
 		return
 	}
 

@@ -84,6 +84,13 @@ var (
 		Help: "Cached alerts carrying a readable Mercury label.",
 	})
 
+	// A failed send only logs, and the rider never gets the verification or
+	// reset link; this is the only signal.
+	metricEmailSend = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "email_send_total",
+		Help: "Transactional emails sent through Resend, by kind and result.",
+	}, []string{"kind", "result"})
+
 	metricPlanNoRoute = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "plan_no_route_total",
 		Help: "Plan requests that returned zero journeys.",

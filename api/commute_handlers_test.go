@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -266,5 +267,66 @@ func TestDelete_WrongUser(t *testing.T) {
 	}
 	if len(store.commutes) != 1 {
 		t.Fatal("commute was deleted by wrong user")
+	}
+}
+
+func TestCreate_FieldLimits(t *testing.T) {
+	long := strings.Repeat("n", 101)
+	cases := map[string]createCommuteRequest{
+		"origin stop id": {OriginStopID: strings.Repeat("1", 17), OriginName: "A", DestStopID: "635", DestName: "B"},
+		"dest name":      {OriginStopID: "127", OriginName: "A", DestStopID: "635", DestName: long},
+		"label":          {OriginStopID: "127", OriginName: "A", DestStopID: "635", DestName: "B", Label: long},
+	}
+	for name, req := range cases {
+		a := &app{commutes: &mockCommuteStore{}}
+		w := httptest.NewRecorder()
+		a.handleCreateCommute(w, authedRequest("POST", "/api/commutes", req, "user-1"))
+		if w.Code != 400 {
+			t.Errorf("%s too long: got %d, want 400", name, w.Code)
+		}
+	}
+}
+
+func TestUpdateLabel_TooLong(t *testing.T) {
+	a := &app{commutes: &mockCommuteStore{}}
+	w := httptest.NewRecorder()
+	r := authedRequest("PATCH", "/api/commutes/c1", updateCommuteRequest{Label: strings.Repeat("n", 101)}, "user-1")
+	r.SetPathValue("id", "c1")
+	a.handleUpdateCommute(w, r)
+	if w.Code != 400 {
+		t.Errorf("got %d, want 400", w.Code)
+	}
+}
+
+// With saved_commutes off, editing a commute is refused but deleting one is
+// not: riders can always remove their own data.
+func TestCommuteRoutes_FeatureFlag(t *testing.T) {
+	a, pool := authTestApp(t)
+	session := loginSession(t, a, pool, "commute-flag@test.com")
+
+	fc.mu.Lock()
+	prev := fc.byName
+	fc.byName = map[string]feature{"saved_commutes": {Name: "saved_commutes", RequiredTier: "disabled"}}
+	fc.mu.Unlock()
+	t.Cleanup(func() {
+		fc.mu.Lock()
+		fc.byName = prev
+		fc.mu.Unlock()
+	})
+
+	h := newMux(a)
+	send := func(method string) int {
+		req := httptest.NewRequest(method, "/api/commutes/00000000-0000-0000-0000-000000000000", strings.NewReader(`{"label":"x"}`))
+		req.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := send("PATCH"); code != 403 {
+		t.Errorf("PATCH with the flag off: got %d, want 403", code)
+	}
+	if code := send("DELETE"); code != 404 {
+		t.Errorf("DELETE with the flag off: got %d, want 404 (reached the handler; no such commute)", code)
 	}
 }

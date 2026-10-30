@@ -71,6 +71,7 @@ describe('the rule set', () => {
             'http_requests_total',
             'account_purge_last_success_timestamp_seconds',
             'timetable_services_active_today',
+            'email_send_total',
         ];
         for (const r of RULES) {
             const referenced = r.expr.match(/[a-z_][a-z0-9_]*(?=[\s{(]|$)/g) ?? [];

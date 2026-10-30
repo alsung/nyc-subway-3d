@@ -25,11 +25,28 @@ type jwtClaims struct {
 
 var jwtSecret []byte
 
-func initJWT(secret string) {
+// minJWTSecretBytes matches HS256's key size; a shorter secret is guessable
+// offline from any one token.
+const minJWTSecretBytes = 32
+
+// initJWT sets the signing secret. With a database, sign-in routes exist and
+// the secret must be real, so a missing or short one stops startup rather than
+// signing tokens anyone could forge. Without a database no route issues or
+// checks tokens; a random secret keeps that true even by accident.
+func initJWT(secret string, hasDatabase bool) error {
+	if hasDatabase && len(secret) < minJWTSecretBytes {
+		return fmt.Errorf("JWT_SECRET must be at least %d bytes when DATABASE_URL is set (got %d)", minJWTSecretBytes, len(secret))
+	}
 	if secret == "" {
-		secret = "dev-secret-do-not-use-in-production"
+		random := make([]byte, minJWTSecretBytes)
+		if _, err := rand.Read(random); err != nil {
+			return fmt.Errorf("generate JWT secret: %w", err)
+		}
+		jwtSecret = random
+		return nil
 	}
 	jwtSecret = []byte(secret)
+	return nil
 }
 
 func signAccessToken(userID, email, tier string) (string, error) {

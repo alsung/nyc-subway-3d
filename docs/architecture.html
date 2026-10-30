@@ -326,7 +326,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "name": "metricsMiddleware",
       "detail": "Counts and times every request by route pattern",
       "file": "metrics.go",
-      "line": 170
+      "line": 177
     },
     {
       "name": "corsMiddleware",
@@ -339,6 +339,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "detail": "Per-IP token bucket: 10 req/s, burst 30, 429 when empty",
       "file": "ratelimit.go",
       "line": 112
+    },
+    {
+      "name": "bodyLimitMiddleware",
+      "detail": "Refuses request bodies over 64 KB with 413",
+      "file": "main.go",
+      "line": 97
     },
     {
       "name": "gzipMiddleware",
@@ -364,11 +370,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 277,
+      "line": 297,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 90,
+      "handlerLine": 110,
       "reads": [],
       "writes": [],
       "caches": [
@@ -379,7 +385,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:165)",
+        "WriteHeader (metrics.go:172)",
         "alertsCache (alerts.go:129)",
         "alertsLabeled (alerts.go:133)",
         "alertsMu (alerts.go:128)",
@@ -407,11 +413,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 278,
+      "line": 298,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 180,
+      "handlerLine": 200,
       "reads": [],
       "writes": [],
       "caches": [
@@ -439,11 +445,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 279,
+      "line": 299,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 193,
+      "handlerLine": 213,
       "reads": [],
       "writes": [],
       "caches": [
@@ -478,11 +484,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 280,
+      "line": 300,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 217,
+      "handlerLine": 237,
       "reads": [],
       "writes": [],
       "caches": [
@@ -517,11 +523,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 281,
+      "line": 301,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 140,
+      "handlerLine": 160,
       "reads": [],
       "writes": [],
       "caches": [
@@ -566,11 +572,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 282,
+      "line": 302,
       "variants": [],
       "access": "public",
       "file": "main.go",
-      "handlerLine": 163,
+      "handlerLine": 183,
       "reads": [],
       "writes": [],
       "caches": [
@@ -623,7 +629,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 284,
+      "line": 304,
       "variants": [
         {
           "conditions": [
@@ -669,7 +675,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "maxEarlySeconds (raptor.go:345)",
         "maxInt32 (raptor.go:307)",
         "maxShiftSeconds (raptor.go:349)",
-        "metricPlanNoRoute (metrics.go:87)",
+        "metricPlanNoRoute (metrics.go:94)",
         "platformsFor (plan.go:50)",
         "platformsForAll (plan.go:76)",
         "realtimeShift (raptor.go:327)",
@@ -703,11 +709,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 299,
+      "line": 319,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 162,
+      "handlerLine": 173,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -719,20 +725,31 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "resend"
       ],
       "env": [],
-      "metrics": [],
+      "metrics": [
+        "metricEmailSend"
+      ],
       "calls": [
-        "WriteHeader (metrics.go:165)",
-        "appBaseURL (email.go:14)",
-        "devAutoVerify (email.go:13)",
-        "emailFromAddr (email.go:15)",
-        "generateRefreshToken (auth.go:66)",
-        "issueSession (auth_handlers.go:51)",
+        "WriteHeader (metrics.go:172)",
+        "appBaseURL (email.go:15)",
+        "devAutoVerify (email.go:14)",
+        "emailClient (email.go:22)",
+        "emailFromAddr (email.go:16)",
+        "emailVerification (email.go:27)",
+        "errPasswordTooLong (auth_handlers.go:53)",
+        "generateRefreshToken (auth.go:83)",
+        "issueSession (auth_handlers.go:62)",
         "jwtSecret (auth.go:26)",
-        "refreshTokenTTL (auth_handlers.go:46)",
-        "resendAPIKey (email.go:12)",
-        "sendEmail (email.go:33)",
-        "sendVerificationEmail (email.go:74)",
-        "signAccessToken (auth.go:35)"
+        "maxDisplayName (auth_handlers.go:50)",
+        "maxEmailBytes (auth_handlers.go:49)",
+        "maxPasswordBytes (auth_handlers.go:48)",
+        "metricEmailSend (metrics.go:89)",
+        "postToResend (email.go:68)",
+        "refreshTokenTTL (auth_handlers.go:57)",
+        "resendAPIKey (email.go:13)",
+        "resendURL (email.go:21)",
+        "sendEmail (email.go:54)",
+        "sendVerificationEmail (email.go:105)",
+        "signAccessToken (auth.go:52)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -758,11 +775,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 300,
+      "line": 320,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 249,
+      "handlerLine": 272,
       "reads": [
         "users"
       ],
@@ -774,12 +791,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:165)",
-        "generateRefreshToken (auth.go:66)",
-        "issueSession (auth_handlers.go:51)",
+        "WriteHeader (metrics.go:172)",
+        "generateRefreshToken (auth.go:83)",
+        "issueSession (auth_handlers.go:62)",
         "jwtSecret (auth.go:26)",
-        "refreshTokenTTL (auth_handlers.go:46)",
-        "signAccessToken (auth.go:35)"
+        "refreshTokenTTL (auth_handlers.go:57)",
+        "signAccessToken (auth.go:52)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -803,11 +820,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 301,
+      "line": 321,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 297,
+      "handlerLine": 320,
       "reads": [
         "users"
       ],
@@ -819,13 +836,13 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:165)",
-        "generateRefreshToken (auth.go:66)",
-        "hashToken (auth.go:77)",
-        "issueSession (auth_handlers.go:51)",
+        "WriteHeader (metrics.go:172)",
+        "generateRefreshToken (auth.go:83)",
+        "hashToken (auth.go:94)",
+        "issueSession (auth_handlers.go:62)",
         "jwtSecret (auth.go:26)",
-        "refreshTokenTTL (auth_handlers.go:46)",
-        "signAccessToken (auth.go:35)"
+        "refreshTokenTTL (auth_handlers.go:57)",
+        "signAccessToken (auth.go:52)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -848,11 +865,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 302,
+      "line": 322,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 354,
+      "handlerLine": 377,
       "reads": [],
       "writes": [
         "refresh_tokens"
@@ -862,7 +879,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "hashToken (auth.go:77)"
+        "hashToken (auth.go:94)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -886,11 +903,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 303,
+      "line": 323,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 631,
+      "handlerLine": 677,
       "reads": [
         "users"
       ],
@@ -901,7 +918,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "metrics": [],
       "calls": [
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -919,11 +936,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 304,
+      "line": 324,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 377,
+      "handlerLine": 400,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -935,13 +952,13 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:165)",
-        "generateRefreshToken (auth.go:66)",
-        "hashToken (auth.go:77)",
-        "issueSession (auth_handlers.go:51)",
+        "WriteHeader (metrics.go:172)",
+        "generateRefreshToken (auth.go:83)",
+        "hashToken (auth.go:94)",
+        "issueSession (auth_handlers.go:62)",
         "jwtSecret (auth.go:26)",
-        "refreshTokenTTL (auth_handlers.go:46)",
-        "signAccessToken (auth.go:35)"
+        "refreshTokenTTL (auth_handlers.go:57)",
+        "signAccessToken (auth.go:52)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -966,11 +983,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 305,
+      "line": 325,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 434,
+      "handlerLine": 457,
       "reads": [
         "users"
       ],
@@ -982,14 +999,21 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "resend"
       ],
       "env": [],
-      "metrics": [],
+      "metrics": [
+        "metricEmailSend"
+      ],
       "calls": [
-        "appBaseURL (email.go:14)",
-        "emailFromAddr (email.go:15)",
-        "generateRefreshToken (auth.go:66)",
-        "resendAPIKey (email.go:12)",
-        "sendEmail (email.go:33)",
-        "sendVerificationEmail (email.go:74)"
+        "appBaseURL (email.go:15)",
+        "emailClient (email.go:22)",
+        "emailFromAddr (email.go:16)",
+        "emailVerification (email.go:27)",
+        "generateRefreshToken (auth.go:83)",
+        "metricEmailSend (metrics.go:89)",
+        "postToResend (email.go:68)",
+        "resendAPIKey (email.go:13)",
+        "resendURL (email.go:21)",
+        "sendEmail (email.go:54)",
+        "sendVerificationEmail (email.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -1011,11 +1035,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 306,
+      "line": 326,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 511,
+      "handlerLine": 534,
       "reads": [
         "users"
       ],
@@ -1027,14 +1051,21 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "resend"
       ],
       "env": [],
-      "metrics": [],
+      "metrics": [
+        "metricEmailSend"
+      ],
       "calls": [
-        "appBaseURL (email.go:14)",
-        "emailFromAddr (email.go:15)",
-        "generateRefreshToken (auth.go:66)",
-        "resendAPIKey (email.go:12)",
-        "sendEmail (email.go:33)",
-        "sendPasswordResetEmail (email.go:89)"
+        "appBaseURL (email.go:15)",
+        "emailClient (email.go:22)",
+        "emailFromAddr (email.go:16)",
+        "emailPasswordReset (email.go:28)",
+        "generateRefreshToken (auth.go:83)",
+        "metricEmailSend (metrics.go:89)",
+        "postToResend (email.go:68)",
+        "resendAPIKey (email.go:13)",
+        "resendURL (email.go:21)",
+        "sendEmail (email.go:54)",
+        "sendPasswordResetEmail (email.go:120)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -1058,11 +1089,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 307,
+      "line": 327,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 573,
+      "handlerLine": 596,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1074,7 +1105,9 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "hashToken (auth.go:77)"
+        "errPasswordTooLong (auth_handlers.go:53)",
+        "hashToken (auth.go:94)",
+        "maxPasswordBytes (auth_handlers.go:48)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -1099,11 +1132,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 308,
+      "line": 328,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 666,
+      "handlerLine": 712,
       "reads": [],
       "writes": [
         "users"
@@ -1113,8 +1146,9 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "maxDisplayName (auth_handlers.go:50)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1136,11 +1170,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 309,
+      "line": 329,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 714,
+      "handlerLine": 760,
       "reads": [],
       "writes": [
         "commutes",
@@ -1154,7 +1188,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "metrics": [],
       "calls": [
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1177,11 +1211,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 310,
+      "line": 330,
       "variants": [],
       "access": "auth",
       "file": "auth_handlers.go",
-      "handlerLine": 769,
+      "handlerLine": 815,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1192,8 +1226,10 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
+        "errPasswordTooLong (auth_handlers.go:53)",
+        "maxPasswordBytes (auth_handlers.go:48)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -1217,7 +1253,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 312,
+      "line": 332,
       "variants": [],
       "access": "optional",
       "file": "feature_handlers.go",
@@ -1234,7 +1270,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "fc (feature_handlers.go:34)",
         "featureAccessible (feature_handlers.go:77)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1256,7 +1292,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 313,
+      "line": 333,
       "variants": [],
       "access": "auth",
       "file": "feature_handlers.go",
@@ -1276,7 +1312,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "isAdmin (feature_handlers.go:200)",
         "loadFeatures (feature_handlers.go:36)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [
@@ -1299,11 +1335,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 315,
+      "line": 335,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
-      "handlerLine": 22,
+      "handlerLine": 29,
       "reads": [
         "commutes"
       ],
@@ -1317,7 +1353,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "calls": [
         "ListCommutes (pg_store.go:21)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1340,11 +1376,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 317,
+      "line": 337,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
-      "handlerLine": 36,
+      "handlerLine": 43,
       "reads": [],
       "writes": [
         "commutes"
@@ -1358,10 +1394,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "calls": [
         "CreateCommute (pg_store.go:47)",
         "ErrLimitReached (store.go:10)",
-        "WriteHeader (metrics.go:165)",
+        "WriteHeader (metrics.go:172)",
+        "maxCommuteText (commute_handlers.go:14)",
         "maxCommutesPerUser (pg_store.go:11)",
+        "maxStopIDBytes (commute_handlers.go:13)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1377,30 +1415,34 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "handler": "handleUpdateCommute",
       "mux": "api",
       "chain": [
-        "requireAuth"
+        "requireAuth",
+        "requireFeature(saved_commutes)"
       ],
-      "feature": null,
+      "feature": "saved_commutes",
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 319,
+      "line": 339,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
-      "handlerLine": 77,
+      "handlerLine": 93,
       "reads": [],
       "writes": [
         "commutes"
       ],
-      "caches": [],
+      "caches": [
+        "features"
+      ],
       "externals": [],
       "env": [],
       "metrics": [],
       "calls": [
         "ErrNotFound (store.go:9)",
         "UpdateCommuteLabel (pg_store.go:78)",
+        "maxCommuteText (commute_handlers.go:14)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1422,11 +1464,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "conditions": [
         "a.dbPool != nil"
       ],
-      "line": 321,
+      "line": 343,
       "variants": [],
       "access": "auth",
       "file": "commute_handlers.go",
-      "handlerLine": 102,
+      "handlerLine": 123,
       "reads": [],
       "writes": [
         "commutes"
@@ -1438,9 +1480,9 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "calls": [
         "DeleteCommute (pg_store.go:97)",
         "ErrNotFound (store.go:9)",
-        "WriteHeader (metrics.go:165)",
+        "WriteHeader (metrics.go:172)",
         "userContextKey (auth.go:18)",
-        "userFromContext (auth.go:88)"
+        "userFromContext (auth.go:105)"
       ],
       "pingsDatabase": false,
       "libs": [],
@@ -1461,11 +1503,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "a.dbPool != nil",
         "a.googleClientID != \"\""
       ],
-      "line": 325,
+      "line": 347,
       "variants": [],
       "access": "public",
       "file": "auth_handlers.go",
-      "handlerLine": 90,
+      "handlerLine": 101,
       "reads": [],
       "writes": [
         "refresh_tokens",
@@ -1478,12 +1520,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "env": [],
       "metrics": [],
       "calls": [
-        "WriteHeader (metrics.go:165)",
-        "generateRefreshToken (auth.go:66)",
-        "issueSession (auth_handlers.go:51)",
+        "WriteHeader (metrics.go:172)",
+        "generateRefreshToken (auth.go:83)",
+        "issueSession (auth_handlers.go:62)",
         "jwtSecret (auth.go:26)",
-        "refreshTokenTTL (auth_handlers.go:46)",
-        "signAccessToken (auth.go:35)",
+        "refreshTokenTTL (auth_handlers.go:57)",
+        "signAccessToken (auth.go:52)",
         "verifyGoogleIDToken (google.go:18)"
       ],
       "pingsDatabase": false,
@@ -1505,11 +1547,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "chain": [],
       "feature": null,
       "conditions": [],
-      "line": 340,
+      "line": 362,
       "variants": [],
       "access": "internal",
       "file": "main.go",
-      "handlerLine": 340,
+      "handlerLine": 362,
       "reads": [],
       "writes": [],
       "caches": [],
@@ -1641,7 +1683,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
     {
       "name": "startAccountCleanup",
       "file": "main.go",
-      "line": 257,
+      "line": 277,
       "interval": "1h",
       "needsDatabase": true,
       "reads": [],
@@ -1657,8 +1699,8 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "metricPurgeLastSuccess"
       ],
       "calls": [
-        "metricPurgeLastSuccess (metrics.go:112)",
-        "purgeExpired (main.go:236)"
+        "metricPurgeLastSuccess (metrics.go:119)",
+        "purgeExpired (main.go:256)"
       ],
       "pingsDatabase": false,
       "libs": []
@@ -2593,6 +2635,17 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "name": "alerts_labeled",
       "help": "Cached alerts carrying a readable Mercury label.",
       "labels": [],
+      "file": "metrics.go"
+    },
+    {
+      "var": "metricEmailSend",
+      "type": "Counter",
+      "name": "email_send_total",
+      "help": "Transactional emails sent through Resend, by kind and result.",
+      "labels": [
+        "kind",
+        "result"
+      ],
       "file": "metrics.go"
     },
     {

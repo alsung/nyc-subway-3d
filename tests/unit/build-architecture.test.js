@@ -35,7 +35,9 @@ describe('routes', () => {
         expect(plan.chain).toEqual(['optionalAuth', 'requireFeature(trip_planner)']);
         expect(plan.variants).toHaveLength(1);
         expect(route('GET', '/api/commutes').feature).toBe('saved_commutes');
-        expect(route('PATCH', '/api/commutes/{id}').feature).toBeNull();
+        // PATCH is gated; DELETE stays open so riders can always remove their data.
+        expect(route('PATCH', '/api/commutes/{id}').feature).toBe('saved_commutes');
+        expect(route('DELETE', '/api/commutes/{id}').feature).toBeNull();
         expect(route('GET', '/api/auth/me').access).toBe('auth');
     });
 
@@ -52,7 +54,8 @@ describe('routes', () => {
 
     it('lists middleware in the order requests pass through it', () => {
         expect(arch.middleware.map((m) => m.name))
-            .toEqual(['metricsMiddleware', 'corsMiddleware', 'rateLimitMiddleware', 'gzipMiddleware']);
+            .toEqual(['metricsMiddleware', 'corsMiddleware', 'rateLimitMiddleware', 'bodyLimitMiddleware', 'gzipMiddleware']);
+        expect(arch.middleware[3].detail).toBe('Refuses request bodies over 64 KB with 413');
         expect(arch.middleware[2].detail).toBe('Per-IP token bucket: 10 req/s, burst 30, 429 when empty');
     });
 

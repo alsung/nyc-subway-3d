@@ -87,6 +87,26 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// maxRequestBody caps every request body. The largest the app sends is a
+// commute or sign-up form, well under 1 KB.
+const maxRequestBody = 64 << 10
+
+// bodyLimitMiddleware refuses oversized bodies before any handler reads them.
+// A declared length over the cap gets 413 up front; MaxBytesReader catches a
+// body sent without one, which then fails to decode as a 400.
+func bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxRequestBody {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			w.Write([]byte(`{"error":"request body too large"}`))
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (a *app) handleHealth(w http.ResponseWriter, r *http.Request) {
 	feedsMu.RLock()
 	loaded := len(feedCache)
@@ -317,7 +337,9 @@ func newMux(a *app) http.Handler {
 		mux.Handle("POST /api/commutes",
 			requireAuth(a.requireFeature("saved_commutes")(http.HandlerFunc(a.handleCreateCommute))))
 		mux.Handle("PATCH /api/commutes/{id}",
-			requireAuth(http.HandlerFunc(a.handleUpdateCommute)))
+			requireAuth(a.requireFeature("saved_commutes")(http.HandlerFunc(a.handleUpdateCommute))))
+		// Not behind the flag: deleting your own saved data stays possible
+		// even if the feature is later limited to a tier you no longer have.
 		mux.Handle("DELETE /api/commutes/{id}",
 			requireAuth(http.HandlerFunc(a.handleDeleteCommute)))
 
@@ -338,7 +360,7 @@ func newMux(a *app) http.Handler {
 	rl := newIPRateLimiter("global", 10, 30)
 	root := http.NewServeMux()
 	root.Handle("GET /metrics", promhttp.Handler())
-	root.Handle("/", metricsMiddleware(corsMiddleware(rateLimitMiddleware(rl)(gzipMiddleware(mux)))))
+	root.Handle("/", metricsMiddleware(corsMiddleware(rateLimitMiddleware(rl)(bodyLimitMiddleware(gzipMiddleware(mux))))))
 	return root
 }
 
@@ -357,7 +379,10 @@ func main() {
 	// about.
 	initFeedMetrics()
 
-	initJWT(os.Getenv("JWT_SECRET"))
+	if err := initJWT(os.Getenv("JWT_SECRET"), os.Getenv("DATABASE_URL") != ""); err != nil {
+		slog.Error("refusing to start", "err", err)
+		os.Exit(1)
+	}
 	initEmail(
 		os.Getenv("RESEND_API_KEY"),
 		os.Getenv("APP_BASE_URL"),

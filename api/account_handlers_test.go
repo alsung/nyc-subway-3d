@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -385,6 +386,19 @@ func TestChangePassword_GoogleUser(t *testing.T) {
 	a.handleChangePassword(w, authedRequest("POST", "/api/auth/change-password",
 		changePasswordRequest{CurrentPassword: "whatever", NewPassword: "newpassword456"}, userID))
 
+	if w.Code != 400 {
+		t.Fatalf("got status %d, want 400", w.Code)
+	}
+}
+
+func TestChangePassword_Over72Bytes(t *testing.T) {
+	pool := testPool(t)
+	a := accountApp(pool)
+	userID := createTestUserWithPassword(t, pool, "changepw-long@test.com", "oldpassword123")
+
+	w := httptest.NewRecorder()
+	a.handleChangePassword(w, authedRequest("POST", "/api/auth/change-password",
+		changePasswordRequest{CurrentPassword: "oldpassword123", NewPassword: strings.Repeat("a", 73)}, userID))
 	if w.Code != 400 {
 		t.Fatalf("got status %d, want 400", w.Code)
 	}
