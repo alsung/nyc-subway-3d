@@ -131,8 +131,7 @@ func (t *Timetable) earliestTrip(pattern int, index int, after int32, day servic
 	// Walk forward past trips that do not run today. The feed carries 7 service
 	// ids, so this rarely advances far.
 	for i := lo; i < len(trips); i++ {
-		svc, ok := t.Services[trips[i].ServiceID]
-		if !ok || !svc.RunsOn(day.date, day.weekday) {
+		if !t.serviceRuns(trips[i].ServiceID, day.date, day.weekday) {
 			continue
 		}
 		return i

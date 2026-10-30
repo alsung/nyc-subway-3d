@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ── trap 1: times past midnight ─────────────────────────────────────────────
@@ -218,6 +219,85 @@ func TestCalendarRunsOn(t *testing.T) {
 	}
 	if w.RunsOn("20250101", 3) {
 		t.Error("a date before start_date should not run")
+	}
+}
+
+// The calendar MTA published on 2026-10-28: only the schedule starting
+// 2026-11-01, with no service for the days before it.
+const nextScheduleCalendar = "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n" +
+	"Sunday,0,0,0,0,0,0,1,20261101,20270515\n" +
+	"Saturday,0,0,0,0,0,1,0,20261101,20270515\n" +
+	"Weekday,1,1,1,1,1,0,0,20261101,20270515\n"
+
+func TestServiceRunsBridgesUntilTheScheduleStarts(t *testing.T) {
+	dates := "service_id,date,exception_type\nWeekday,20261030,2\n"
+	svc, err := parseCalendar([]byte(nextScheduleCalendar), []byte(dates))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tt := &Timetable{Services: svc, FirstServiceDate: firstServiceDate(svc)}
+	if tt.FirstServiceDate != "20261101" {
+		t.Fatalf("FirstServiceDate = %q, want 20261101", tt.FirstServiceDate)
+	}
+
+	thursday, saturday := 4, 6
+	if !tt.serviceRuns("Weekday", "20261029", thursday) {
+		t.Error("before the start date, Weekday should run on a Thursday by its weekly pattern")
+	}
+	if tt.serviceRuns("Saturday", "20261029", thursday) {
+		t.Error("the bridge must keep the weekly pattern: no Saturday service on a Thursday")
+	}
+	if !tt.serviceRuns("Saturday", "20261031", saturday) {
+		t.Error("before the start date, Saturday should run on a Saturday")
+	}
+	if tt.serviceRuns("Weekday", "20261030", 5) {
+		t.Error("an exception_type 2 date must still remove the service while bridging")
+	}
+	if tt.serviceRuns("Weekday", "20270517", 1) {
+		t.Error("after end_date nothing runs; the bridge only covers the days before the start")
+	}
+	if tt.serviceRuns("Unknown", "20261029", thursday) {
+		t.Error("an unknown service id never runs")
+	}
+	if got := tt.activeServices("20261029", thursday); got != 1 {
+		t.Errorf("activeServices on a bridged Thursday = %d, want 1 (Weekday)", got)
+	}
+}
+
+// Only the schedule about to begin is bridged. A service that starts later
+// than the feed's first date (a holiday variant, say) waits for its own start.
+func TestServiceRunsDoesNotBridgeLaterServices(t *testing.T) {
+	cal := "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n" +
+		"Weekday,1,1,1,1,1,0,0,20261101,20270515\n" +
+		"Weekday-Later,1,1,1,1,1,0,0,20261201,20270515\n"
+	svc, err := parseCalendar([]byte(cal), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tt := &Timetable{Services: svc, FirstServiceDate: firstServiceDate(svc)}
+	if tt.serviceRuns("Weekday-Later", "20261029", 4) {
+		t.Error("a service starting after FirstServiceDate must not be bridged")
+	}
+	if tt.serviceRuns("Weekday-Later", "20261110", 2) {
+		t.Error("a service must not run before its own start once the feed's schedule has begun")
+	}
+}
+
+// The outage itself: a feed whose schedule starts in three days still plans
+// today's trip.
+func TestPlanBeforeTheScheduleStarts(t *testing.T) {
+	st := "trip_id,stop_id,stop_sequence,arrival_time,departure_time\n" +
+		"x1,A,1,10:00:00,10:00:00\nx1,B,2,10:05:00,10:05:00\n"
+	trips := "route_id,trip_id,service_id\nX,x1,Weekday\n"
+	transfers := "from_stop_id,to_stop_id,transfer_type,min_transfer_time\n"
+	tt, err := BuildTimetable([]byte(st), []byte(trips), []byte(transfers), []byte(nextScheduleCalendar), nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	thursday, _ := time.ParseInLocation("2006-01-02 15:04", "2026-10-29 09:50", feedLocation())
+	js := tt.Plan(PlanRequest{From: []string{"A"}, To: []string{"B"}, DepartAt: thursday})
+	if len(js) != 1 || hhmmss(js[0].ArriveSecs) != "10:05:00" {
+		t.Fatalf("expected the 10:00 trip arriving 10:05, got %+v", js)
 	}
 }
 

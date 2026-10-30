@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -327,4 +328,49 @@ func TestRefreshFeedsDoesNotAdvanceStalenessOnTotalFailure(t *testing.T) {
 
 func countFailures(group string) float64 {
 	return testutil.ToFloat64(metricFeedRefresh.WithLabelValues(group, "failure"))
+}
+
+// The gauge reads the loaded timetable at scrape time. Calendars run every day
+// so the expectations hold whatever today is.
+func TestServicesActiveTodayGauge(t *testing.T) {
+	gtfsMu.Lock()
+	prev := timetable
+	gtfsMu.Unlock()
+	t.Cleanup(func() {
+		gtfsMu.Lock()
+		timetable = prev
+		gtfsMu.Unlock()
+	})
+	load := func(cal string) {
+		svc, err := parseCalendar([]byte(cal), nil)
+		if err != nil {
+			t.Fatalf("calendar: %v", err)
+		}
+		gtfsMu.Lock()
+		timetable = &Timetable{Services: svc, FirstServiceDate: firstServiceDate(svc)}
+		gtfsMu.Unlock()
+	}
+	const head = "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+
+	gtfsMu.Lock()
+	timetable = nil
+	gtfsMu.Unlock()
+	if v := testutil.ToFloat64(metricServicesActiveToday); !math.IsNaN(v) {
+		t.Errorf("before the timetable loads: got %v, want NaN so a restart doesn't read as zero", v)
+	}
+
+	load(head + "Daily,1,1,1,1,1,1,1,20000101,20991231\n")
+	if v := testutil.ToFloat64(metricServicesActiveToday); v != 1 {
+		t.Errorf("a running service: got %v, want 1", v)
+	}
+
+	load(head + "Daily,1,1,1,1,1,1,1,20990101,20991231\n")
+	if v := testutil.ToFloat64(metricServicesActiveToday); v != 1 {
+		t.Errorf("a schedule that hasn't started is bridged: got %v, want 1", v)
+	}
+
+	load(head + "Daily,1,1,1,1,1,1,1,20000101,20000102\n")
+	if v := testutil.ToFloat64(metricServicesActiveToday); v != 0 {
+		t.Errorf("an expired feed: got %v, want 0, which is what the alert fires on", v)
+	}
 }

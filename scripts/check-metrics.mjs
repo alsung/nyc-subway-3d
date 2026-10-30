@@ -59,6 +59,16 @@ export const RULES = [
             'and expired tokens stay in the database until it recovers.',
     },
     {
+        name: 'no-service-today',
+        expr: 'timetable_services_active_today == 0',
+        summary: 'The static timetable has no service today, so every trip plan is empty',
+        detail:
+            'The API loads MTA\'s static feed at startup, and MTA replaces it ' +
+            'days before a new schedule begins. The planner bridges that gap, ' +
+            'so this firing means a feed it could not bridge: expired, or ' +
+            'missing calendar.txt. /health stays green throughout.',
+    },
+    {
         // The blind spot in every threshold above: an expression over a metric
         // that no longer exists returns nothing, which reads as healthy. This
         // is the rule that notices the metrics themselves went away — a renamed
