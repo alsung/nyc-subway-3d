@@ -5,7 +5,7 @@ vi.mock('../../src/core/auth.js', () => ({
     authFetch: (...args) => authFetchMock(...args),
 }));
 
-const { loadCommutes, getCommutes, saveCommute, updateLabel, deleteCommute, onCommutesChange } =
+const { loadCommutes, getCommutes, saveCommute, updateLabel, deleteCommute, onCommutesChange, renameResult } =
     await import('../../src/core/commutes.js');
 
 function mockResponse(data, status = 200) {
@@ -98,5 +98,23 @@ describe('commutes', () => {
         await loadCommutes();
         // Cache should retain the previous value
         expect(getCommutes()).toEqual(commutes);
+    });
+});
+
+describe('renameResult', () => {
+    it('saves a new name, spaces included', () => {
+        expect(renameResult('Work', 'Home Office')).toEqual({ save: true, label: 'Home Office' });
+    });
+
+    it('trims surrounding whitespace before saving', () => {
+        expect(renameResult('Work', '  Gym run  ')).toEqual({ save: true, label: 'Gym run' });
+    });
+
+    it('keeps the current name when the result is empty', () => {
+        expect(renameResult('Work', '   ')).toEqual({ save: false, label: 'Work' });
+    });
+
+    it('skips the request when nothing changed', () => {
+        expect(renameResult('Work', ' Work ')).toEqual({ save: false, label: 'Work' });
     });
 });

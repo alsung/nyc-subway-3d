@@ -2181,11 +2181,20 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.commute-card-label[contenteditable="true"] {
-    outline: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
-    padding: 0 4px;
-    white-space: pre;
+/* Takes the card body's place while renaming, at the same height. */
+.commute-card-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
 }
 
 .commute-card-route {
