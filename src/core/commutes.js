@@ -50,6 +50,19 @@ export async function saveCommute(originStopId, originName, destStopId, destName
     return commute;
 }
 
+/** The longest commute name the API accepts. */
+export const MAX_LABEL_LENGTH = 100;
+
+/**
+ * What to do with a finished rename: save the trimmed text, or keep the
+ * current name when the result is empty or unchanged.
+ */
+export function renameResult(current, typed) {
+    const label = typed.trim();
+    if (!label || label === current) return { save: false, label: current };
+    return { save: true, label };
+}
+
 export async function updateLabel(id, label) {
     const res = await authFetch(`${API_BASE}/api/commutes/${id}`, {
         method: 'PATCH',

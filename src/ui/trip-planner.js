@@ -17,6 +17,7 @@ import { getUser, onAuthChange } from '../core/auth.js';
 import { hasFeature } from '../core/features.js';
 import {
     getCommutes, onCommutesChange, saveCommute, updateLabel, deleteCommute, loadCommutes,
+    renameResult, MAX_LABEL_LENGTH,
 } from '../core/commutes.js';
 
 function renderCarAdvice(legs, carDeps, nameOf) {
@@ -110,6 +111,9 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
     // ── Commutes section ──
 
     let commutesOpen = false;
+    // A rename saved from the keyboard re-renders the list, replacing the card
+    // that had focus; this puts focus back on the same commute afterwards.
+    let refocusCommuteId = null;
 
     function renderCommutesSection() {
         commutesSection.innerHTML = '';
@@ -157,6 +161,10 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
         }
 
         commutesSection.appendChild(list);
+        if (refocusCommuteId) {
+            list.querySelector(`[data-commute-id="${CSS.escape(refocusCommuteId)}"]`)?.focus();
+            refocusCommuteId = null;
+        }
 
         header.addEventListener('click', () => {
             commutesOpen = !commutesOpen;
@@ -173,6 +181,7 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
         const body = document.createElement('button');
         body.className = 'commute-card-body';
         body.type = 'button';
+        body.dataset.commuteId = commute.id;
 
         const labelEl = document.createElement('span');
         labelEl.className = 'commute-card-label';
@@ -202,31 +211,44 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
         editBtn.type = 'button';
         editBtn.setAttribute('aria-label', 'Edit label');
         editBtn.textContent = '✎';
+        // Renaming swaps the card's button for a text field. Editing text
+        // inside the button itself doesn't work: Space and clicks activate the
+        // button, which loads the commute and re-renders the list mid-edit.
         editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            labelEl.contentEditable = 'true';
-            labelEl.focus();
-            const range = document.createRange();
-            range.selectNodeContents(labelEl);
-            window.getSelection().removeAllRanges();
-            window.getSelection().addRange(range);
-        });
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'commute-card-input';
+            input.value = commute.label;
+            input.maxLength = MAX_LABEL_LENGTH;
+            input.setAttribute('aria-label', 'Commute name');
 
-        const finishEdit = () => {
-            labelEl.contentEditable = 'false';
-            const newLabel = labelEl.textContent.trim();
-            if (newLabel && newLabel !== commute.label) {
-                updateLabel(commute.id, newLabel).catch(() => {
-                    labelEl.textContent = commute.label;
-                });
-            } else {
-                labelEl.textContent = commute.label;
-            }
-        };
-        labelEl.addEventListener('blur', finishEdit);
-        labelEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); labelEl.blur(); }
-            if (e.key === 'Escape') { labelEl.textContent = commute.label; labelEl.blur(); }
+            let finished = false;
+            const finish = (save, { refocus = false } = {}) => {
+                if (finished) return; // Enter blurs the field, which would finish again
+                finished = true;
+                const result = save ? renameResult(commute.label, input.value) : { save: false, label: commute.label };
+                labelEl.textContent = result.label;
+                input.replaceWith(body);
+                if (refocus) body.focus();
+                if (result.save) {
+                    // Success re-renders the list through onCommutesChange.
+                    if (refocus) refocusCommuteId = commute.id;
+                    updateLabel(commute.id, result.label).catch(() => {
+                        refocusCommuteId = null;
+                        labelEl.textContent = commute.label;
+                    });
+                }
+            };
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') { ev.preventDefault(); finish(true, { refocus: true }); }
+                if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false, { refocus: true }); }
+            });
+            input.addEventListener('blur', () => finish(true));
+
+            body.replaceWith(input);
+            input.focus();
+            input.select();
         });
 
         const deleteBtn = document.createElement('button');
