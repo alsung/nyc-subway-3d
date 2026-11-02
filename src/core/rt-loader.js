@@ -7,10 +7,7 @@ import { parsePlatforms, indexByComplex } from './platforms.js';
 import { indexCarPositions } from './car-position.js';
 import { authFetch } from './auth.js';
 
-// Production API runs on Fly.io in ewr — see api/fly.toml.
-const API_BASE = import.meta.env.PROD
-    ? 'https://nyc-subway-api.fly.dev'
-    : 'http://localhost:8080';
+import { API_BASE } from './config.js';
 
 // Fetches all live vehicles for the 3D train layer.
 // Returns { vehicles: [...], updatedAt: "<RFC3339>" }.

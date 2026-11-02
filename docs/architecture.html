@@ -318,6 +318,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "/(.*) → /index.html"
     ],
     "headers": [
+      "/(.*): Content-Security-Policy: default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style; connect-src 'self' https://nyc-subway-api.fly.dev https://tiles.stadiamaps.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data: blob: https://tiles.stadiamaps.com; worker-src blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; X-Content-Type-Options: nosniff; Referrer-Policy: strict-origin-when-cross-origin",
       "/assets/(.*): Cache-Control: public, max-age=31536000, immutable"
     ]
   },
@@ -471,7 +472,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/rt-loader.js:26"
+        "src/core/rt-loader.js:23"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -510,7 +511,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/rt-loader.js:18"
+        "src/core/rt-loader.js:15"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -559,7 +560,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/rt-loader.js:44"
+        "src/core/rt-loader.js:41"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -611,7 +612,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/rt-loader.js:35"
+        "src/core/rt-loader.js:32"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -692,7 +693,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "RAPTOR planner"
       ],
       "callers": [
-        "src/core/rt-loader.js:56"
+        "src/core/rt-loader.js:53"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -758,7 +759,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:205"
+        "src/ui/auth-modal.js:203"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -805,7 +806,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:181"
+        "src/ui/auth-modal.js:179"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -850,7 +851,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/core/auth.js:106"
+        "src/core/auth.js:104"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -886,7 +887,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/core/auth.js:52"
+        "src/core/auth.js:50"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -966,7 +967,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/verify-page.js:30"
+        "src/ui/verify-page.js:28"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1072,7 +1073,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:224"
+        "src/ui/auth-modal.js:222"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1115,7 +1116,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/reset-password-page.js:65"
+        "src/ui/reset-password-page.js:63"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1153,7 +1154,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/auth.js:149"
+        "src/core/auth.js:147"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1193,7 +1194,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/auth.js:165"
+        "src/core/auth.js:163"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1236,7 +1237,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "bcrypt"
       ],
       "callers": [
-        "src/core/auth.js:177"
+        "src/core/auth.js:175"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1275,7 +1276,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/features.js:11"
+        "src/core/features.js:9"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1358,7 +1359,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/commutes.js:27"
+        "src/core/commutes.js:25"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1404,7 +1405,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/commutes.js:38"
+        "src/core/commutes.js:36"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1447,7 +1448,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/commutes.js:67"
+        "src/core/commutes.js:65"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1487,7 +1488,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "pingsDatabase": false,
       "libs": [],
       "callers": [
-        "src/core/commutes.js:78"
+        "src/core/commutes.js:76"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -1534,7 +1535,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "refresh token (SHA-256)"
       ],
       "callers": [
-        "src/ui/auth-modal.js:260"
+        "src/ui/auth-modal.js:258"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -2318,10 +2319,10 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "src/core/gtfs-loader.js:82"
       ],
       "/platforms.json": [
-        "src/core/rt-loader.js:67"
+        "src/core/rt-loader.js:64"
       ],
       "/car-positions.json": [
-        "src/core/rt-loader.js:80"
+        "src/core/rt-loader.js:77"
       ]
     },
     "externals": {
@@ -2347,6 +2348,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "core/car-position.js",
       "core/color.js",
       "core/commutes.js",
+      "core/config.js",
       "core/corridors.js",
       "core/entrances.js",
       "core/features.js",
@@ -2572,6 +2574,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "RESEND_API_KEY"
     ],
     "web": [
+      "VITE_API_BASE",
       "VITE_GOOGLE_CLIENT_ID",
       "VITE_STADIA_API_KEY"
     ]

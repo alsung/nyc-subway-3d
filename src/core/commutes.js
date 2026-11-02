@@ -1,8 +1,6 @@
 import { authFetch } from './auth.js';
 
-const API_BASE = import.meta.env.PROD
-    ? 'https://nyc-subway-api.fly.dev'
-    : 'http://localhost:8080';
+import { API_BASE } from './config.js';
 
 let cache = [];
 const listeners = new Set();

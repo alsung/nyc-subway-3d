@@ -1,8 +1,6 @@
 import { readPref, writePref } from './prefs.js';
 
-const API_BASE = import.meta.env.PROD
-    ? 'https://nyc-subway-api.fly.dev'
-    : 'http://localhost:8080';
+import { API_BASE } from './config.js';
 
 const REFRESH_MARGIN_MS = 60_000;
 
