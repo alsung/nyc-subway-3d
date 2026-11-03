@@ -58,11 +58,16 @@ describe('the rule set', () => {
         const guards = RULES.filter(r => r.expr.includes('absent('));
         expect(guards).toHaveLength(1);
         expect(guards[0].expr).toContain('feed_last_refresh_timestamp_seconds');
+        // The rules over metrics from outside api/metrics.go need the same
+        // guard, or a rename on Fly's side reads as a healthy disk.
+        expect(guards[0].expr).toContain('process_resident_memory_bytes');
+        expect(guards[0].expr).toContain('fly_instance_filesystem_blocks{');
     });
 
     it('queries only metrics the API actually exposes', () => {
         // Guards against a rule outliving a rename. These are the collectors in
-        // api/metrics.go.
+        // api/metrics.go, plus process_resident_memory_bytes from the Go
+        // client's default process collector, which /metrics also serves.
         const known = [
             'feed_last_refresh_timestamp_seconds',
             'feed_refresh_total',
@@ -72,12 +77,19 @@ describe('the rule set', () => {
             'account_purge_last_success_timestamp_seconds',
             'timetable_services_active_today',
             'email_send_total',
+            'process_resident_memory_bytes',
         ];
+        // Exported by Fly for every machine, not by our code.
+        const fromFly = [
+            'fly_instance_filesystem_blocks',
+            'fly_instance_filesystem_blocks_avail',
+        ];
+        const promFuncs = ['time', 'rate', 'absent', 'or', 'increase', 'sum', 'by', 'max_over_time'];
         for (const r of RULES) {
             const referenced = r.expr.match(/[a-z_][a-z0-9_]*(?=[\s{(]|$)/g) ?? [];
-            const metrics = referenced.filter(t => t.includes('_') && !['time', 'rate', 'absent', 'or'].includes(t));
+            const metrics = referenced.filter(t => t.includes('_') && !promFuncs.includes(t));
             for (const m of metrics) {
-                expect(known, `${r.name} references unknown metric ${m}`).toContain(m);
+                expect([...known, ...fromFly], `${r.name} references unknown metric ${m}`).toContain(m);
             }
         }
     });
@@ -147,8 +159,12 @@ describe('the Grafana dashboard', () => {
             'alerts_entities',
             'go_memstats_heap_inuse_bytes',
             'go_goroutines',
+            'process_resident_memory_bytes',
+            // from Fly, not api/metrics.go
+            'fly_instance_filesystem_blocks',
+            'fly_instance_filesystem_blocks_avail',
         ];
-        const promFuncs = ['sum', 'rate', 'time', 'histogram_quantile', 'by', 'le'];
+        const promFuncs = ['sum', 'rate', 'time', 'histogram_quantile', 'by', 'le', 'increase'];
 
         for (const panel of dashboard.panels) {
             for (const target of panel.targets) {
