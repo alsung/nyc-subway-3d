@@ -130,7 +130,7 @@
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "go_memstats_heap_inuse_bytes", "legendFormat": "heap in use" }
+        { "refId": "A", "expr": "go_memstats_heap_inuse_bytes{app=\"nyc-subway-api\"}", "legendFormat": "heap in use" }
       ]
     },
     {
@@ -141,7 +141,7 @@
       "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "go_goroutines", "legendFormat": "goroutines" }
+        { "refId": "A", "expr": "go_goroutines{app=\"nyc-subway-api\"}", "legendFormat": "goroutines" }
       ]
     },
     {
@@ -200,6 +200,7 @@
         "defaults": {
           "unit": "bytes",
           "min": 0,
+          "max": 536870912,
           "custom": { "thresholdsStyle": { "mode": "line" } },
           "thresholds": {
             "mode": "absolute",
