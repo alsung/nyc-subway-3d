@@ -77,16 +77,58 @@ export const RULES = [
             'missing calendar.txt. /health stays green throughout.',
     },
     {
+        // /health stays green through all of these, and UptimeRobot only sees
+        // /health and the homepage. With near-zero traffic, any 500 is a bug.
+        name: 'http-5xx',
+        expr: 'sum by (route) (increase(http_requests_total{status=~"5..",route!="/health"}[30m])) > 0',
+        summary: 'A route returned server errors in the last 30 minutes',
+        detail:
+            'UptimeRobot only sees /health, which stays green while /api/plan ' +
+            'or /api/auth/* fail. Labeled by route. A 503 from /api/plan in ' +
+            'the seconds after a deploy is the timetable still loading; ' +
+            'anything else is a bug: check `fly logs -a nyc-subway-api`.',
+    },
+    {
+        // Fly's own metric for the database app's volume, not one of ours.
+        name: 'db-disk',
+        expr:
+            '1 - fly_instance_filesystem_blocks_avail{app="nyc-subway-db",mount="/data"} ' +
+            '/ fly_instance_filesystem_blocks{app="nyc-subway-db",mount="/data"} > 0.8',
+        summary: 'The Postgres volume is over 80% full',
+        detail:
+            'When it fills, every write fails (sign-up, saved commutes, ' +
+            'sessions) while /health stays green, because /health only pings ' +
+            'the database. Run `fly volumes extend <id> -a nyc-subway-db -s <GB>` ' +
+            'before it reaches 100%.',
+    },
+    {
+        // Resident memory, not heap: the out-of-memory killer counts the whole
+        // process, and resident memory runs about twice the Go heap here.
+        name: 'api-memory',
+        expr: 'max_over_time(process_resident_memory_bytes{app="nyc-subway-api"}[30m]) > 400e6',
+        summary: 'The API used over 400 MB of its 512 MB in the last 30 minutes',
+        detail:
+            "An out-of-memory restart plus boot fits inside UptimeRobot's " +
+            '5-minute gap, so nobody else sees it. max_over_time catches a ' +
+            'spike between the 30-minute runs.',
+    },
+    {
         // The blind spot in every threshold above: an expression over a metric
         // that no longer exists returns nothing, which reads as healthy. This
         // is the rule that notices the metrics themselves went away — a renamed
-        // collector, a failed deploy, a machine that never came back.
+        // collector, a failed deploy, a machine that never came back, or Fly
+        // renaming the volume metrics db-disk reads.
         name: 'metrics-absent',
-        expr: 'absent(feed_last_refresh_timestamp_seconds) or absent(http_requests_total)',
-        summary: 'The API is not reporting metrics at all',
+        expr:
+            'absent(feed_last_refresh_timestamp_seconds) or absent(http_requests_total)' +
+            ' or absent(process_resident_memory_bytes{app="nyc-subway-api"})' +
+            ' or absent(fly_instance_filesystem_blocks{app="nyc-subway-db",mount="/data"})',
+        summary: 'A metric the rules depend on is missing',
         detail:
             'Every other rule here is a threshold, and a threshold over a ' +
-            'missing metric is silently satisfied. This one fires on absence.',
+            'missing metric is silently satisfied. This one fires on absence. ' +
+            'It also covers the Fly volume metrics the disk rule reads, so a ' +
+            'renamed metric or a moved database app cannot pass silently.',
     },
 ];
 
@@ -143,8 +185,9 @@ export function describe(finding, rule) {
  * The Authorization header for a Fly token.
  *
  * `fly tokens create` emits the token with its scheme already attached
- * ("FlyV1 fm2_..."), while `fly auth token` emits a bare macaroon that wants
- * "Bearer". Wrapping the first kind again yields "FlyV1 FlyV1 fm2_..." and a
+ * ("FlyV1 fm2_..."), while `fly auth token` emits it bare, and the bare form
+ * also wants "FlyV1": sent as "Bearer" it gets a 401 (checked 2026-11-03).
+ * Wrapping an already-prefixed token again yields "FlyV1 FlyV1 fm2_..." and a
  * 401 that looks exactly like an expired credential — which cost an hour here
  * before the token was examined rather than assumed.
  */

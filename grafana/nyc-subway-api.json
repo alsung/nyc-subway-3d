@@ -130,7 +130,7 @@
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "go_memstats_heap_inuse_bytes", "legendFormat": "heap in use" }
+        { "refId": "A", "expr": "go_memstats_heap_inuse_bytes{app=\"nyc-subway-api\"}", "legendFormat": "heap in use" }
       ]
     },
     {
@@ -141,7 +141,83 @@
       "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "go_goroutines", "legendFormat": "goroutines" }
+        { "refId": "A", "expr": "go_goroutines{app=\"nyc-subway-api\"}", "legendFormat": "goroutines" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Server errors by route",
+      "description": "5xx responses per 30 minutes, the same window the http-5xx rule alerts on. Excludes /health, whose 503s the feed rules and UptimeRobot already cover. A 503 from /api/plan right after a deploy is the timetable still loading.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (increase(http_requests_total{status=~\"5..\",route!=\"/health\"}[30m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Database disk used",
+      "description": "The Postgres volume on nyc-subway-db, from Fly's own filesystem metrics. The db-disk rule alerts at 80%; run fly volumes extend before writes start failing.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - fly_instance_filesystem_blocks_avail{app=\"nyc-subway-db\",mount=\"/data\"} / fly_instance_filesystem_blocks{app=\"nyc-subway-db\",mount=\"/data\"}",
+          "legendFormat": "/data"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Resident memory",
+      "description": "What the out-of-memory killer counts, and what the api-memory rule reads: about twice the Go heap shown above. The red line is the 400 MB alert threshold on a 512 MB machine.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "max": 536870912,
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red", "value": 400000000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{app=\"nyc-subway-api\"}",
+          "legendFormat": "{{instance}}"
+        }
       ]
     }
   ]
