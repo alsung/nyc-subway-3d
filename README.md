@@ -7,6 +7,47 @@
 
 ---
 
+## Local development
+
+You need Node 20+, and for the full stack also Go 1.27 and Docker. `npm run dev` downloads the static GTFS feed on its first run.
+
+**Frontend only, against production.** The map, arrivals and trip planner work with no local API:
+
+```bash
+npm install
+VITE_API_BASE=https://nyc-subway-api.fly.dev npm run dev   # http://localhost:5173
+```
+
+**Full stack.** Postgres runs in Docker on port **5433**; the API applies its migrations on startup.
+
+```bash
+cp .env.example .env              # then set JWT_SECRET to the output of: openssl rand -hex 32
+docker compose up -d              # Postgres on localhost:5433
+(set -a; . ./.env; set +a; cd api && go run .)   # API on http://localhost:8080
+npm run dev                       # in another terminal; Vite reads .env itself
+```
+
+With `DEV_AUTO_VERIFY=true` (the default in `.env.example`), new email accounts are verified without sending mail, so `RESEND_API_KEY` can stay empty. Without `DATABASE_URL` the API still serves live trains and planning, but sign-in and saved commutes are off.
+
+**Tests.**
+
+```bash
+npm test                          # frontend unit tests
+cd api && go test ./...           # API tests; the database tests skip without TEST_DATABASE_URL
+```
+
+The database tests add and remove their own rows and briefly alter tables, so give them their own database rather than your dev one:
+
+```bash
+docker compose exec db createdb -U localexpress localexpress_test   # once
+cd api && TEST_DATABASE_URL='postgres://localexpress:localexpress@localhost:5433/localexpress_test?sslmode=disable' \
+  go test ./...
+```
+
+`npm run arch` regenerates the architecture map in `docs/` after changes to routes or their callers.
+
+---
+
 ## Table of Contents
 
 1. [Product Summary](#1-product-summary)
@@ -157,7 +198,7 @@ The frontend is a static Vite build on Vercel (localexpress.nyc). The API is one
 ```mermaid
 flowchart LR
     subgraph web["Browser · Vercel"]
-        fe["Web app (Vite, MapLibre)<br/>42 modules"]
+        fe["Web app (Vite, MapLibre)<br/>43 modules"]
     end
     subgraph api["API · nyc-subway-api"]
         r_health["GET /health"]

@@ -1,6 +1,4 @@
-const API_BASE = import.meta.env.PROD
-    ? 'https://nyc-subway-api.fly.dev'
-    : 'http://localhost:8080';
+import { API_BASE } from '../core/config.js';
 
 export async function renderResetPasswordPage() {
     const token = new URLSearchParams(window.location.search).get('token');

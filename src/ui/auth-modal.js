@@ -1,9 +1,7 @@
 import { signIn } from '../core/auth.js';
 import { loadFeatures } from '../core/features.js';
 
-const API_BASE = import.meta.env.PROD
-    ? 'https://nyc-subway-api.fly.dev'
-    : 'http://localhost:8080';
+import { API_BASE } from '../core/config.js';
 
 const GOOGLE_CLIENT_ID =
     '877965508099-0qp754dcgorvj9eho70olieasha83206.apps.googleusercontent.com';
