@@ -64,7 +64,7 @@ cd api && TEST_DATABASE_URL='postgres://localexpress:localexpress@localhost:5433
 12. [Phase 4 — Real Trains + Station LOD](#12-phase-4--real-trains--station-lod)
 13. [Phase 5 — Go API Server (Fly.io)](#13-phase-5--go-api-server-flyio)
 14. [Phase 6 — Performance, Service Alerts + Mobile](#14-phase-6--performance-service-alerts--mobile)
-15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail)
+15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail-)
 16. [Phase 8 — Trip Planner + Car Positioning](#16-phase-8--trip-planner--car-positioning)
 17. [Phase 8.5 — Production Operations](#17-phase-85--production-operations)
 18. [Phase 9 — User Accounts](#18-phase-9--user-accounts)
