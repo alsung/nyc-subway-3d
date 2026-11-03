@@ -47,8 +47,14 @@ jobs:
       # No npm ci: the script uses only built-in fetch, so installing the
       # frontend's dependencies would be a minute of runner time per half hour
       # to gain nothing.
+      # shell: bash is not redundant. Without it GitHub runs `bash -e`, which
+      # has no pipefail, so the pipe below took tee's exit 0 and this step
+      # passed even when rules fired: 399 runs, all green, and the issue step
+      # under it never ran once. With it, GitHub adds -o pipefail and the
+      # script's exit 1 fails the step.
       - name: Evaluate rules
         id: rules
+        shell: bash
         env:
           FLY_METRICS_TOKEN: ${{ secrets.FLY_METRICS_TOKEN }}
         run: node scripts/check-metrics.mjs 2>&1 | tee /tmp/metrics-check.log

@@ -185,8 +185,9 @@ export function describe(finding, rule) {
  * The Authorization header for a Fly token.
  *
  * `fly tokens create` emits the token with its scheme already attached
- * ("FlyV1 fm2_..."), while `fly auth token` emits a bare macaroon that wants
- * "Bearer". Wrapping the first kind again yields "FlyV1 FlyV1 fm2_..." and a
+ * ("FlyV1 fm2_..."), while `fly auth token` emits it bare, and the bare form
+ * also wants "FlyV1": sent as "Bearer" it gets a 401 (checked 2026-11-03).
+ * Wrapping an already-prefixed token again yields "FlyV1 FlyV1 fm2_..." and a
  * 401 that looks exactly like an expired credential — which cost an hour here
  * before the token was examined rather than assumed.
  */
