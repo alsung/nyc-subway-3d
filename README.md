@@ -64,7 +64,7 @@ cd api && TEST_DATABASE_URL='postgres://localexpress:localexpress@localhost:5433
 12. [Phase 4 — Real Trains + Station LOD](#12-phase-4--real-trains--station-lod)
 13. [Phase 5 — Go API Server (Fly.io)](#13-phase-5--go-api-server-flyio)
 14. [Phase 6 — Performance, Service Alerts + Mobile](#14-phase-6--performance-service-alerts--mobile)
-15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail)
+15. [Phase 7 — Map Legibility + Station Detail](#15-phase-7--map-legibility--station-detail-)
 16. [Phase 8 — Trip Planner + Car Positioning](#16-phase-8--trip-planner--car-positioning)
 17. [Phase 8.5 — Production Operations](#17-phase-85--production-operations)
 18. [Phase 9 — User Accounts](#18-phase-9--user-accounts)
@@ -78,7 +78,8 @@ cd api && TEST_DATABASE_URL='postgres://localexpress:localexpress@localhost:5433
 26. [API Reference](#26-api-reference)
 27. [Test Strategy](#27-test-strategy)
 28. [Deployment](#28-deployment)
-28. [Out of Scope](#28-out-of-scope)
+29. [Out of Scope](#29-out-of-scope)
+30. [Future Ideas](#30-future-ideas)
 
 ---
 
@@ -2297,7 +2298,7 @@ Vercel's Git integration authenticates itself. They can be deleted from the repo
 
 ---
 
-## 28. Out of Scope
+## 29. Out of Scope
 
 These features are intentionally excluded from current phases:
 
@@ -2314,4 +2315,15 @@ Previously excluded, now planned:
 | Native iOS / Android app | Phase 12 — Mobile App |
 | Bus routing | Phase 13 — Multi-Modal Routing (as one mode among several) |
 | Walking directions | Phase 13 — Multi-Modal Routing (first/last-mile legs) |
-| Paid subscription | Section 23 — Monetization |
+| Paid subscription | Section 24 — Monetization |
+
+---
+
+## 30. Future Ideas
+
+Unscheduled ideas worth exploring. Not yet scoped or ticketed.
+
+| Idea | What it would be | Open questions |
+|---|---|---|
+| Public bathrooms layer | A toggleable map overlay of NYC public restrooms, in the style of the station entrances layer: one GeoJSON source with name, hours and accessibility. | Data source. Google Maps' terms restrict copying its content onto a non-Google map, so a shared Maps list can only be a cross-check. Official sources to check first: NYC Open Data and restrooms inside stations. |
+| Historical train-car explorer | An explore page or subdomain (e.g. `explore.localexpress.nyc`) of interactive 3D simulators of subway cars through history, grouped by owner: IRT, BMT, IND, then the R-type contracts. Visitors can take each car apart: internals, labels, exploded views, a turntable, assemblies, power and data. | Built with the `/teardown` skill, one self-contained page per car class. Needs sourced specs for each class and licensing checks for diagrams and photos. Start with one well-documented car to size the effort. Overlaps with Phase 11 SEO. |
