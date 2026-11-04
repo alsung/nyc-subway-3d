@@ -68,18 +68,20 @@ cd api && TEST_DATABASE_URL='postgres://localexpress:localexpress@localhost:5433
 16. [Phase 8 — Trip Planner + Car Positioning](#16-phase-8--trip-planner--car-positioning)
 17. [Phase 8.5 — Production Operations](#17-phase-85--production-operations)
 18. [Phase 9 — User Accounts](#18-phase-9--user-accounts)
-19. [Phase 10 — Push Notifications](#19-phase-10--push-notifications)
-20. [Phase 11 — AI Agent Layer](#20-phase-11--ai-agent-layer)
-21. [Phase 12 — Mobile App](#21-phase-12--mobile-app)
-22. [Phase 13 — Multi-Modal Routing](#22-phase-13--multi-modal-routing)
-23. [Phase 14 — Accessibility Routing](#23-phase-14--accessibility-routing)
-24. [Monetization](#24-monetization)
-25. [Data Sources](#25-data-sources)
-26. [API Reference](#26-api-reference)
-27. [Test Strategy](#27-test-strategy)
-28. [Deployment](#28-deployment)
-29. [Out of Scope](#29-out-of-scope)
-30. [Future Ideas](#30-future-ideas)
+19. [Phase 10 — Security Hardening + Monitoring](#19-phase-10--security-hardening--monitoring)
+20. [Phase 11 — SEO + Shareable URLs](#20-phase-11--seo--shareable-urls)
+21. [Phase 12 — Push Notifications](#21-phase-12--push-notifications)
+22. [Phase 13 — AI Agent Layer](#22-phase-13--ai-agent-layer)
+23. [Phase 14 — Mobile App](#23-phase-14--mobile-app)
+24. [Phase 15 — Multi-Modal Routing](#24-phase-15--multi-modal-routing)
+25. [Phase 16 — Accessibility Routing](#25-phase-16--accessibility-routing)
+26. [Monetization](#26-monetization)
+27. [Data Sources](#27-data-sources)
+28. [API Reference](#28-api-reference)
+29. [Test Strategy](#29-test-strategy)
+30. [Deployment](#30-deployment)
+31. [Out of Scope](#31-out-of-scope)
+32. [Future Ideas](#32-future-ideas)
 
 ---
 
@@ -346,15 +348,18 @@ flowchart LR
 | MTA GTFS-RT | Data | 8 protobuf binary feeds updated every ~30s; `TripUpdate` for arrival times, `VehiclePosition` for train locations |
 | Vercel | Infrastructure | Static frontend hosting; global CDN, deploys via Vercel's own Git integration |
 | Fly.io | Infrastructure | Containerized Go app in `ewr`: the API server (`nyc-subway-api`, one always-on shared-cpu-1x/512MB machine) |
-| Google Cloud (Phases 8–10) | Infrastructure | Firebase Auth and FCM for user accounts and push notifications; not used for hosting the API |
-| Firebase Auth (Phase 9) | Auth | Google Sign-In; user identity for saved commutes and notification prefs |
-| Firebase Cloud Messaging (Phase 10) | Notifications | Push notifications for departure alerts and delay warnings via service worker |
-| Claude API (Phase 11) | AI | Tool-use agent layer for natural language transit queries |
+| Fly Postgres (Phase 9) | Database | `nyc-subway-db` in `ewr`: users, refresh and verification tokens, saved commutes, feature flags |
+| Google Identity Services (Phase 9) | Auth | Google sign-in button; the API verifies the ID token and issues its own JWT, so there is no third-party auth service |
+| Resend (Phase 9) | Email | Verification and password reset emails |
+| Web Push API (Phase 12) | Notifications | Push notifications for departure alerts and delay warnings via service worker, with no vendor dependency |
+| Claude API (Phase 13) | AI | Tool-use agent layer for natural language transit queries |
 | GitHub Actions | CI/CD | Pipeline: JS tests → build → deploy frontend → Go tests → deploy backend |
 
 ---
 
 ## 8. Phase Roadmap
+
+As of 2026-11-03, Phases 1–10 are complete and Phase 11 is next. The phase numbers here match the GitHub issues (`P10-x`, `P11-x`, label `phase:11`). Phases 12–16 are planned but have no issues yet.
 
 | Phase | Name | Status | Key deliverable |
 |---|---|---|---|
@@ -366,12 +371,15 @@ flowchart LR
 | 6 | Performance, Service Alerts + Mobile | Complete | Startup performance, popup state clarity, MTA service alerts, station badges, arrivals redesign, responsive layout, PWA manifest, keyboard access |
 | 7 | Map Legibility + Station Detail | Complete | Zoom-driven camera, basemap restraint, routes as flat Maplibre lines, parallel strands, station entrances, platform footprints |
 | 8 | Trip Planner + Car Positioning | Complete | RAPTOR-based trip planner with realtime overlay; car positioning recommends front/middle/back based on destination exits |
-| 9 | User Accounts | Planned | Persistent user identity, saved commutes, preferences synced across devices |
-| 10 | Push Notifications | Planned | Departure reminders, delay alerts scoped to saved routes and commute windows |
-| 11 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence (Pro) |
-| 12 | Mobile App | Planned | Native shell over the web app; homescreen presence, push notification support, offline schedules |
-| 13 | Multi-Modal Routing | Planned | Citibike, bus, and walking legs in the trip planner; street-level routing for first/last mile |
-| 14 | Accessibility Routing | Planned | Elevator-aware step-free directions; real-time elevator outage integration |
+| 8.5 | Production Operations | Complete | Deep health checks, UptimeRobot monitoring and public status page, feedback link, privacy note, incident template |
+| 9 | User Accounts | Complete | Google sign-in and email/password on our own JWT auth, Postgres on Fly, saved commutes, account settings and deletion, feature flags |
+| 10 | Security Hardening + Monitoring | Complete | Account deletion fixes, Postgres tests in CI, rate limiting, session and input hardening, CSP, alerts for server errors, disk and memory |
+| 11 | SEO + Shareable URLs | Next | Station and line URLs, pre-rendered station and line pages with a sitemap, real 404s and canonical URLs |
+| 12 | Push Notifications | Planned | Departure reminders, delay alerts scoped to saved routes and commute windows |
+| 13 | AI Agent Layer | Planned | Claude API tool-use agent; natural language trip queries, proactive commute intelligence (Pro) |
+| 14 | Mobile App | Planned | Native shell over the web app; homescreen presence, push notification support, offline schedules |
+| 15 | Multi-Modal Routing | Planned | Citibike, bus, and walking legs in the trip planner; street-level routing for first/last mile |
+| 16 | Accessibility Routing | Planned | Elevator-aware step-free directions; real-time elevator outage integration |
 
 ---
 
@@ -829,8 +837,9 @@ behavior. Cloud Run is an excellent fit for request-scoped handlers; it is a poo
 for a long-lived in-memory cache with a background refresher. Fly.io sells exactly what
 this architecture wants — a small always-on VM.
 
-GCP is still the intended home for Firebase Auth and FCM in Phases 8–10; that setup is
-independent of where this API runs.
+GCP was then still the intended home for Firebase Auth and FCM. Phase 9 chose our own
+JWT auth and Postgres on Fly instead, and push will use the Web Push API, so nothing in
+this project runs on GCP.
 
 ### Design Decisions & Trade-offs
 
@@ -1531,7 +1540,7 @@ now match a route.
   measured and cut: at true scale the vertical range is ~15px at zoom 16.4,
   and exaggerating the depth scatters platforms across the map.
 
-### Moved to Phase 14
+### Moved to Phase 16
 
 - **Live elevator outages** — belongs with accessibility routing, where the
   outage data drives step-free trip planning rather than existing in isolation.
@@ -1819,18 +1828,18 @@ When a route is selected:
 ### Goal
 Harden the system for real users. Deep health checks that distinguish a running server from one serving stale data, external uptime monitoring, a public status page, a feedback channel, a privacy note, and an incident response process.
 
-### Status — in progress
+### Status — complete (2026-10-10)
 
 | PR | Issue | |
 |---|---|---|
 | #77 | — | Error screen when initial load fails (map timeout, WebGL unavailable) |
 | #78 | — | Lock CORS, add server timeouts, cap rate limiter |
 | #85 | #79 | Deep health endpoint — 503 on stale data |
-| — | #80 | External uptime monitor and status page |
-| — | #81 | Feedback link in the app |
-| — | #82 | Privacy note |
-| — | #83 | Incident post-mortem template |
-| — | #84 | Update README with Phase 8.5 |
+| — | #80 | External uptime monitor and status page: UptimeRobot watches the API and the frontend, status page at localexpress.nyc/status |
+| #87 | #81 | Feedback link in the app |
+| #87 | #82 | Privacy note |
+| #86 | #83 | Incident post-mortem template |
+| #86 | #84 | Update README with Phase 8.5 |
 
 ### Scope
 
@@ -1840,11 +1849,11 @@ Harden the system for real users. Deep health checks that distinguish a running 
 - ~~Rate limiter map capped at 10,000 entries~~ — done
 - ~~Stadia Maps API key restricted to production domain~~ — done
 - ~~Fatal error screen on init failure~~ — done
-- External uptime monitor (Better Stack or UptimeRobot)
-- Public status page
-- Feedback link in the app
-- Privacy note
-- Incident post-mortem template and process
+- ~~External uptime monitor (Better Stack or UptimeRobot)~~ — done, UptimeRobot
+- ~~Public status page~~ — done
+- ~~Feedback link in the app~~ — done
+- ~~Privacy note~~ — done
+- ~~Incident post-mortem template and process~~ — done
 
 ---
 
@@ -1852,6 +1861,20 @@ Harden the system for real users. Deep health checks that distinguish a running 
 
 ### Goal
 Introduce persistent, server-side user identity. Users sign in to save commutes, preferences, and notification settings that follow them across devices. This is the foundation for the Pro subscription tier and push notifications.
+
+### Status — complete (2026-10-15)
+
+| Issue | PRs | |
+|---|---|---|
+| #88 P9-1 | #95 | Postgres on Fly, migration framework, API spec |
+| #89 P9-2 | #96, #97 | JWT auth (register, login, refresh) and Google sign-in |
+| #90 P9-2b | #98 | Email verification and password reset through Resend |
+| #91 P9-3 | #99 | Feature flags with tier gating |
+| #92 P9-4 | #100, #101 | Frontend auth client, sign-in modal, verify and reset pages |
+| #93 P9-5 | #102, #103 | Saved commutes, backend and UI |
+| #94 P9-6 | #108, #109 | Account settings: display name, password change, account deletion |
+
+The scope below is the original plan. What shipped differs in two places: saved commutes are capped at 20 per user for everyone while every feature is free, and notification preferences, default zoom and preferred direction wait for Phase 12 and Pro.
 
 ### Scope
 - OAuth sign-in (Google as the initial provider)
@@ -1876,38 +1899,79 @@ User clicks "Sign in"
 ```
 
 #### Data model
+Postgres on Fly, created by `api/migrations/` (001–005):
 ```
-users/{uid}
-  displayName: string
-  email: string
-  tier: "free" | "pro"
-  createdAt: timestamp
-
-users/{uid}/commutes/{commuteId}
-  originId: string       // GTFS stop_id
-  originName: string
-  destId: string
-  destName: string
-  label: string          // "Morning commute", user-editable
-  createdAt: timestamp
+users                 id, email, display_name, avatar_url, password_hash, provider,
+                      email_verified, tier ('free' | 'pro'), created_at, updated_at, deleted_at
+                      (email unique among accounts that are not deleted)
+refresh_tokens        id, user_id → users, token_hash, expires_at, created_at
+verification_tokens   id, user_id → users, token_hash, kind, expires_at, created_at
+commutes              id, user_id → users, origin_stop_id, origin_name,
+                      dest_stop_id, dest_name, label, created_at
+features              name, required_tier, description
 ```
 
 #### Anonymous → authenticated migration
 Users who saved preferences in `localStorage` are prompted to sign in. On sign-in, local data is migrated to the server and local storage is cleared.
 
-### Open questions
-- Auth provider: Firebase Auth is the fastest path, but adds a Google dependency. Alternatives: Auth0, Clerk, or rolling JWT auth against the Go API directly.
-- Storage: Firestore is convenient with Firebase Auth but couples the backend to Google. Postgres on Fly.io keeps everything in one stack.
+### Decisions
+- **Auth: our own JWT auth in the Go API**, not Firebase Auth, Auth0 or Clerk. Google sign-in only supplies an ID token, which the API verifies before issuing its own short-lived access token and a rotating refresh token.
+- **Storage: Postgres on Fly.io**, not Firestore. It keeps the backend in one stack and in one region with the API.
 
 ---
 
-## 19. Phase 10 — Push Notifications
+## 19. Phase 10 — Security Hardening + Monitoring
+
+### Goal
+Make the accounts from Phase 9 safe before any traffic push: account deletion that really deletes, tests against a real Postgres in CI, rate limits a forged header can't get around, sessions and inputs that fail closed, a Content Security Policy, and alerts for the failures UptimeRobot can't see. Scoped by an engineering review on 2026-10-16.
+
+### Status — complete (2026-11-03)
+
+| Issue | PR | |
+|---|---|---|
+| #110 P10-0 | #121 | Account deletion releases the email, deletes commutes right away, and purges hourly with a heartbeat metric |
+| #111 P10-1 | #122 | Postgres service in CI, auth handler regression tests |
+| — | #123 | Generated architecture map (`npm run arch`), CI check for a stale map or an unknown outside host, enforced Go skip list |
+| #112 P10-2 | #125 | Rate limiting by `Fly-Client-IP`, so a forged `X-Forwarded-For` can't escape it; LRU eviction; separate limits for password endpoints; JSON 429s |
+| #126 P10-3a | #128 | Single-use refresh token rotation, cross-tab refresh lock, revoke on sign-out |
+| #127 P10-3b | #132 | JWT secret fails closed, body and field limits, 72-byte password cap, atomic password reset, email timeout and send metric |
+| #114 P10-4 | #135 | Enforced CSP and security headers in `vercel.json`, one shared `API_BASE`, local development docs |
+| #120 P10-5 | #137 | Alerts for server errors, database disk and API memory; three dashboard panels; and a fix that lets the metrics check open alert issues at all |
+
+#113 (P10-3) was split into #126 and #127.
+
+### Deferred
+- **#115, before Pro billing launches:** Google sign-in taking over unverified email signups, and feature flags that fail closed on unknown names. Neither has any effect while every feature is free.
+- **Static schedule age:** moved to #130, which adds it together with reloading the schedule while the API runs.
+
+---
+
+## 20. Phase 11 — SEO + Shareable URLs
+
+### Goal
+Give search engines and people something to link to. Today the site is one indexable URL with no body text, and the `vercel.json` catch-all returns 200 for any path. Generic map searches can't be won, so the plan targets long-tail searches for individual stations and lines, with a page for each. Distribution (Reddit, Show HN) brings the first visitors. Phase 10 had to ship first, so that traffic arrives to rate limits, a CSP and working alerts.
+
+### Status — next
+
+| Issue | | Notes |
+|---|---|---|
+| #116 P11-0 | Search Console + Bing baseline | Manual. Start first, so there is a measurement from before the new pages. |
+| #117 P11-1 | Station and line URLs with deep linking | Station slugs include the complex id (`/station/611-times-sq-42-st`), because 55 complex names repeat. |
+| #118 P11-2 | Pre-rendered station and line pages + generated sitemap | About 445 station pages and 25 line pages. Line stop order comes from `stop_times.txt`, extracted at build time and never copied into `public/`. |
+| #119 P11-3 | Real 404s, canonical URLs, noindex auth pages | Removes the catch-all rewrite, so it must merge after #118. |
+
+### Design constraint
+A station page shows the same text a visitor sees on the map. Where the station card sits on the map page is still open for #118, but the text has to stay visible. Showing it to crawlers while hiding it from visitors is cloaking.
+
+---
+
+## 21. Phase 12 — Push Notifications
 
 ### Goal
 Alert users before their train arrives and when their commute is disrupted, even when the app is not open in the foreground. Smart notifications — filtered, timed, and contextualized to the rider's saved routes — are a core Pro feature.
 
 ### Scope
-- Push notifications via service worker (web) and native push (mobile, Phase 12)
+- Push notifications via service worker (web) and native push (mobile, Phase 14)
 - Notification types: departure reminder ("Your 6 train leaves 14th St in 3 min"), delay alert ("Your A train is running 12 min late")
 - User sets notification preferences per saved commute: alert window (e.g., 5/10/15 min before scheduled departure), delay threshold
 - The API server schedules notification dispatch based on GTFS-RT data
@@ -1926,12 +1990,12 @@ A scheduled job on the API server (every refresh cycle) checks:
 Compare current `TripUpdate.arrival.delay` against the user's delay threshold. If threshold exceeded for a trip on the user's commute route, dispatch a delay alert notification.
 
 ### Open questions
-- Push delivery: Web Push API (no vendor dependency) vs. FCM (better reliability, adds Google dependency). Mobile native push requires APNs for iOS regardless.
+- ~~Push delivery: Web Push API (no vendor dependency) vs. FCM (better reliability, adds Google dependency).~~ Decided: Web Push API, the same no-vendor choice as the auth stack. Mobile native push requires APNs for iOS regardless.
 - Notification frequency capping: riders don't want 10 alerts on a bad morning. Need a per-commute cooldown or digest mode.
 
 ---
 
-## 20. Phase 11 — AI Agent Layer
+## 22. Phase 13 — AI Agent Layer
 
 ### Goal
 Add a natural language interface powered by Claude API tool use. Users can ask questions like "What's the fastest way from Astoria to the West Village right now?" and receive a reasoned, real-time answer that accounts for live arrivals, service alerts, and the user's saved commutes. This is the headline Pro feature — expensive to run (LLM inference per query), clearly premium, and genuinely useful.
@@ -2006,7 +2070,7 @@ The `highlight_route` tool is the bridge between the AI layer and the map: Claud
 
 ---
 
-## 21. Phase 12 — Mobile App
+## 23. Phase 14 — Mobile App
 
 ### Goal
 Give riders a homescreen icon, reliable push notifications, and offline access. The web app already works on mobile browsers; this phase adds the native shell that unlocks platform capabilities the browser restricts.
@@ -2024,7 +2088,7 @@ Give riders a homescreen icon, reliable push notifications, and offline access. 
 
 ---
 
-## 22. Phase 13 — Multi-Modal Routing
+## 24. Phase 15 — Multi-Modal Routing
 
 ### Goal
 Extend the trip planner beyond subway-only trips. Riders rarely take a single mode — they walk to a station, ride, then walk or bike the last mile. Multi-modal routing closes the gap between "the subway gets you close" and "you've arrived."
@@ -2042,7 +2106,7 @@ Extend the trip planner beyond subway-only trips. Riders rarely take a single mo
 
 ---
 
-## 23. Phase 14 — Accessibility Routing
+## 25. Phase 16 — Accessibility Routing
 
 ### Goal
 Let riders who need step-free access plan trips confidently. Only 28% of NYC subway stations are ADA accessible, and elevator outages are common. No mainstream app combines real-time elevator status with trip planning.
@@ -2063,7 +2127,7 @@ Basic accessible routing (plan a step-free trip) should be free. The premium lay
 
 ---
 
-## 24. Monetization
+## 26. Monetization
 
 ### Free tier
 The free product must be good enough to build a daily habit. It is the acquisition funnel.
@@ -2093,7 +2157,7 @@ Citymapper Pro: $5/month. Transit Royale: $3/month. The transit app market suppo
 
 ---
 
-## 25. Data Sources
+## 27. Data Sources
 
 | Source | URL | Format | Update frequency | Auth required |
 |---|---|---|---|---|
@@ -2115,7 +2179,7 @@ Citymapper Pro: $5/month. Transit Royale: $3/month. The transit app market suppo
 
 ---
 
-## 26. API Reference
+## 28. API Reference
 
 ### Phase 4 — Go Proxy (Fly.io) — retired 2026-08-12
 
@@ -2183,7 +2247,7 @@ hexToRGB(hex)      → { r, g, b }
 
 ---
 
-## 27. Test Strategy
+## 29. Test Strategy
 
 ### Principles
 - **Only `src/core/` is unit-tested.** Scene and UI code depends on Three.js and the DOM — both require a browser to run meaningfully. Tests live in `tests/unit/` and run in Node via Vitest with zero DOM setup.
@@ -2220,7 +2284,7 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ---
 
-## 28. Deployment
+## 30. Deployment
 
 ### Frontend (Vercel)
 
@@ -2290,36 +2354,35 @@ lands on.
 | Secret | Phase | Source |
 |---|---|---|
 | `FLY_API_TOKEN` | 5+ | `fly tokens create org <slug>` — org-scoped, so it can deploy `nyc-subway-api` |
+| `FLY_METRICS_TOKEN` | 8+ | `fly tokens create readonly -o personal` — read-only, used only by the metrics check |
 
 The `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` secrets are no longer used;
 Vercel's Git integration authenticates itself. They can be deleted from the repository.
-| `GCP_SERVICE_ACCOUNT_KEY` | 5+ | GCP IAM → Service Accounts → JSON key |
-| `FIREBASE_SERVICE_ACCOUNT` | 8+ | Firebase Console → Project Settings → Service Accounts |
 
 ---
 
-## 29. Out of Scope
+## 31. Out of Scope
 
 These features are intentionally excluded from current phases:
 
 | Feature | Reason excluded |
 |---|---|
 | Ticket purchasing / OMNY integration | Requires MTA partnership; not buildable independently |
-| LIRR / Metro-North | Different GTFS feeds, different fare structure, different rider problems. Revisit if multi-city expansion (Phase 13+) proves the architecture generalizes. |
+| LIRR / Metro-North | Different GTFS feeds, different fare structure, different rider problems. Revisit if multi-city expansion (Phase 15+) proves the architecture generalizes. |
 | Real-time crowding data via computer vision | Requires hardware access to MTA cameras; not publicly available |
 
 Previously excluded, now planned:
 
 | Feature | Moved to |
 |---|---|
-| Native iOS / Android app | Phase 12 — Mobile App |
-| Bus routing | Phase 13 — Multi-Modal Routing (as one mode among several) |
-| Walking directions | Phase 13 — Multi-Modal Routing (first/last-mile legs) |
-| Paid subscription | Section 24 — Monetization |
+| Native iOS / Android app | Phase 14 — Mobile App |
+| Bus routing | Phase 15 — Multi-Modal Routing (as one mode among several) |
+| Walking directions | Phase 15 — Multi-Modal Routing (first/last-mile legs) |
+| Paid subscription | Section 26 — Monetization |
 
 ---
 
-## 30. Future Ideas
+## 32. Future Ideas
 
 Unscheduled ideas worth exploring. Not yet scoped or ticketed.
 
