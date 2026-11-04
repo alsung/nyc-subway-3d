@@ -402,7 +402,7 @@
         "RAPTOR planner"
       ],
       "callers": [
-        "src/core/rt-loader.js:53"
+        "src/core/rt-loader.js:52"
       ],
       "machineCallers": [],
       "inOpenAPI": true
@@ -2017,6 +2017,12 @@
       "label": "Google Forms (feedback)",
       "kind": "other",
       "host": "forms.gle"
+    },
+    {
+      "id": "mta-web",
+      "label": "mta.info alerts page (planned changes link)",
+      "kind": "other",
+      "host": "www.mta.info"
     }
   ],
   "frontend": {
@@ -2028,16 +2034,19 @@
         "src/core/gtfs-loader.js:82"
       ],
       "/platforms.json": [
-        "src/core/rt-loader.js:64"
+        "src/core/rt-loader.js:63"
       ],
       "/car-positions.json": [
-        "src/core/rt-loader.js:77"
+        "src/core/rt-loader.js:76"
       ]
     },
     "externals": {
       "stadia": [
         "src/scene/renderer.js",
         "index.html"
+      ],
+      "mta-web": [
+        "src/ui/alerts-panel.js"
       ],
       "google": [
         "index.html"

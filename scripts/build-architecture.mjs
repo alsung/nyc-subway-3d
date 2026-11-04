@@ -159,6 +159,7 @@ const EXTERNALS = [
     { id: 'fly-prom', host: 'api.fly.io/prometheus', label: 'Fly managed Prometheus', kind: 'monitoring' },
     { id: 'uptimerobot', host: 'stats.uptimerobot.com', label: 'UptimeRobot', kind: 'monitoring' },
     { id: 'gforms', host: 'forms.gle', label: 'Google Forms (feedback)', kind: 'other' },
+    { id: 'mta-web', host: 'www.mta.info', label: 'mta.info alerts page (planned changes link)', kind: 'other' },
 ];
 
 // Libraries worth showing on the path a request takes.

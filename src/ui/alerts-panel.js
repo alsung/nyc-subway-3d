@@ -9,11 +9,15 @@
 // only part of a router this app actually needs.
 
 import { fetchAlertSummary, fetchAlerts } from '../core/rt-loader.js';
-import { trunkDisplay, systemTone, alertsForTrunk, dedupeBulletRoutes } from '../core/alert-status.js';
+import { trunkDisplay, systemTone, alertsForTrunk, dedupeBulletRoutes, plannedChangesLabel } from '../core/alert-status.js';
 import { parseAlertText } from '../core/alert-text.js';
 import { routeBullet as bullet } from './route-bullet.js';
 
 const HASH = '#alerts';
+
+// Planned work links out to MTA's own page, as the MTA app does, rather than
+// being listed here: it is most of the feed and changes often.
+const MTA_ALERTS_URL = 'https://www.mta.info/alerts';
 
 // Alerts refresh server-side every 60s, so re-fetching more often than that
 // cannot return anything new.
@@ -160,85 +164,25 @@ export function buildAlertsPanel(container, routeMap, stations, statusButton, on
         // majority of the feed is scheduled work, and folding it in would mark
         // nearly every line disrupted and make the list meaningless.
         if (summary.upcoming > 0) {
-            const entry = document.createElement('button');
+            const entry = document.createElement('a');
             entry.className = 'alerts-foot alerts-foot--link';
-            entry.innerHTML = '';
+            entry.href = MTA_ALERTS_URL;
+            entry.target = '_blank';
+            entry.rel = 'noopener noreferrer';
             const label = document.createElement('span');
-            label.textContent = `${summary.upcoming} planned service change${summary.upcoming === 1 ? '' : 's'} scheduled`;
-            const chev = document.createElement('span');
-            chev.className = 'alert-chev';
-            chev.textContent = '›';
-            entry.append(label, chev);
-            entry.addEventListener('click', showPlanned);
+            label.textContent = plannedChangesLabel(summary.upcoming);
+            // Read after the label, so screen readers hear that the link
+            // leaves the app; the arrow says the same thing visually.
+            const leaving = document.createElement('span');
+            leaving.className = 'visually-hidden';
+            leaving.textContent = ' (opens mta.info)';
+            label.appendChild(leaving);
+            const ext = document.createElement('span');
+            ext.className = 'alert-ext';
+            ext.setAttribute('aria-hidden', 'true');
+            ext.textContent = '\u2197';
+            entry.append(label, ext);
             body.appendChild(entry);
-        }
-    }
-
-    // ── planned service changes ─────────────────────────────────────────────
-
-    // Upcoming work is only fetched when this view is opened. The full response
-    // is ~25 KB gzipped against ~1.2 KB for the default, so it is not worth
-    // pulling for the status list that most visitors will only ever see.
-    let plannedCache = null;
-
-    async function showPlanned() {
-        renderPlannedShell();
-        const list = body.querySelector('.planned-list');
-        try {
-            if (!plannedCache || Date.now() - plannedCache.at >= CACHE_MS) {
-                const res = await fetchAlerts(true);
-                plannedCache = { alerts: res.alerts ?? [], at: Date.now() };
-            }
-            // The user may have navigated back while this was in flight.
-            if (!body.contains(list)) return;
-            renderPlannedList(list, plannedCache.alerts.filter(a => !a.surfaced));
-        } catch {
-            if (!body.contains(list)) return;
-            list.innerHTML = '';
-            const msg = document.createElement('div');
-            msg.className = 'alerts-message';
-            msg.textContent = 'Couldn\u2019t load planned service changes.';
-            list.appendChild(msg);
-        }
-    }
-
-    function renderPlannedShell() {
-        body.innerHTML = '';
-
-        const back = document.createElement('button');
-        back.className = 'alerts-back';
-        back.textContent = '\u2039  Service Status';
-        back.addEventListener('click', () => {
-            if (cache) renderRows(cache.summary, cache.alerts);
-            else open();
-        });
-        body.appendChild(back);
-
-        const heading = document.createElement('div');
-        heading.className = 'planned-heading';
-        heading.textContent = 'Planned service changes';
-        body.appendChild(heading);
-
-        const list = document.createElement('div');
-        list.className = 'planned-list';
-        const loading = document.createElement('div');
-        loading.className = 'alerts-message';
-        loading.textContent = 'Loading\u2026';
-        list.appendChild(loading);
-        body.appendChild(list);
-    }
-
-    function renderPlannedList(list, alerts) {
-        list.innerHTML = '';
-        if (!alerts.length) {
-            const msg = document.createElement('div');
-            msg.className = 'alerts-message';
-            msg.textContent = 'No planned service changes scheduled.';
-            list.appendChild(msg);
-            return;
-        }
-        for (const alert of alerts) {
-            list.appendChild(renderAlert(alert));
         }
     }
 
