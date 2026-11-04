@@ -238,6 +238,7 @@ flowchart LR
         x_google["Google Identity"]
         x_resend["Resend"]
         x_gforms["Google Forms (feedback)"]
+        x_mta_web["mta.info alerts page (planned changes link)"]
         x_stadia["Stadia Maps"]
         x_vercel_analytics["Vercel Web Analytics"]
     end
@@ -272,6 +273,7 @@ flowchart LR
     r_commutes -.-> c_features
     fe --> x_gforms
     fe --> x_google
+    fe --> x_mta_web
     fe --> x_stadia
     fe --> x_vercel_analytics
     t_refresh_tokens -.->|user_id| t_users

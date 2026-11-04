@@ -4,8 +4,20 @@ import {
     systemTone,
     alertsForTrunk,
     dedupeBulletRoutes,
+    plannedChangesLabel,
     TRUNK_ORDER,
 } from '../../src/core/alert-status.js';
+
+describe('plannedChangesLabel', () => {
+    it('is singular for exactly one change', () => {
+        expect(plannedChangesLabel(1)).toBe('1 planned service change scheduled');
+    });
+
+    it('is plural otherwise', () => {
+        expect(plannedChangesLabel(3)).toBe('3 planned service changes scheduled');
+        expect(plannedChangesLabel(214)).toBe('214 planned service changes scheduled');
+    });
+});
 
 describe('trunkDisplay', () => {
     it('reports no alerts and is not interactive', () => {

@@ -34,12 +34,11 @@ export async function fetchAlertSummary() {
     return res.json();
 }
 
-// Fetches service alerts. Defaults to those in effect now (~1.2 KB gzipped);
-// includeUpcoming pulls in future planned work as well, which is roughly twenty
-// times larger, so it is only worth requesting for a view that shows it.
-export async function fetchAlerts(includeUpcoming = false) {
-    const url = `${API_BASE}/api/alerts${includeUpcoming ? '?upcoming=true' : ''}`;
-    const res = await fetch(url);
+// Fetches the service alerts in effect now (~1.2 KB gzipped). The API can add
+// future planned work with ?upcoming=true, about twenty times larger, but no
+// view asks for it: planned changes link out to mta.info/alerts instead.
+export async function fetchAlerts() {
+    const res = await fetch(`${API_BASE}/api/alerts`);
     if (!res.ok) throw new Error(`alerts request failed: ${res.status}`);
     return res.json();
 }

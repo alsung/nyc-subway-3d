@@ -71,6 +71,15 @@ export function dedupeBulletRoutes(routeIds, routeMap) {
 }
 
 /**
+ * The label for the status panel's last row, which links out to MTA's own
+ * alerts page: "1 planned service change scheduled", "3 planned service
+ * changes scheduled".
+ */
+export function plannedChangesLabel(n) {
+    return `${n} planned service change${n === 1 ? '' : 's'} scheduled`;
+}
+
+/**
  * The alerts that belong to a trunk, for its expanded row. The summary endpoint
  * gives counts but not which alerts; this re-derives membership from routeIds
  * so the panel needs only the two responses it already fetches.
