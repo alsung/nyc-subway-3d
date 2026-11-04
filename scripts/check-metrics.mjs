@@ -196,12 +196,44 @@ export function authHeader(token) {
     return /^(FlyV1|Bearer)\s/i.test(t) ? t : `FlyV1 ${t}`;
 }
 
-async function queryProm(expr, token) {
-    const res = await fetch(`${PROM}?query=${encodeURIComponent(expr)}`, {
-        headers: { Authorization: authHeader(token) },
-    });
-    if (!res.ok) return { status: 'error', error: `HTTP ${res.status}` };
-    return res.json();
+const ATTEMPTS = 3;
+const MAX_RETRY_WAIT_MS = 10_000;
+// Spacing between rules. Ten back-to-back queries drew a 429 from Fly's
+// Prometheus on 2026-11-04 (issue #141), which failed the run with no rule firing.
+const RULE_GAP_MS = 250;
+
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * How long to wait before retry number `attempt` (1-based): Retry-After when
+ * the server sends one in seconds, otherwise 1s then 2s. Capped so a large
+ * Retry-After cannot stall the CI job.
+ */
+export function retryDelay(attempt, retryAfter) {
+    const seconds = Number(retryAfter);
+    const ms = retryAfter != null && retryAfter !== '' && Number.isFinite(seconds) && seconds >= 0
+        ? seconds * 1000
+        : 1000 * 2 ** (attempt - 1);
+    return Math.min(ms, MAX_RETRY_WAIT_MS);
+}
+
+/**
+ * One instant query. A 429 or 5xx is retried, since both say "not now" rather
+ * than "wrong"; anything else, or the same answer three times, is returned as
+ * an error so a real Prometheus outage still fails the check.
+ */
+export async function queryProm(expr, token, { fetchImpl = fetch, sleep = realSleep, attempts = ATTEMPTS } = {}) {
+    for (let i = 1; ; i++) {
+        const res = await fetchImpl(`${PROM}?query=${encodeURIComponent(expr)}`, {
+            headers: { Authorization: authHeader(token) },
+        });
+        if (res.ok) return res.json();
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable || i >= attempts) {
+            return { status: 'error', error: `HTTP ${res.status}${i > 1 ? ` after ${i} attempts` : ''}` };
+        }
+        await sleep(retryDelay(i, res.headers?.get?.('retry-after')));
+    }
 }
 
 async function main() {
@@ -212,7 +244,8 @@ async function main() {
     }
 
     const problems = [];
-    for (const rule of RULES) {
+    for (const [i, rule] of RULES.entries()) {
+        if (i) await realSleep(RULE_GAP_MS);
         const finding = evaluate(rule, await queryProm(rule.expr, token));
         const mark = { ok: 'ok     ', firing: 'FIRING ', error: 'ERROR  ' }[finding.state];
         console.log(`${mark} ${rule.name}  ${rule.expr}`);

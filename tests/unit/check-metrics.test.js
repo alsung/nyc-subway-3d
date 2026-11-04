@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RULES, evaluate, authHeader, describe as describeFinding } from '../../scripts/check-metrics.mjs';
+import { RULES, evaluate, authHeader, queryProm, retryDelay, describe as describeFinding } from '../../scripts/check-metrics.mjs';
 
 const rule = RULES[0];
 
@@ -204,5 +204,80 @@ describe('authHeader', () => {
 
     it('does not throw on a missing token', () => {
         expect(authHeader(undefined)).toBe('FlyV1 ');
+    });
+});
+
+// A fake fetch that answers with the given statuses in order, recording calls.
+function fakeFetch(...answers) {
+    const calls = [];
+    const fetchImpl = async (url) => {
+        calls.push(url);
+        const a = answers[Math.min(calls.length - 1, answers.length - 1)];
+        const { status, retryAfter } = typeof a === 'number' ? { status: a } : a;
+        return {
+            ok: status >= 200 && status < 300,
+            status,
+            headers: { get: (h) => (h.toLowerCase() === 'retry-after' ? retryAfter ?? null : null) },
+            json: async () => vector(),
+        };
+    };
+    return { fetchImpl, calls };
+}
+
+describe('queryProm', () => {
+    const run = (fetchImpl, waits) => queryProm('up', 'fm2_abc', { fetchImpl, sleep: async (ms) => waits.push(ms) });
+
+    it('retries a 429 and returns the answer that follows', async () => {
+        // The 2026-11-04 false alarm (#141): one rate-limited query failed the run.
+        const { fetchImpl, calls } = fakeFetch(429, 200);
+        const waits = [];
+        const got = await run(fetchImpl, waits);
+        expect(got.status).toBe('success');
+        expect(calls).toHaveLength(2);
+        expect(waits).toEqual([1000]);
+    });
+
+    it('retries a 5xx with backoff, then reports the error after three attempts', async () => {
+        const { fetchImpl, calls } = fakeFetch(503);
+        const waits = [];
+        const got = await run(fetchImpl, waits);
+        expect(calls).toHaveLength(3);
+        expect(waits).toEqual([1000, 2000]);
+        expect(evaluate(RULES[0], got)).toMatchObject({ state: 'error', message: 'HTTP 503 after 3 attempts' });
+    });
+
+    it('does not retry a 401 or 400', async () => {
+        for (const status of [401, 400]) {
+            const { fetchImpl, calls } = fakeFetch(status);
+            const waits = [];
+            const got = await run(fetchImpl, waits);
+            expect(calls).toHaveLength(1);
+            expect(waits).toEqual([]);
+            expect(got.error).toBe(`HTTP ${status}`);
+        }
+    });
+
+    it('waits as long as Retry-After asks', async () => {
+        const { fetchImpl } = fakeFetch({ status: 429, retryAfter: '3' }, 200);
+        const waits = [];
+        await run(fetchImpl, waits);
+        expect(waits).toEqual([3000]);
+    });
+});
+
+describe('retryDelay', () => {
+    it('backs off 1s then 2s without Retry-After', () => {
+        expect(retryDelay(1, null)).toBe(1000);
+        expect(retryDelay(2, null)).toBe(2000);
+    });
+
+    it('caps a large Retry-After so CI does not stall', () => {
+        expect(retryDelay(1, '3600')).toBe(10_000);
+    });
+
+    it('ignores a Retry-After it cannot read as seconds', () => {
+        // The header may also be an HTTP date; backoff is close enough there.
+        expect(retryDelay(1, 'Wed, 04 Nov 2026 22:40:00 GMT')).toBe(1000);
+        expect(retryDelay(2, '')).toBe(2000);
     });
 });
