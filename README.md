@@ -201,7 +201,7 @@ The frontend is a static Vite build on Vercel (localexpress.nyc). The API is one
 ```mermaid
 flowchart LR
     subgraph web["Browser · Vercel"]
-        fe["Web app (Vite, MapLibre)<br/>45 modules"]
+        fe["Web app (Vite, MapLibre)<br/>46 modules"]
     end
     subgraph api["API · nyc-subway-api"]
         r_health["GET /health"]

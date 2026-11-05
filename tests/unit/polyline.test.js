@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { preparePolyline, pointAt, bearingAt, nearestU } from '../../src/core/polyline.js';
+import { preparePolyline, pointAt, bearingAt, nearestU, slice } from '../../src/core/polyline.js';
 
 // Fixtures are built in degrees but asserted in meters, which is the unit every
 // caller reasons in — station match radii, distance travelled between stops.
@@ -98,5 +98,33 @@ describe('nearestU', () => {
         const poly = northLine(40_000, 4);
         const { u } = nearestU(poly, 0, 10_001 / M_PER_DEG_LAT);
         expect(u * poly.length).toBeCloseTo(10_001, 0);
+    });
+});
+
+describe('slice', () => {
+    const metersNorth = ([, lat]) => lat * M_PER_DEG_LAT;
+
+    it('cuts between two fractions, with the ends interpolated', () => {
+        // Vertices every 250 m; the cut starts and ends partway along segments.
+        const poly = northLine(1000, 4);
+        const coords = slice(poly, 0.1, 0.6);
+
+        expect(coords.map(metersNorth).map(Math.round)).toEqual([100, 250, 500, 600]);
+    });
+
+    it('takes the fractions in either order and keeps the line\'s direction', () => {
+        const poly = northLine(1000, 4);
+        expect(slice(poly, 0.6, 0.1)).toEqual(slice(poly, 0.1, 0.6));
+    });
+
+    it('does not repeat a vertex the cut lands on', () => {
+        const poly = northLine(1000, 4);
+        expect(slice(poly, 0.25, 0.5).map(metersNorth).map(Math.round)).toEqual([250, 500]);
+    });
+
+    it('returns two points inside one segment, and clamps past the ends', () => {
+        const poly = northLine(1000, 1);
+        expect(slice(poly, 0.2, 0.3).map(metersNorth).map(Math.round)).toEqual([200, 300]);
+        expect(slice(poly, -1, 2).map(metersNorth).map(Math.round)).toEqual([0, 1000]);
     });
 });

@@ -1,5 +1,6 @@
 // src/scene/lines.js
-// Highlighting and filtering for the route layer.
+// Highlighting and filtering for the route layer, and drawing a planned trip
+// over it.
 //
 // Every route used to be drawn twice — a Maplibre line below the swap zoom and a
 // Three.js tube above it — and this module had to reach both. It reliably did
@@ -39,6 +40,25 @@ export function highlightLine(map, routeIds) {
 export function clearLineHighlight(map) {
     if (!map?.getLayer?.('route-lines')) return;
     map.setPaintProperty('route-lines', 'line-opacity', NORMAL_OPACITY);
+}
+
+/**
+ * Dims every route, for a planned trip: the trip is drawn on its own layer, so
+ * even the routes it rides recede outside the stretches it uses.
+ */
+export function dimAllLines(map) {
+    if (!map?.getLayer?.('route-lines')) return;
+    map.setPaintProperty('route-lines', 'line-opacity', DIMMED_OPACITY);
+}
+
+/**
+ * Draws a planned trip on the trip-path layer, or clears it given none.
+ *
+ * @param {object} map Maplibre map
+ * @param {object[]} [features] from tripPathFeatures
+ */
+export function showTripPath(map, features = []) {
+    map?.getSource?.('trip-path')?.setData({ type: 'FeatureCollection', features });
 }
 
 // Maplibre has no per-feature visibility, so the layer is filtered by the set of

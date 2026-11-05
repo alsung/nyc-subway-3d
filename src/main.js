@@ -4,16 +4,17 @@
 // No business logic lives here — only coordination.
 
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { createMap, addStationLayer, setStationAlerts, addRouteLines, applyBasemapRestraint } from './scene/renderer.js';
+import { createMap, addStationLayer, setStationAlerts, addRouteLines, addTripPathLayer, applyBasemapRestraint } from './scene/renderer.js';
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
-import { setLineVisibility, highlightLine, clearLineHighlight } from './scene/lines.js';
+import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath } from './scene/lines.js';
 import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
 import { flyToStation } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { buildTripPlanner } from './ui/trip-planner.js';
+import { tripPathFeatures } from './core/trip-path.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
 import { loadPlatforms, loadCarPositions } from './core/rt-loader.js';
@@ -155,6 +156,9 @@ async function init() {
     // Whether the route layer exists yet. The line helpers are no-ops without
     // it, but the filter state still has to be replayed once it does.
     let layersReady = false;
+    // Where routes share track, from buildCorridors once the map loads. The
+    // trip path needs it to sit on each route's strand.
+    let corridors = null;
     // Chip toggles made before the layers exist are recorded here and applied
     // once they do. Storing state rather than queueing events keeps it idempotent.
     const filterState = new Map();
@@ -207,6 +211,8 @@ async function init() {
     const allRouteIds = Object.keys(routeMap);
     // The line a /line URL is showing, or null.
     let activeLine = null;
+    // The trip planner's open itinerary, or null.
+    let activeTrip = null;
 
     // Marks a history entry this page pushed for a station. Closing the popup
     // steps back over a marked entry; on any other (a link the visitor arrived
@@ -230,10 +236,24 @@ async function init() {
         history.replaceState(null, '', `/${window.location.search}${window.location.hash}`);
     };
 
-    // Dims everything but the active line. Re-run when the layers arrive and
-    // after anything else clears a highlight, so the line view outlasts both.
-    const applyLineHighlight = () => {
-        if (activeLine) highlightLine(map, lineRouteIds(activeLine, allRouteIds));
+    // Sets the route dimming from what is on screen: an open trip dims every
+    // route under its own path, a line view dims all but its line, and
+    // otherwise nothing is dimmed. Re-run after anything changes the dimming
+    // (a popup's route bullet), so the trip and the line view outlast it.
+    const applyHighlight = () => {
+        if (activeTrip) dimAllLines(map);
+        else if (activeLine) highlightLine(map, lineRouteIds(activeLine, allRouteIds));
+        else clearLineHighlight(map);
+    };
+
+    // Draws the open trip's ridden stretches and walks, or clears them. Waits
+    // for the layers, and runs again once they exist.
+    const drawTrip = () => {
+        if (!layersReady) return;
+        showTripPath(map, activeTrip
+            ? tripPathFeatures(activeTrip, { lineRoutes, corridors, stationById, routeMap })
+            : []);
+        applyHighlight();
     };
 
     const fitLine = () => {
@@ -254,7 +274,7 @@ async function init() {
         if (activeLine === routeId) return;
         activeLine = routeId;
         lineChip.show(routeId);
-        applyLineHighlight();
+        applyHighlight();
         fitLine();
         document.title = `${lineName(routeId, routeMap)} · Local Express`;
     };
@@ -263,7 +283,7 @@ async function init() {
         if (!activeLine) return;
         activeLine = null;
         lineChip.hide();
-        clearLineHighlight(map);
+        applyHighlight();
         document.title = BASE_TITLE;
     };
 
@@ -299,12 +319,11 @@ async function init() {
     // moved on (the Back button).
     const closeStation = () => {
         hidePopup(popup);
-        clearLineHighlight(map);
         setEntrancesFor(map, null);
         setPlatformsFor(map, null);
         lastStation = null;
         document.title = BASE_TITLE;
-        applyLineHighlight();
+        applyHighlight();
     };
 
     const dismissPopup = () => {
@@ -404,7 +423,8 @@ async function init() {
         { carPositions, complexOf, stationById },
         {
             onPlan: (journey) => {
-                highlightLine(map, journey.rides);
+                activeTrip = journey;
+                drawTrip();
 
                 const coords = journey.legs
                     .flatMap(leg => leg.stops ?? [leg.fromStop, leg.toStop])
@@ -421,8 +441,8 @@ async function init() {
                 );
             },
             onClear: () => {
-                clearLineHighlight(map);
-                applyLineHighlight();
+                activeTrip = null;
+                drawTrip();
             },
         },
         authModal,
@@ -475,7 +495,7 @@ async function init() {
     // stacking on one polyline. The layer offsets in pixels via line-offset, so
     // the ribbon holds its width on screen at every zoom rather than spreading
     // as you approach.
-    const corridors = buildCorridors(lineRoutes);
+    corridors = buildCorridors(lineRoutes);
 
     // Station level-of-detail, straight from the dataset. It used to be counted
     // off the route curves, which meant sampling every route to rediscover what
@@ -494,6 +514,7 @@ async function init() {
     // Added after the station layers so it can be inserted beneath them: the
     // dots are the anchor and the lines run behind them.
     addRouteLines(map, lineRoutes, routeMap, corridors);
+    addTripPathLayer(map);
 
     // Empty until a station is selected; added here so the layer exists before
     // any click can reach it.
@@ -519,9 +540,9 @@ async function init() {
         setTrainVisibility(trainState, routeId, active);
     }
 
-    // A station or line opened from the URL before the layers existed.
+    // A station, line or trip opened before the layers existed.
     if (lastStation) showEntrances(lastStation);
-    applyLineHighlight();
+    drawTrip();
 
     // Fetches fresh vehicle data from the API, syncs the trains, updates the
     // staleness indicator (driven by the server's last-refresh time), and quietly
