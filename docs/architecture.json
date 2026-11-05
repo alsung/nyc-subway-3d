@@ -2459,5 +2459,23 @@
       "POST /api/auth/resend-verification",
       "PUT /api/features/{name}"
     ]
+  },
+  "history": {
+    "baseline": "2026-10-27",
+    "since": {
+      "edge:fe:src/core/auth.js|route:POST /api/auth/logout|call": "2026-10-29",
+      "edge:fe:src/ui/alerts-panel.js|ext:mta-web|call": "2026-11-04",
+      "edge:route:PATCH /api/commutes/{id}|cache:features|read": "2026-10-29",
+      "env:VITE_API_BASE": "2026-11-03",
+      "ext:mta-web": "2026-11-04",
+      "fe:src/ui/alerts-panel.js": "2026-11-04",
+      "limiter:passwordLimit": "2026-10-29",
+      "metric:email_send_total": "2026-10-29",
+      "metric:timetable_services_active_today": "2026-10-29",
+      "mw:bodyLimitMiddleware": "2026-10-29",
+      "wfjob:.github/workflows/pages.yml#deploy": "2026-10-28",
+      "workflow:.github/workflows/pages.yml": "2026-10-28"
+    },
+    "removed": {}
   }
 }

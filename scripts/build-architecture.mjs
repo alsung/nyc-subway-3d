@@ -21,8 +21,17 @@
 //   node scripts/build-architecture.mjs --check   exit 1 if any is out of
 //                                                 date or the code calls a
 //                                                 host not listed in EXTERNALS
+//   node scripts/build-architecture.mjs --backfill
+//                                                 rebuild the history block
+//                                                 (first-seen and removed
+//                                                 dates) from git
+//
+// History: docs/architecture.json carries each item's first-seen date forward
+// from the committed version (stampHistory), and the page tags anything seen
+// in the last NEW_DAYS days as NEW and lists recent removals under Gaps.
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -563,6 +572,129 @@ export function buildArchitecture(root = ROOT) {
     };
 }
 
+// ---------------------------------------------------------------- history
+
+// Every item the page can mark NEW, keyed the way the page names it (map node
+// ids, plus column:, fk:, index:, metric:, env:, wfjob: and edge: keys), with
+// a label to show once it is gone. Tolerates older JSON versions, which the
+// backfill feeds through here.
+export function itemKeys(arch) {
+    const out = new Map();
+    const put = (k, label) => out.set(k, label);
+    const edge = (from, to, type, label) => put(`edge:${from}|${to}|${type}`, label);
+    const routeKey = (r) => `${r.method} ${r.path}`;
+    const feFile = (c) => c.split(':')[0];
+    const fe = arch.frontend ?? {};
+
+    for (const m of arch.middleware ?? []) put(`mw:${m.name}`, `middleware ${m.name}`);
+    for (const l of arch.routeLimiters ?? []) put(`limiter:${l.name}`, `rate limiter ${l.name}`);
+    for (const r of arch.routes ?? []) {
+        const id = `route:${routeKey(r)}`;
+        put(id, routeKey(r));
+        for (const c of r.callers ?? []) edge(`fe:${feFile(c)}`, id, 'call', `${feFile(c)} calls ${routeKey(r)}`);
+        for (const t of r.reads ?? []) edge(id, `table:${t}`, 'read', `${routeKey(r)} reads ${t}`);
+        for (const t of r.writes ?? []) edge(id, `table:${t}`, 'write', `${routeKey(r)} writes ${t}`);
+        for (const c of r.caches ?? []) edge(id, `cache:${c}`, 'read', `${routeKey(r)} reads the ${c} cache`);
+        for (const x of r.externals ?? []) edge(id, `ext:${x}`, 'call', `${routeKey(r)} calls ${x}`);
+        if (r.pingsDatabase) edge(id, 'db:server', 'read', `${routeKey(r)} pings the database`);
+    }
+    for (const j of arch.jobs ?? []) {
+        const id = `job:${j.name}`;
+        put(id, `job ${j.name}`);
+        for (const c of j.caches ?? []) edge(id, `cache:${c}`, 'write', `${j.name} fills the ${c} cache`);
+        for (const t of j.reads ?? []) edge(id, `table:${t}`, 'read', `${j.name} reads ${t}`);
+        for (const t of j.writes ?? []) edge(id, `table:${t}`, 'write', `${j.name} writes ${t}`);
+        for (const x of j.externals ?? []) edge(`ext:${x}`, id, 'call', `${j.name} fetches from ${x}`);
+    }
+    for (const c of arch.caches ?? []) put(`cache:${c.id}`, `cache ${c.label}`);
+    for (const t of arch.schema?.tables ?? []) {
+        put(`table:${t.name}`, `table ${t.name}`);
+        for (const c of t.columns ?? []) {
+            put(`column:${t.name}.${c.name}`, `column ${t.name}.${c.name}`);
+            if (c.fk) put(`fk:${t.name}.${c.name}`, `foreign key ${t.name}.${c.name} → ${c.fk.table}.${c.fk.column}`);
+        }
+        for (const i of t.indexes ?? []) put(`index:${i.name}`, `index ${i.name} on ${t.name}`);
+    }
+    for (const x of arch.externals ?? []) put(`ext:${x.id}`, `${x.label} (${x.host})`);
+
+    const feFiles = new Set();
+    for (const r of arch.routes ?? []) for (const c of r.callers ?? []) feFiles.add(feFile(c));
+    for (const [path, callers] of Object.entries(fe.statics ?? {})) {
+        put(`static:${path}`, `static file ${path}`);
+        for (const c of callers) { feFiles.add(feFile(c)); edge(`static:${path}`, `fe:${feFile(c)}`, 'call', `${feFile(c)} loads ${path}`); }
+    }
+    for (const [x, files] of Object.entries(fe.externals ?? {})) {
+        for (const f of files) {
+            feFiles.add(f);
+            edge(`fe:${f}`, x === 'vercel-analytics' ? 'svc:vercel-analytics' : `ext:${x}`, 'call', `${f} talks to ${x}`);
+        }
+    }
+    for (const f of feFiles) put(`fe:${f}`, `browser module ${f}`);
+
+    for (const b of arch.build ?? []) {
+        put(`build:${b.file}`, `build script ${b.file}`);
+        for (const o of b.outputs ?? []) {
+            const s = o.replace(/^public/, '');
+            put(`static:${s}`, `static file ${s}`);
+            for (const x of b.externals ?? []) edge(`ext:${x}`, `static:${s}`, 'build', `${b.file} builds ${s} from ${x}`);
+        }
+    }
+    for (const w of arch.workflows ?? []) {
+        put(`workflow:${w.file}`, `workflow ${w.name}`);
+        for (const j of w.jobs ?? []) put(`wfjob:${w.file}#${j.id}`, `CI job ${j.name} (${w.name})`);
+    }
+    for (const e of arch.env?.api ?? []) put(`env:${e}`, `API env var ${e}`);
+    for (const e of arch.env?.web ?? []) put(`env:${e}`, `frontend env var ${e}`);
+    for (const m of arch.metrics ?? []) put(`metric:${m.name}`, `metric ${m.name}`);
+    return out;
+}
+
+// Today's date in New York, where the project is run from, as YYYY-MM-DD.
+export const nyDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
+
+// Carries each item's first-seen date forward from the previous JSON. Items
+// the previous version did not have are stamped `today`; items it had that are
+// now gone move to `removed`, which is never pruned so the record survives.
+// The page decides what counts as recent, so the output does not change from
+// one day to the next and --check stays stable.
+//
+// Without a previous version everything is the baseline: no dates, no NEW.
+export function stampHistory(arch, previous, today) {
+    if (!previous) return { ...arch, history: { baseline: today, since: {}, removed: {} } };
+    const prevHist = previous.history ?? { baseline: today, since: {}, removed: {} };
+    const before = itemKeys(previous);
+    const now = itemKeys(arch);
+    const since = {};
+    const removed = { ...prevHist.removed };
+    for (const k of now.keys()) {
+        if (before.has(k)) { if (prevHist.since[k]) since[k] = prevHist.since[k]; } else {
+            since[k] = today;
+            delete removed[k];
+        }
+    }
+    for (const [k, label] of before) {
+        if (!now.has(k)) removed[k] = { label, since: prevHist.since[k] ?? null, removed: today };
+    }
+    const sorted = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    return { ...arch, history: { baseline: prevHist.baseline, since: sorted(since), removed: sorted(removed) } };
+}
+
+// Rebuilds history from every committed docs/architecture.json, oldest first,
+// dating each item by the New York date of the commit that added it. The first
+// version is the baseline. Run once to seed history; safe to rerun.
+function backfill() {
+    const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+    const commits = git(['log', '--reverse', '--format=%H %cI', '--', JSON_OUT]).trim().split('\n').filter(Boolean);
+    let prev = null;
+    for (const line of commits) {
+        const [sha, when] = line.split(' ');
+        const version = JSON.parse(git(['show', `${sha}:${JSON_OUT}`]));
+        delete version.history;
+        prev = stampHistory(version, prev, nyDate(new Date(when)));
+    }
+    return prev;
+}
+
 // The template is an Artifact-style page body; a standalone file needs the
 // document shell around it. "<" is escaped so no string in the data can close
 // the script tag it is embedded in.
@@ -720,7 +852,9 @@ export function updateReadme(readme, { requests, jobs }) {
 }
 
 function main() {
-    const data = buildArchitecture();
+    const committed = existsSync(join(ROOT, JSON_OUT)) ? JSON.parse(read(JSON_OUT)) : null;
+    const previous = process.argv.includes('--backfill') ? backfill() : committed;
+    const data = stampHistory(buildArchitecture(), previous, process.env.ARCH_TODAY ?? nyDate());
     const json = JSON.stringify(data, null, 2) + '\n';
     const html = renderHTML(json, read(TEMPLATE));
     const readme = updateReadme(read(README), renderMermaid(data));
