@@ -8,14 +8,35 @@ import {
 import { parseStops, parseRoutes, buildStationComplexes } from '../../src/core/gtfs-parser.js';
 import { buildStationMeta, complexIdIndex } from '../../src/core/station-meta.js';
 
-const read = (path) => readFileSync(fileURLToPath(new URL(`../../public/${path}`, import.meta.url)), 'utf8');
+// public/gtfs/*.txt and public/stations.json are downloaded by `npm run gtfs`
+// and gitignored, so they are absent on a fresh checkout and in CI. The tests
+// on the real data run only when they are there.
+const read = (path) => {
+    try {
+        return readFileSync(fileURLToPath(new URL(`../../public/${path}`, import.meta.url)), 'utf8');
+    } catch {
+        return null;
+    }
+};
 
 // The real data, so a renamed station or a new route is covered without
 // anyone remembering to add a case.
-const { stations } = parseStops(read('gtfs/stops.txt'));
-const meta = buildStationMeta(JSON.parse(read('stations.json')));
-const complexes = buildStationComplexes(stations, complexIdIndex(meta));
-const routeIds = Object.keys(parseRoutes(read('gtfs/routes.txt')));
+const real = (() => {
+    const stops = read('gtfs/stops.txt');
+    const stationsJson = read('stations.json');
+    const routes = read('gtfs/routes.txt');
+    if (!stops || !stationsJson || !routes) return null;
+    const { stations } = parseStops(stops);
+    const meta = buildStationMeta(JSON.parse(stationsJson));
+    return {
+        complexes: buildStationComplexes(stations, complexIdIndex(meta)),
+        routeIds: Object.keys(parseRoutes(routes)),
+    };
+})();
+
+// The routes the line tests need, listed here so those tests run without the
+// download.
+const ROUTE_IDS = ['6', '6X', '7', '7X', 'F', 'FX', 'G', 'GS', 'FS', 'H', 'SI'];
 
 describe('slugify', () => {
     it('lowercases and dashes a station name', () => {
@@ -30,11 +51,11 @@ describe('slugify', () => {
     });
 });
 
-describe('station paths, on the real stations', () => {
-    const linked = complexes.filter(c => c.complexId);
+describe.skipIf(!real)('station paths, on the real stations', () => {
+    const linked = (real?.complexes ?? []).filter(c => c.complexId);
 
     it('gives every station a complex id', () => {
-        expect(linked).toHaveLength(complexes.length);
+        expect(linked).toHaveLength(real.complexes.length);
         expect(linked.length).toBeGreaterThan(400);
     });
 
@@ -85,8 +106,8 @@ describe('line paths', () => {
         expect(lineSlug('6X')).toBe('6');
         expect(lineSlug('7X')).toBe('7');
         expect(lineSlug('FX')).toBe('f');
-        expect(parseLinePath('/line/6', routeIds)).toBe('6');
-        expect(lineRouteIds('6', routeIds).sort()).toEqual(['6', '6X']);
+        expect(parseLinePath('/line/6', ROUTE_IDS)).toBe('6');
+        expect(lineRouteIds('6', ROUTE_IDS).sort()).toEqual(['6', '6X']);
     });
 
     it('tells the three shuttles and the SIR apart', () => {
@@ -96,7 +117,17 @@ describe('line paths', () => {
         expect(lineSlug('SI')).toBe('sir');
     });
 
-    it('gives every route in routes.txt a slug that parses back to its line', () => {
+    it('accepts a trailing slash and any case, and rejects the rest', () => {
+        expect(parseLinePath('/line/G/', ROUTE_IDS)).toBe('G');
+        for (const path of ['/line/', '/line/xyz', '/line/s', '/lines/g', '/line/g/x', '/']) {
+            expect(parseLinePath(path, ROUTE_IDS)).toBeNull();
+        }
+    });
+});
+
+describe.skipIf(!real)('line paths, on the real routes.txt', () => {
+    it('gives every route a slug that parses back to its line', () => {
+        const { routeIds } = real;
         const slugs = new Set();
         for (const id of routeIds) {
             const expected = { FX: 'F', '6X': '6', '7X': '7' }[id] ?? id;
@@ -104,12 +135,5 @@ describe('line paths', () => {
             if (expected === id) slugs.add(lineSlug(id));
         }
         expect(slugs.size).toBe(routeIds.length - 3);
-    });
-
-    it('accepts a trailing slash and any case, and rejects the rest', () => {
-        expect(parseLinePath('/line/G/', routeIds)).toBe('G');
-        for (const path of ['/line/', '/line/xyz', '/line/s', '/lines/g', '/line/g/x', '/']) {
-            expect(parseLinePath(path, routeIds)).toBeNull();
-        }
     });
 });

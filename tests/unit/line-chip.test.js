@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { lineName } from '../../src/ui/line-chip.js';
-import { parseRoutes } from '../../src/core/gtfs-parser.js';
 
-const routeMap = parseRoutes(readFileSync(
-    fileURLToPath(new URL('../../public/gtfs/routes.txt', import.meta.url)), 'utf8'));
+// These rows' names, copied from routes.txt. public/gtfs is downloaded by
+// `npm run gtfs` and is not in CI.
+const routeMap = {
+    G: { shortName: 'G', name: 'Brooklyn-Queens Crosstown' },
+    SI: { shortName: 'SIR', name: 'Staten Island Railway' },
+    GS: { shortName: 'S', name: '42 St Shuttle' },
+    FS: { shortName: 'S', name: 'Franklin Avenue Shuttle' },
+    H: { shortName: 'S', name: 'Rockaway Park Shuttle' },
+};
 
 describe('lineName', () => {
     it('names a line by its short name', () => {
