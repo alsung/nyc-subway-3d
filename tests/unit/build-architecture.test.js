@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildArchitecture, unknownHosts, renderHTML, renderMermaid, updateReadme } from '../../scripts/build-architecture.mjs';
+import { buildArchitecture, unknownHosts, renderHTML, renderMermaid, updateReadme, itemKeys, stampHistory, nyDate } from '../../scripts/build-architecture.mjs';
 
 // These run against the real repository. The generator reads source with
 // patterns, so the failure to guard against is a pattern that quietly stops
@@ -154,5 +154,85 @@ describe('updateReadme', () => {
 
     it('refuses a README without the markers', () => {
         expect(() => updateReadme('no markers here', charts)).toThrow(/arch:start/);
+    });
+});
+
+describe('history', () => {
+    // A copy whose history is rebuilt from scratch, so the tests do not depend
+    // on what the committed JSON happens to carry.
+    const base = () => structuredClone({ ...arch, history: undefined });
+
+    it('keys items the way the page names its nodes', () => {
+        const keys = itemKeys(arch);
+        expect(keys.get('route:GET /health')).toBe('GET /health');
+        expect(keys.has('table:users')).toBe(true);
+        expect(keys.has('ext:mta-web')).toBe(true);
+        expect(keys.has('edge:fe:src/ui/alerts-panel.js|ext:mta-web|call')).toBe(true);
+        const fk = [...keys.keys()].find((k) => k.startsWith('fk:'));
+        expect(keys.get(fk)).toMatch(/^foreign key \w+\.\w+ → \w+\.\w+$/);
+    });
+
+    it('tolerates a JSON version missing whole sections', () => {
+        expect(() => itemKeys({ routes: [{ method: 'GET', path: '/x' }] })).not.toThrow();
+    });
+
+    it('treats the first version as the baseline, with nothing new', () => {
+        const h = stampHistory(base(), null, '2026-11-01').history;
+        expect(h).toEqual({ baseline: '2026-11-01', since: {}, removed: {} });
+    });
+
+    it('stamps an added route, its table edge and a new column with today', () => {
+        const prev = stampHistory(base(), null, '2026-11-01');
+        const next = base();
+        next.routes.push({ method: 'GET', path: '/api/new', reads: ['users'], writes: [], caches: [], externals: [], callers: [] });
+        next.schema.tables.find((t) => t.name === 'users').columns.push({ name: 'nickname', type: 'TEXT' });
+        const h = stampHistory(next, prev, '2026-11-04').history;
+        expect(h.since).toEqual({
+            'route:GET /api/new': '2026-11-04',
+            'edge:route:GET /api/new|table:users|read': '2026-11-04',
+            'column:users.nickname': '2026-11-04',
+        });
+        expect(h.baseline).toBe('2026-11-01');
+    });
+
+    it('carries dates forward and is stable when nothing changed', () => {
+        const prev = stampHistory(base(), null, '2026-11-01');
+        prev.history.since['ext:mta-web'] = '2026-11-04';
+        const again = stampHistory(base(), prev, '2026-12-25');
+        expect(again.history).toEqual(prev.history);
+    });
+
+    it('moves a removed item to removed with its dates, and keeps it', () => {
+        const prev = stampHistory(base(), null, '2026-11-01');
+        prev.history.since['ext:mta-web'] = '2026-11-02';
+        const next = base();
+        next.externals = next.externals.filter((x) => x.id !== 'mta-web');
+        const h = stampHistory(next, prev, '2026-11-05').history;
+        expect(h.removed['ext:mta-web']).toEqual({ label: expect.stringContaining('www.mta.info'), since: '2026-11-02', removed: '2026-11-05' });
+        expect(h.since['ext:mta-web']).toBeUndefined();
+        // A later run with no change keeps the record.
+        expect(stampHistory(next, { ...next, history: h }, '2026-11-09').history.removed['ext:mta-web']).toEqual(h.removed['ext:mta-web']);
+    });
+
+    it('records a baseline item that is removed with no first-seen date', () => {
+        const prev = stampHistory(base(), null, '2026-11-01');
+        const next = base();
+        next.routes = next.routes.filter((r) => r.path !== '/health');
+        expect(stampHistory(next, prev, '2026-11-05').history.removed['route:GET /health']).toEqual({ label: 'GET /health', since: null, removed: '2026-11-05' });
+    });
+
+    it('clears the removed record when an item comes back, and dates it anew', () => {
+        const prev = stampHistory(base(), null, '2026-11-01');
+        prev.history.removed['ext:mta-web'] = { label: 'x', since: null, removed: '2026-10-20' };
+        const gone = structuredClone(prev);
+        gone.externals = gone.externals.filter((x) => x.id !== 'mta-web');
+        const h = stampHistory(base(), gone, '2026-11-06').history;
+        expect(h.removed['ext:mta-web']).toBeUndefined();
+        expect(h.since['ext:mta-web']).toBe('2026-11-06');
+    });
+
+    it('dates in New York, not UTC', () => {
+        // 02:30 UTC on Nov 5 is still the evening of Nov 4 in New York.
+        expect(nyDate(new Date('2026-11-05T02:30:00Z'))).toBe('2026-11-04');
     });
 });
