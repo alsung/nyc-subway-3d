@@ -27,6 +27,8 @@ import { readPref, writePref } from './core/prefs.js';
 import { tryRestoreSession } from './core/auth.js';
 import { loadFeatures } from './core/features.js';
 import { loadCommutes } from './core/commutes.js';
+import { stationPath, parseStationPath, parseLinePath, lineRouteIds } from './core/slugs.js';
+import { buildLineChip, lineName } from './ui/line-chip.js';
 import { buildAuthButton } from './ui/auth-button.js';
 import { buildAuthModal } from './ui/auth-modal.js';
 import { buildSettingsModal } from './ui/settings-modal.js';
@@ -108,6 +110,15 @@ async function init() {
     // lines it serves and its borough, because 55 names are still duplicated
     // after collapsing and borough alone resolves only nine of them.
     const searchEntries = buildSearchEntries(complexes, stationMeta);
+
+    // For /station/<complex id> URLs, in both directions.
+    const complexById = new Map(complexes
+        .filter(c => c.complexId)
+        .map(c => [String(c.complexId), c]));
+    const complexOfStation = (station) => {
+        const id = station ? complexOf.get(station.id) : null;
+        return id ? complexById.get(String(id)) : undefined;
+    };
     // Fast stationId → sibling IDs lookup derived from complexes
     const stationGroups = new Map();
     for (const c of complexes) {
@@ -171,14 +182,10 @@ async function init() {
     buildAlertsPanel(
         document.getElementById('ui'), routeMap, stations, statusButton,
         // Tapping an affected station closes the panel and takes the map there.
-        // Routed through the hash so the URL and the panel stay in agreement,
-        // and lastStation is set first so openStationPopup's race guard holds.
+        // Routed through the hash so the URL and the panel stay in agreement.
         (station) => {
             window.location.hash = '';
-            lastStation = withComplex(station);
-            showEntrances(lastStation);
-            flyToStation(map, lastStation);
-            openStationPopup(lastStation);
+            openStation(station);
         },
     );
     statusButton.addEventListener('click', () => {
@@ -189,12 +196,162 @@ async function init() {
 
     const popup = buildPopup(document.getElementById('ui'));
 
-    const dismissPopup = () => {
+    // ── Station and line URLs (#117) ──
+    //
+    // An open station is /station/611-times-sq-42-st and a highlighted line is
+    // /line/g, so either can be linked, shared and indexed. The query string
+    // and the #lines / #alerts hash are carried through every change, so the
+    // hash panels keep working on top of either.
+
+    const BASE_TITLE = document.title;
+    const allRouteIds = Object.keys(routeMap);
+    // The line a /line URL is showing, or null.
+    let activeLine = null;
+
+    // Marks a history entry this page pushed for a station. Closing the popup
+    // steps back over a marked entry; on any other (a link the visitor arrived
+    // on, or a #alerts / #lines entry the hash panels added) it replaces the
+    // URL instead. Kept on the entry rather than in a variable because the
+    // browser restores it on Forward, and because hash changes add entries of
+    // their own between ours and the current one.
+    const PUSHED = { localExpress: 'station' };
+    const isPushedEntry = () => history.state?.localExpress === PUSHED.localExpress;
+
+    // A replace keeps the entry's state, so a second station opened over a
+    // pushed one is still stepped back over in one press.
+    const setPath = (path, mode) => {
+        const url = `${path}${window.location.search}${window.location.hash}`;
+        if (mode === 'push') history.pushState(PUSHED, '', url);
+        else history.replaceState(history.state, '', url);
+    };
+    // Back to the bare map. Clears the mark, since the entry is no longer a
+    // station of ours.
+    const replaceWithHome = () => {
+        history.replaceState(null, '', `/${window.location.search}${window.location.hash}`);
+    };
+
+    // Dims everything but the active line. Re-run when the layers arrive and
+    // after anything else clears a highlight, so the line view outlasts both.
+    const applyLineHighlight = () => {
+        if (activeLine) highlightLine(map, lineRouteIds(activeLine, allRouteIds));
+    };
+
+    const fitLine = () => {
+        const coords = lineRouteIds(activeLine, allRouteIds)
+            .flatMap(id => (lineRoutes[id] ?? []).flat());
+        if (coords.length < 2) return;
+        const lats = coords.map(c => c[0]);
+        const lngs = coords.map(c => c[1]);
+        map.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            // A short line (the 42 St Shuttle is under a kilometer) would
+            // otherwise zoom to street level and lose where it is.
+            { padding: 80, maxZoom: 15, duration: 900 },
+        );
+    };
+
+    const showLine = (routeId) => {
+        if (activeLine === routeId) return;
+        activeLine = routeId;
+        lineChip.show(routeId);
+        applyLineHighlight();
+        fitLine();
+        document.title = `${lineName(routeId, routeMap)} · Local Express`;
+    };
+
+    const clearLine = () => {
+        if (!activeLine) return;
+        activeLine = null;
+        lineChip.hide();
+        clearLineHighlight(map);
+        document.title = BASE_TITLE;
+    };
+
+    const lineChip = buildLineChip(document.getElementById('ui'), routeMap, () => {
+        clearLine();
+        if (parseLinePath(window.location.pathname, allRouteIds)) replaceWithHome();
+    });
+
+    // Every way into a station goes through here: a map click, search, the
+    // alerts panel and a /station URL. lastStation is set before the popup
+    // opens so openStationPopup's race guard holds.
+    //
+    // history: 'push' adds an entry, so Back closes the popup. Picking a second
+    // station while one is open replaces that entry instead, so Back still
+    // closes the popup in one press. 'none' is for syncing from the URL, which
+    // is already right.
+    function openStation(station, { history: mode = 'push' } = {}) {
+        const wasOpen = lastStation !== null && !popup.classList.contains('hidden');
+        clearLine();
+        lastStation = withComplex(station);
+        showEntrances(lastStation);
+        flyToStation(map, lastStation);
+        openStationPopup(lastStation);
+
+        const complex = complexOfStation(lastStation);
+        document.title = `${complex?.name ?? lastStation.name} · Local Express`;
+        const path = complex ? stationPath(complex) : null;
+        if (!path || mode === 'none' || window.location.pathname === path) return;
+        setPath(path, mode === 'push' && !wasOpen ? 'push' : 'replace');
+    }
+
+    // Closes the popup without touching the URL, for when the URL already
+    // moved on (the Back button).
+    const closeStation = () => {
         hidePopup(popup);
         clearLineHighlight(map);
         setEntrancesFor(map, null);
+        setPlatformsFor(map, null);
         lastStation = null;
+        document.title = BASE_TITLE;
+        applyLineHighlight();
     };
+
+    const dismissPopup = () => {
+        const wasOpen = lastStation !== null;
+        closeStation();
+        if (wasOpen && parseStationPath(window.location.pathname)) {
+            if (isPushedEntry()) history.back();
+            else replaceWithHome();
+        }
+    };
+
+    // Brings the page into line with the address bar: on first load, and on
+    // Back and Forward.
+    const syncFromUrl = () => {
+        const path = window.location.pathname;
+        const complexId = parseStationPath(path);
+        if (complexId) {
+            const complex = complexById.get(complexId);
+            if (!complex) {
+                // A station id that does not exist. Real 404s are #119.
+                if (lastStation) closeStation();
+                replaceWithHome();
+                return;
+            }
+            if (complexOfStation(lastStation) !== complex) {
+                openStation({
+                    id: complex.stationIds[0], name: complex.name,
+                    lat: complex.lat, lng: complex.lng, stationIds: complex.stationIds,
+                }, { history: 'none' });
+            }
+            // A link with an old or trimmed name still opens; the address bar
+            // is corrected to the current name.
+            const canonical = stationPath(complex);
+            if (path !== canonical) setPath(canonical, 'replace');
+            return;
+        }
+
+        if (lastStation) closeStation();
+
+        const routeId = parseLinePath(path, allRouteIds);
+        if (routeId) showLine(routeId);
+        else {
+            clearLine();
+            if (path.startsWith('/line/')) replaceWithHome();
+        }
+    };
+    window.addEventListener('popstate', syncFromUrl);
 
     popup.querySelector('.popup-close').addEventListener('click', dismissPopup);
 
@@ -265,6 +422,7 @@ async function init() {
             },
             onClear: () => {
                 clearLineHighlight(map);
+                applyLineHighlight();
             },
         },
         authModal,
@@ -300,14 +458,14 @@ async function init() {
 
     buildSearch(
         searchEntries, document.getElementById('search-bar'),
-        (station) => {
-            lastStation = withComplex(station);
-            showEntrances(lastStation);
-            flyToStation(map, lastStation);
-            openStationPopup(lastStation);
-        },
+        (station) => openStation(station),
         { routeMap, labelFor: searchEntryLabel },
     );
+
+    // A /station or /line link opens straight away, before the map's tiles
+    // arrive. The entrance dots and the line highlight catch up once the
+    // layers exist, below.
+    syncFromUrl();
 
     // ── Map layers — the only work that genuinely needs the map's style loaded ──
 
@@ -360,6 +518,10 @@ async function init() {
         setLineVisibility(map, routeId, active);
         setTrainVisibility(trainState, routeId, active);
     }
+
+    // A station or line opened from the URL before the layers existed.
+    if (lastStation) showEntrances(lastStation);
+    applyLineHighlight();
 
     // Fetches fresh vehicle data from the API, syncs the trains, updates the
     // staleness indicator (driven by the server's last-refresh time), and quietly
@@ -435,16 +597,13 @@ async function init() {
         const feat = features[0];
         const ids = feat.properties.stationIds.split('|');
         if (!stations.find(s => s.id === ids[0])) return;
-        lastStation = {
+        openStation({
             id: ids[0],
             name: feat.properties.name,
             lat: feat.geometry.coordinates[1],
             lng: feat.geometry.coordinates[0],
             stationIds: ids,
-        };
-        showEntrances(lastStation);
-        flyToStation(map, lastStation);
-        openStationPopup(lastStation);
+        });
     });
 
     for (const layer of STATION_LAYERS) {

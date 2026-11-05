@@ -291,6 +291,9 @@ export function buildStationComplexes(stations, complexId = null) {
     }
 
     return [...groups.values()].map(group => ({
+        // MTA's id for the group, which station URLs are built from. null on
+        // the name-grouping fallback, where there is no id to link to.
+        complexId: complexId?.get(group[0].id) ?? null,
         name: group[0].name,
         lat: group.reduce((sum, s) => sum + s.lat, 0) / group.length,
         lng: group.reduce((sum, s) => sum + s.lng, 0) / group.length,
