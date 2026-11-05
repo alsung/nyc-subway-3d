@@ -147,6 +147,54 @@ button:active,
     left: 20px;
     width: 280px;
     pointer-events: auto;
+    /* Above the line chip, which sits where the results list drops down. The
+       list is what the rider is acting on while it is open; the chip is
+       standing state and can wait underneath it. */
+    z-index: 2;
+}
+
+/* Shown while a /line URL has a line highlighted. Under the search field,
+   where the eye already is, and dismissed by clicking anywhere on it. Drawn
+   beneath the search results (see #search-bar). */
+#line-chip {
+    position: absolute;
+    top: 66px;
+    left: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 4px 12px 4px 6px;
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    color: #fff;
+    font-size: 14px;
+    backdrop-filter: blur(8px);
+    max-width: calc(100% - 40px);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.line-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+#line-chip.hidden {
+    display: none;
+}
+
+#line-chip:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.line-chip-close {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 16px;
+    line-height: 1;
 }
 
 .search-input {
@@ -1207,6 +1255,15 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         left: 16px;
         right: 16px;
         width: auto;
+    }
+
+    /* The search field's row is full width here, and the row below it holds
+       the Live indicator on the left and the controls on the right, so the
+       chip takes a row of its own beneath both. */
+    #line-chip {
+        top: 122px;
+        left: 16px;
+        max-width: calc(100% - 32px);
     }
 
     #view-controls {

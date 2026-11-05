@@ -430,4 +430,15 @@ describe('buildStationComplexes — grouping by MTA complex id', () => {
         expect(out[0].lat).toBe(1);
         expect(out[0].lng).toBe(2);
     });
+
+    it('carries the complex id, and null on the name fallback', () => {
+        // Station URLs are built from it (#117).
+        const stations = [
+            { id: 'A', name: 'N', lat: 0, lng: 0 },
+            { id: 'B', name: 'Other', lat: 1, lng: 1 },
+        ];
+        const out = buildStationComplexes(stations, new Map([['A', '611']]));
+        expect(out.find(c => c.name === 'N').complexId).toBe('611');
+        expect(out.find(c => c.name === 'Other').complexId).toBeNull();
+    });
 });
