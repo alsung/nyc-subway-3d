@@ -86,6 +86,35 @@ export function pointAt(poly, u) {
 }
 
 /**
+ * The stretch of the line between two fractions of its length, in either order.
+ *
+ * The ends are interpolated, so a trip leg that starts partway along a segment
+ * starts at its stop rather than at the nearest vertex. Coordinates come back
+ * in the line's own direction.
+ *
+ * @returns {[number, number][]} [lng, lat] pairs, at least two
+ */
+export function slice(poly, u1, u2) {
+    const from = segmentAt(poly, clampU(Math.min(u1, u2)) * poly.length);
+    const to = segmentAt(poly, clampU(Math.max(u1, u2)) * poly.length);
+    const at = ({ lo, hi, t }) => {
+        const a = poly.coords[lo];
+        const b = poly.coords[hi];
+        return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+    };
+
+    const out = [at(from)];
+    const push = (point) => {
+        const last = out[out.length - 1];
+        if (point[0] !== last[0] || point[1] !== last[1]) out.push(point);
+    };
+    for (let i = from.hi; i <= to.lo; i++) push(poly.coords[i]);
+    push(at(to));
+    if (out.length === 1) out.push(out[0]);
+    return out;
+}
+
+/**
  * Heading at fraction u, in degrees clockwise from north.
  *
  * Taken from the containing segment rather than from a tangent, because the

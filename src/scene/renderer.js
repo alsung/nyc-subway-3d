@@ -49,6 +49,25 @@ const LINE_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 2.2, 13, 5]
 const STRAND_SPACING_PX_MIN = 2.2;
 const STRAND_SPACING_PX_MAX = 5;
 
+// Strand spacing tracks the line width, so the ribbon holds together at every
+// zoom instead of needing its own tuning curve. Shared by the trip path, which
+// has to sit on the same strand as the route it is cut from.
+//
+// The zoom interpolation has to be the outermost expression, with the data
+// lookup inside each stop value. Multiplying an interpolate by a ['get'] is
+// rejected outright — "zoom expression may only be used as input to a
+// top-level step or interpolate" — the same rule that bit the station rings.
+const STRAND_OFFSET = [
+    'interpolate', ['linear'], ['zoom'],
+    10, ['*', ['get', 'rank'], STRAND_SPACING_PX_MIN],
+    13, ['*', ['get', 'rank'], STRAND_SPACING_PX_MAX],
+];
+
+// A ridden stretch is drawn wider than a route, so it reads as the figure even
+// where it overlaps the dimmed strands beside it.
+const TRIP_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 3.5, 13, 8];
+const TRIP_WALK_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3];
+
 // One radius for every station dot, at every zoom.
 //
 // The circles used to grow with zoom — 4→7 for complexes, 5→9 for individual
@@ -321,20 +340,49 @@ export function addRouteLines(map, lineRoutes, routeMap, corridors) {
             // it only makes a dim map dimmer; the routes have to become the
             // figure themselves.
             'line-width': LINE_WIDTH_BY_ZOOM,
-            // Strand spacing tracks the line width, so the ribbon holds
-            // together at every zoom instead of needing its own tuning curve.
-            //
-            // The zoom interpolation has to be the outermost expression, with
-            // the data lookup inside each stop value. Multiplying an interpolate
-            // by a ['get'] is rejected outright — "zoom expression may only be
-            // used as input to a top-level step or interpolate" — the same rule
-            // that bit the station rings above.
-            'line-offset': [
-                'interpolate', ['linear'], ['zoom'],
-                10, ['*', ['get', 'rank'], STRAND_SPACING_PX_MIN],
-                13, ['*', ['get', 'rank'], STRAND_SPACING_PX_MAX],
-            ],
+            'line-offset': STRAND_OFFSET,
             'line-opacity': 0.95,
+        },
+    }, 'station-complexes-major');
+}
+
+/**
+ * The planned trip, over the dimmed routes and beneath the station dots: each
+ * ridden stretch in its route's color on that route's strand, and each walk
+ * between two stations as a dashed line. Empty until a trip is opened; the
+ * features come from tripPathFeatures in core/trip-path.js.
+ */
+export function addTripPathLayer(map) {
+    map.addSource('trip-path', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+    });
+
+    map.addLayer({
+        id: 'trip-path-walks',
+        type: 'line',
+        source: 'trip-path',
+        filter: ['==', ['get', 'kind'], 'walk'],
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: {
+            'line-color': '#ffffff',
+            'line-width': TRIP_WALK_WIDTH_BY_ZOOM,
+            'line-dasharray': [1.5, 1.5],
+            'line-opacity': 0.9,
+        },
+    }, 'station-complexes-major');
+
+    map.addLayer({
+        id: 'trip-path-rides',
+        type: 'line',
+        source: 'trip-path',
+        filter: ['==', ['get', 'kind'], 'ride'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': ['get', 'color'],
+            'line-width': TRIP_WIDTH_BY_ZOOM,
+            'line-offset': STRAND_OFFSET,
+            'line-opacity': 1,
         },
     }, 'station-complexes-major');
 }
