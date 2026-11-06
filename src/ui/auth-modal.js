@@ -284,6 +284,7 @@ export function buildAuthModal(container) {
     closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !container.classList.contains('hidden')) {
+            e.preventDefault();
             close();
         }
     });

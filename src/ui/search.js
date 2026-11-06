@@ -274,6 +274,9 @@ export function buildSearch(stations, container, onSelect, options = {}) {
                 break;
 
             case 'Escape':
+                // Mark the key used only if there was a search to clear, so
+                // Escape in an empty box still reaches the station popup.
+                if (input.value || open) e.preventDefault();
                 input.value = '';
                 closeResults();
                 input.blur();

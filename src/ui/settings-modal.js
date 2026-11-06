@@ -23,7 +23,10 @@ export function buildSettingsModal(container) {
     container.querySelector('.settings-backdrop').addEventListener('click', close);
     container.querySelector('.settings-close').addEventListener('click', close);
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !container.classList.contains('hidden')) close();
+        if (e.key === 'Escape' && !container.classList.contains('hidden')) {
+            e.preventDefault();
+            close();
+        }
     });
 
     function render() {
