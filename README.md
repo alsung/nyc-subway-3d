@@ -2288,6 +2288,49 @@ Scene and UI modules are excluded from coverage requirements — they are tested
 
 ## 30. Deployment
 
+### Branches and releases
+
+`master` is production: Vercel deploys it to localexpress.nyc and the Deploy
+workflow deploys the API to Fly.io. Changes reach it on one of two tracks.
+
+| | Small update | Big feature |
+|---|---|---|
+| For | A bug fix, a small API change, docs | Several tickets, or anything not safe to ship halfway |
+| Branch from | `master` | `phase-N`, cut from `master` |
+| PR into | `master`, squash-merged | `phase-N`, squash-merged |
+| Reaches production | When its PR merges | When the phase PR merges into `master` |
+
+```bash
+# Start a phase
+git checkout master && git pull
+git checkout -b phase-11 && git push -u origin phase-11
+
+# Each ticket in it
+git checkout phase-11 && git pull
+git checkout -b <ticket-slug>
+gh pr create --base phase-11
+gh pr merge <N> --squash --delete-branch
+
+# After a small update lands on master mid-phase
+git checkout phase-11 && git pull && git merge origin/master && git push
+
+# Land the phase
+gh pr create --base master --head phase-11 --title "Phase 11: …" --body "Closes #118, closes #119"
+gh pr merge <N> --merge --delete-branch
+```
+
+- The phase PR is merged with a merge commit, not a squash, so each ticket stays
+  its own commit on `master` and can be reverted on its own.
+- GitHub closes issues from "Closes #N" only on merges into `master`, so the
+  phase PR lists every issue in the phase.
+- A phase branch is merged once, then deleted; the next phase gets a new one.
+  The old `phase-6` branch outlived its squash merges and diverged after each.
+- Pushes to `phase-*` run the tests, and Vercel deploys the branch to a fixed
+  preview URL. The preview calls the production API and has no street map
+  (Stadia tiles are limited to localexpress.nyc).
+- Rulesets protect `master` (PRs only, the three test jobs must pass, no force
+  pushes or deletion) and `phase-*` (no force pushes).
+
 ### Frontend (Vercel)
 
 Vercel's Git integration owns frontend deploys. Every push builds on Vercel using
