@@ -347,7 +347,10 @@ export function buildAlertsPanel(container, routeMap, stations, statusButton, on
     panel.querySelector('.alerts-close').addEventListener('click', dismiss);
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.classList.contains('hidden')) dismiss();
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+            e.preventDefault();
+            dismiss();
+        }
     });
 
     // Honor #alerts on first load.

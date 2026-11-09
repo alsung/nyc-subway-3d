@@ -188,7 +188,10 @@ export function buildLinesPanel(container, routeMap, linesButton, onToggle, opti
     panel.querySelector('.lines-close').addEventListener('click', dismiss);
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.classList.contains('hidden')) dismiss();
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+            e.preventDefault();
+            dismiss();
+        }
     });
 
     if (linesButton) {

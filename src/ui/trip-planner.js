@@ -461,7 +461,10 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
     });
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.classList.contains('hidden')) dismiss();
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+            e.preventDefault();
+            dismiss();
+        }
     });
 
     return { panel, dismiss };

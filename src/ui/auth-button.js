@@ -93,6 +93,7 @@ export function buildAuthButton(container, onSignInClick, settingsModal = null) 
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) {
+            e.preventDefault();
             dropdown.classList.add('hidden');
         }
     });

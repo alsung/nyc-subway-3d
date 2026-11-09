@@ -378,14 +378,15 @@ async function init() {
     // alerts panel and the search results. The popup was the only dismissible
     // surface that ignored it.
     //
-    // A panel drawn over the popup takes the key first. Both listeners fire —
-    // neither stops propagation — so without this check one Escape would close
-    // the panel and the station behind it at once.
-    document.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape' || popup.classList.contains('hidden')) return;
-        const panelOpen = ['lines-panel', 'alerts-panel']
-            .some(id => document.getElementById(id)?.classList.contains('hidden') === false);
-        if (!panelOpen) dismissPopup();
+    // Anything else that Escape closes takes the key first: one press closes
+    // one thing. Every other Escape handler calls preventDefault when it closes
+    // something, and this one listens on window, which the key reaches after
+    // every listener on the document. That replaced a list here of the panels
+    // allowed to go first, which the trip panel and the modals were missing
+    // (#145).
+    window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented || popup.classList.contains('hidden')) return;
+        dismissPopup();
     });
 
     const highlight = (routeId) => {
@@ -646,6 +647,7 @@ document.getElementById('privacy-close').addEventListener('click', () => {
 });
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !privacyModal.classList.contains('hidden')) {
+        e.preventDefault();
         privacyModal.classList.add('hidden');
     }
 });
