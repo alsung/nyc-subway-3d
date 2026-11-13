@@ -9,7 +9,7 @@ import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
 import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath } from './scene/lines.js';
 import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
-import { flyToStation } from './ui/camera.js';
+import { flyToStation, fitPadding } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
@@ -418,6 +418,21 @@ async function init() {
     const settingsModal = buildSettingsModal(document.getElementById('settings-modal'));
     buildAuthButton(document.getElementById('app-footer'), authModal.open, settingsModal);
 
+    // Measured each time, not fixed: the trip panel is a side panel on desktop
+    // and a bottom sheet on a phone, and the sheet's height depends on the
+    // itinerary. onPlan runs just after the itinerary opens, so the panel is
+    // measured at its full height.
+    const tripFitPadding = () => {
+        const view = map.getContainer().getBoundingClientRect();
+        const relative = (id) => {
+            const r = document.getElementById(id)?.getBoundingClientRect();
+            if (!r || r.width === 0 || r.height === 0) return null;
+            return { left: r.left - view.left, top: r.top - view.top, right: r.right - view.left, bottom: r.bottom - view.top };
+        };
+        const topInset = Math.max(0, ...['search-bar', 'view-controls'].map(id => relative(id)?.bottom ?? 0));
+        return fitPadding({ width: view.width, height: view.height }, relative('trip-panel'), topInset);
+    };
+
     buildTripPlanner(
         document.getElementById('ui'), searchEntries, stations, routeMap,
         document.getElementById('btn-trip'),
@@ -438,7 +453,7 @@ async function init() {
                 const lats = coords.map(c => c[1]);
                 map.fitBounds(
                     [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-                    { padding: { top: 80, bottom: 80, left: 420, right: 80 }, duration: 900 },
+                    { padding: tripFitPadding(), duration: 900 },
                 );
             },
             onClear: () => {
