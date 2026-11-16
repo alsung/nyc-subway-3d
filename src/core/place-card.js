@@ -1,16 +1,17 @@
 // src/core/place-card.js
-// The station panel's HTML, written the same way for the map and for the
-// pre-built pages (#154, #155).
+// The station and line panels' HTML, written the same way for the map and for
+// the pre-built pages (#154, #155).
 //
 // A pre-built page has to show visitors the same text a crawler reads, or
 // Google treats it as cloaking, so the panel a page ships must be the panel the
-// app draws. Both come from here: popup.js puts this HTML into its panel, and
-// scripts/build-seo-pages.mjs will write it into each page. It is HTML text
+// app draws. Both come from here: popup.js and line-panel.js put this HTML into
+// their panels, and scripts/build-seo-pages.mjs will write it into each page. It is HTML text
 // rather than DOM so it runs in Node at build time, and every value passes
 // through escapeHtml, since station names and labels come from outside data.
 //
-// The live parts (alerts, direction tabs, arrivals) are empty slots here that
-// popup.js fills, so a pre-built page shows them empty until the app loads.
+// The live parts (alerts, direction tabs, arrivals, line status) are empty
+// slots here that the app fills, so a pre-built page shows them empty until it
+// loads.
 
 import { contrastColor } from './color.js';
 import { expressParent, TRUNKS } from './trunks.js';
@@ -71,14 +72,18 @@ export function bulletSpec(routeId, routeMap) {
     };
 }
 
-/** A route bullet as HTML, linking to the line's page when the line has one. */
-export function bulletHtml(routeId, routeMap, { link = false } = {}) {
+/**
+ * A route bullet as HTML, linking to the line's page when asked. `decorative`
+ * hides it from screen readers, for a bullet beside text that already names
+ * the line.
+ */
+export function bulletHtml(routeId, routeMap, { link = false, decorative = false } = {}) {
     const b = bulletSpec(routeId, routeMap);
     const classes = ['alert-bullet', b.express && 'alert-bullet--express', b.wide && 'alert-bullet--wide']
         .filter(Boolean).join(' ');
     const style = `background-color:${escapeHtml(b.color)};color:${escapeHtml(b.textColor)}`;
     const label = escapeHtml(b.label);
-    if (!link) return `<span class="${classes}" style="${style}">${label}</span>`;
+    if (!link) return `<span class="${classes}" style="${style}"${decorative ? ' aria-hidden="true"' : ''}>${label}</span>`;
     return `<a class="${classes}" style="${style}" href="${escapeHtml(linePath(routeId))}"`
         + ` aria-label="${escapeHtml(lineName(routeId, routeMap))}">${label}</a>`;
 }
@@ -237,6 +242,124 @@ export function stationFactsHtml(model, routeMap) {
     return `<section class="place-section" aria-labelledby="station-next-title">`
         + `<h2 class="place-section-title" id="station-next-title">Next stops</h2>`
         + `<ul class="next-stops">${items}</ul></section>`;
+}
+
+/**
+ * What the line panel shows about one line, from the same data on the map and
+ * at build time.
+ *
+ * Each section lists only stations not already listed, so a junction appears
+ * once, in the first section that reaches it: the A lists Rockaway Blvd on its
+ * trunk, and its Lefferts branch starts at the stop after. A line with more
+ * than one section names each one by its ends.
+ *
+ * @param {string} lineId a line's route id, never an express pattern's
+ * @param {{lineOrder: object, routeMap: object, complexOf?: (id: string) => object|undefined, nameOf?: (id: string) => string}} data
+ */
+export function lineModel(lineId, { lineOrder, routeMap, complexOf, nameOf }) {
+    const route = routeMap?.[lineId] ?? {};
+    const entry = lineOrder?.[lineId];
+    const sections = entry?.sections ?? [];
+    const night = entry?.hours?.night;
+    const nameFor = (id) => nameOf?.(id) ?? complexOf?.(id)?.name ?? id;
+    // Stops are marked "Not late nights" only when most of the line runs all
+    // night, so the marks pick out the few it skips (the A's Rockaway Park
+    // branch). When only a short stretch runs (the 5), the hours line names
+    // that stretch, and marking 39 of 45 stops would bury it.
+    const markNight = Array.isArray(night) && night.length >= new Set(sections.flat()).size * MOST_STATIONS;
+
+    const linesAt = new Map();
+    for (const [id, other] of Object.entries(lineOrder ?? {})) {
+        for (const station of new Set((other.sections ?? []).flat())) {
+            if (!linesAt.has(station)) linesAt.set(station, new Set());
+            linesAt.get(station).add(id);
+        }
+    }
+    const stop = (id) => {
+        const transfers = new Set();
+        for (const sibling of complexOf?.(id)?.stationIds ?? [id]) {
+            for (const other of linesAt.get(sibling) ?? []) if (other !== lineId) transfers.add(other);
+        }
+        return {
+            name: nameFor(id),
+            path: stationPath(complexOf?.(id)),
+            transfers: inTrunkOrder([...transfers]),
+            notLate: markNight && !night.includes(id),
+        };
+    };
+
+    const listed = new Set();
+    const named = sections.length > 1;
+    return {
+        id: lineId,
+        name: lineName(lineId, routeMap),
+        longName: route.shortName === 'S' ? '' : (route.name ?? ''),
+        stationCount: new Set(sections.flat()).size,
+        hours: hoursSummary(entry, nameFor),
+        description: route.desc ?? '',
+        sections: sections.map(section => {
+            const fresh = section.filter(id => !listed.has(id));
+            fresh.forEach(id => listed.add(id));
+            return {
+                title: named ? `${nameFor(section[0])} to ${nameFor(section.at(-1))}` : '',
+                stops: fresh.map(stop),
+            };
+        }),
+    };
+}
+
+/** The line panel's inside, empty when model is null (line-panel.js's shell). */
+export function linePanelHtml(model, routeMap) {
+    return `<div class="place-head">`
+        + `<button type="button" class="place-back hidden">‹ Trip</button>`
+        + `<div class="place-heading">${model ? lineHeadingHtml(model, routeMap) : ''}</div>`
+        + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
+        + `</div>`
+        + `<div class="place-body">${model ? lineFactsHtml(model, routeMap) : ''}</div>`;
+}
+
+/** The line's name as the page heading, with its long name and station count. */
+export function lineHeadingHtml(model, routeMap) {
+    const facts = [model.longName];
+    if (model.stationCount) facts.push(`${model.stationCount} ${model.stationCount === 1 ? 'station' : 'stations'}`);
+    const sub = facts.filter(Boolean).join(' · ');
+    return `<div class="place-title-row">${bulletHtml(model.id, routeMap, { decorative: true })}`
+        + `<h1 class="place-title" id="line-title">${escapeHtml(model.name)}</h1></div>`
+        + (sub ? `<p class="place-sub">${escapeHtml(sub)}</p>` : '');
+}
+
+/**
+ * Hours, MTA's description, an empty slot for live status, and the stops.
+ * The description is complete here; line-panel.js shortens it to three lines
+ * with a "More" button, so a page read without JavaScript shows all of it.
+ */
+export function lineFactsHtml(model, routeMap) {
+    const color = escapeHtml(bulletSpec(model.id, routeMap).color);
+    const hours = model.hours
+        ? `<div class="line-hours"><span class="hours-tag hours-tag--${escapeHtml(model.hours.tone)}">${escapeHtml(model.hours.text)}</span>`
+            + (model.hours.detail ? `<span class="line-hours-detail">${escapeHtml(model.hours.detail)}</span>` : '')
+            + `</div>`
+        : '';
+    const description = model.description
+        ? `<p class="line-desc">${escapeHtml(model.description)}</p>`
+            + `<button type="button" class="line-more hidden" aria-expanded="false">More</button>`
+        : '';
+    const stop = (s) => {
+        const name = s.path ? `<a href="${escapeHtml(s.path)}">${escapeHtml(s.name)}</a>` : `<span>${escapeHtml(s.name)}</span>`;
+        const note = s.notLate ? `<span class="line-stop-note">Not late nights</span>` : '';
+        const transfers = s.transfers.length
+            ? `<span class="line-stop-transfers" role="img" aria-label="${escapeHtml(`Transfer to ${s.transfers.map(id => bulletSpec(id, routeMap).label).join(', ')}`)}">`
+                + `${s.transfers.map(id => bulletHtml(id, routeMap, { decorative: true })).join('')}</span>`
+            : '';
+        return `<li class="line-stop">${name}${note}${transfers}</li>`;
+    };
+    const sections = model.sections.map(section => (section.title ? `<h3 class="line-branch">${escapeHtml(section.title)}</h3>` : '')
+        + `<ol class="line-stops" style="--line:${color}">${section.stops.map(stop).join('')}</ol>`).join('');
+    const stops = model.sections.length
+        ? `<section class="place-section" aria-labelledby="line-stops-title">`
+            + `<h2 class="place-section-title" id="line-stops-title">Stops from the north end</h2>${sections}</section>`
+        : '';
+    return `${hours}${description}<div class="line-status" aria-live="polite"></div>${stops}`;
 }
 
 // Lines in the order the rest of the app lists them (A C E, B D F M, ...), with

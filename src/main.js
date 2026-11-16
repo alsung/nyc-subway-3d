@@ -17,7 +17,7 @@ import { buildTripPlanner } from './ui/trip-planner.js';
 import { tripPathFeatures } from './core/trip-path.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, loadLineOrder, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
-import { stationModel } from './core/place-card.js';
+import { stationModel, lineModel, lineName } from './core/place-card.js';
 import { loadPlatforms, loadCarPositions } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors } from './core/corridors.js';
@@ -30,7 +30,8 @@ import { tryRestoreSession } from './core/auth.js';
 import { loadFeatures } from './core/features.js';
 import { loadCommutes } from './core/commutes.js';
 import { stationPath, parseStationPath, parseLinePath, lineRouteIds } from './core/slugs.js';
-import { buildLineChip, lineName } from './ui/line-chip.js';
+import { buildLinePanel } from './ui/line-panel.js';
+import { alertsForTrunk } from './core/alert-status.js';
 import { buildAuthButton } from './ui/auth-button.js';
 import { buildAuthModal } from './ui/auth-modal.js';
 import { buildSettingsModal } from './ui/settings-modal.js';
@@ -193,6 +194,9 @@ async function init() {
     // Starts empty so a popup opened before the first response simply shows no
     // alerts rather than waiting on one.
     let alerts = [];
+    // False until the first alerts response, so the line panel can tell "no
+    // alerts" from "not loaded yet" and never claims good service it can't see.
+    let alertsLoaded = false;
     let consecutiveFailures = 0;
 
     if (usingEmbeddedData) showEmbeddedDataWarning(document.getElementById('ui'));
@@ -283,15 +287,23 @@ async function init() {
         map.fitBounds(
             [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
             // A short line (the 42 St Shuttle is under a kilometer) would
-            // otherwise zoom to street level and lose where it is.
-            { padding: 80, maxZoom: 15, duration: 900 },
+            // otherwise zoom to street level and lose where it is. The padding
+            // keeps the line beside the panel on desktop and above the sheet on
+            // a phone (#154, as #146 did for trips).
+            { padding: panelFitPadding('line-panel'), maxZoom: 15, duration: 900 },
         );
     };
 
     const showLine = (routeId) => {
         if (activeLine === routeId) return;
         activeLine = routeId;
-        lineChip.show(routeId);
+        linePanel.show(lineModel(routeId, {
+            lineOrder, routeMap,
+            complexOf: complexForStation,
+            nameOf: (id) => stationById.get(id)?.name,
+        }));
+        syncTripBack();
+        updateLineStatus();
         applyHighlight();
         fitLine();
         document.title = `${lineName(routeId, routeMap)} · Local Express`;
@@ -300,15 +312,25 @@ async function init() {
     const clearLine = () => {
         if (!activeLine) return;
         activeLine = null;
-        lineChip.hide();
+        linePanel.hide();
         applyHighlight();
         document.title = BASE_TITLE;
     };
 
-    const lineChip = buildLineChip(document.getElementById('ui'), routeMap, () => {
+    // ✕, Escape and "‹ Trip" on the line panel: back to the bare map, as the
+    // chip it replaced did.
+    const closeLine = () => {
         clearLine();
         if (parseLinePath(window.location.pathname, allRouteIds)) replaceWithHome();
-    });
+    };
+
+    const linePanel = buildLinePanel(document.getElementById('ui'), routeMap, closeLine);
+
+    // The line's alerts in effect now, refreshed with every alerts response.
+    const updateLineStatus = () => {
+        if (!activeLine) return;
+        linePanel.setStatus(alertsLoaded ? alertsForTrunk(alerts, lineRouteIds(activeLine, allRouteIds)) : null);
+    };
 
     // Every way into a station goes through here: a map click, search, the
     // alerts panel and a /station URL. lastStation is set before the popup
@@ -396,22 +418,25 @@ async function init() {
 
     popup.querySelector('.popup-close').addEventListener('click', dismissPopup);
 
-    // A station opened while the trip planner is open covers it (#154): one left
-    // panel at a time on desktop, one sheet on a phone. "‹ Trip" in the station's
-    // header steps back to the trip, which is still there underneath.
+    // A station or line opened while the trip planner is open covers it (#154):
+    // one left panel at a time on desktop, one sheet on a phone. "‹ Trip" in the
+    // panel's header steps back to the trip, which is still there underneath.
     const tripOpen = () => {
         const panel = document.getElementById('trip-panel');
         return Boolean(panel && !panel.classList.contains('hidden'));
     };
-    const backToTrip = popup.querySelector('.place-back');
-    const syncTripBack = () => backToTrip.classList.toggle('hidden', !tripOpen());
-    backToTrip.addEventListener('click', dismissPopup);
+    const placeOpen = () => !popup.classList.contains('hidden') || !linePanel.element.classList.contains('hidden');
+    const backButtons = [popup, linePanel.element].map(panel => panel.querySelector('.place-back'));
+    const syncTripBack = () => backButtons.forEach(b => b.classList.toggle('hidden', !tripOpen()));
+    backButtons[0].addEventListener('click', dismissPopup);
+    backButtons[1].addEventListener('click', closeLine);
 
-    // The station panel's links are real URLs, so they open in a new tab and
-    // work for crawlers on the pre-built pages. A plain click is handled here
-    // instead, without reloading the map: a station replaces the one open, and a
-    // line gets a history entry of its own so Back returns to the station.
-    popup.addEventListener('click', (e) => {
+    // The panels' links are real URLs, so they open in a new tab and work for
+    // crawlers on the pre-built pages. A plain click is handled here instead,
+    // without reloading the map. A station opened from a station replaces it;
+    // anything else gets a history entry of its own, so Back (or ✕ on a
+    // station reached from a line) returns to where the link was.
+    const followPanelLink = (e) => {
         const link = e.target.closest('a[href^="/"]');
         if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         const href = link.getAttribute('href');
@@ -424,7 +449,9 @@ async function init() {
             history.pushState(null, '', `${href}${window.location.search}${window.location.hash}`);
             syncFromUrl();
         }
-    });
+    };
+    popup.addEventListener('click', followPanelLink);
+    linePanel.element.addEventListener('click', followPanelLink);
 
     // Escape closes the popup, as it already does for the lines panel, the
     // alerts panel and the search results. The popup was the only dismissible
@@ -439,6 +466,13 @@ async function init() {
     window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented || popup.classList.contains('hidden')) return;
         dismissPopup();
+    });
+
+    // The line panel, by the same rule. It is never open at the same time as
+    // the station panel: opening either one closes the other.
+    window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented || linePanel.element.classList.contains('hidden')) return;
+        closeLine();
     });
 
     const highlight = (routeId) => {
@@ -470,11 +504,11 @@ async function init() {
     const settingsModal = buildSettingsModal(document.getElementById('settings-modal'));
     buildAuthButton(document.getElementById('app-footer'), authModal.open, settingsModal);
 
-    // Measured each time, not fixed: the trip panel is a side panel on desktop
-    // and a bottom sheet on a phone, and the sheet's height depends on the
-    // itinerary. onPlan runs just after the itinerary opens, so the panel is
+    // Measured each time, not fixed: the trip and line panels are side panels
+    // on desktop and bottom sheets on a phone, and a sheet's height depends on
+    // what it holds. Both callers run just after their panel opens, so it is
     // measured at its full height.
-    const tripFitPadding = () => {
+    function panelFitPadding(panelId) {
         const view = map.getContainer().getBoundingClientRect();
         const relative = (id) => {
             const r = document.getElementById(id)?.getBoundingClientRect();
@@ -482,8 +516,9 @@ async function init() {
             return { left: r.left - view.left, top: r.top - view.top, right: r.right - view.left, bottom: r.bottom - view.top };
         };
         const topInset = Math.max(0, ...['search-bar', 'view-controls'].map(id => relative(id)?.bottom ?? 0));
-        return fitPadding({ width: view.width, height: view.height }, relative('trip-panel'), topInset);
-    };
+        return fitPadding({ width: view.width, height: view.height }, relative(panelId), topInset);
+    }
+    const tripFitPadding = () => panelFitPadding('trip-panel');
 
     buildTripPlanner(
         document.getElementById('ui'), searchEntries, stations, routeMap,
@@ -513,16 +548,18 @@ async function init() {
                 drawTrip();
                 syncTripBack();
             },
-            // A station panel on top takes Escape first.
-            isCovered: () => !popup.classList.contains('hidden'),
+            // A station or line panel on top takes Escape first.
+            isCovered: placeOpen,
         },
         authModal,
     );
 
-    // Opening the trip planner closes a station panel that would cover it; the
-    // planner is what was just asked for. Runs after the planner's own toggle.
+    // Opening the trip planner closes a station or line panel that would cover
+    // it; the planner is what was just asked for. Runs after the planner's own
+    // toggle.
     document.getElementById('btn-trip').addEventListener('click', () => {
         if (tripOpen() && lastStation) dismissPopup();
+        if (tripOpen() && activeLine) closeLine();
         syncTripBack();
     });
 
@@ -671,7 +708,9 @@ async function init() {
         try {
             const { alerts: fresh } = await fetchAlerts();
             alerts = fresh ?? [];
+            alertsLoaded = true;
             setStationAlerts(map, alertedStationIds(alerts));
+            updateLineStatus();
         } catch {
             // Keep the last known alerts rather than clearing the rings: a
             // dropped request is not evidence that service was restored.

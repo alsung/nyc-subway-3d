@@ -110,6 +110,14 @@ describe('parseRoutes', () => {
         const result = parseRoutes(makeRoutes('1,1,Broadway Local,EE352E,'));
         expect(result['1'].textColor).toBe('#FFFFFF');
     });
+
+    it('keeps MTA\'s description, commas and all', () => {
+        const text = 'route_id,route_short_name,route_long_name,route_desc,route_color\n'
+            + 'G,G,Brooklyn-Queens Crosstown,"Trains operate between Court Sq, Queens and Church Av, Brooklyn at all times.",799534';
+        expect(parseRoutes(text).G.desc).toBe('Trains operate between Court Sq, Queens and Church Av, Brooklyn at all times.');
+        expect(parseRoutes(makeRoutes('1,1,Broadway Local,EE352E,')).G).toBeUndefined();
+        expect(parseRoutes(makeRoutes('1,1,Broadway Local,EE352E,'))['1'].desc).toBe('');
+    });
 });
 
 // ---------------------------------------------------------------------------

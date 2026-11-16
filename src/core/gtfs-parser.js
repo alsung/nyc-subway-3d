@@ -76,7 +76,7 @@ export function parseCSV(text) {
 
 export function parseRoutes(routesText) {
     // parseCSV -> rows
-    // for each row: build { id, name, shortName, color, textColor }
+    // for each row: build { id, name, shortName, color, textColor, desc }
     // color: if route_color exists prepend #, else look up MTA_ROUTE_COLORS by short name, else '#808183'
     const rows = parseCSV(routesText);
     const routeMap = {};
@@ -88,6 +88,9 @@ export function parseRoutes(routesText) {
             shortName: r.route_short_name,
             color: r.route_color ? `#${r.route_color}` : (MTA_ROUTE_COLORS[r.route_short_name] || '#808183'),
             textColor: r.route_text_color ? `#${r.route_text_color}` : '#FFFFFF',
+            // MTA's own description of where and when the line runs, shown on
+            // the line panel and the pre-built line pages (#154, #155).
+            desc: r.route_desc ?? '',
         }
     })
     return routeMap;

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
     escapeHtml, lineName, bulletSpec, bulletHtml, hoursSummary, hoursTag,
     stationModel, stationPanelHtml, stationHeadingHtml, stationFactsHtml,
+    lineModel, linePanelHtml, lineFactsHtml,
 } from '../../src/core/place-card.js';
 import { buildStationMeta } from '../../src/core/station-meta.js';
 import { lineSections } from '../../src/core/line-order.js';
@@ -52,11 +53,28 @@ describe('escapeHtml', () => {
     });
 });
 
+// Moved here from line-chip.test.js with the chip's removal (#154).
 describe('lineName', () => {
-    it('names the shuttles by their long names, since all three are signed S', () => {
-        expect(lineName('A', routeMap)).toBe('A line');
-        expect(lineName('GS', routeMap)).toBe('42 St Shuttle');
-        expect(lineName('Q9', routeMap)).toBe('Q9 line');
+    const names = {
+        G: { shortName: 'G', name: 'Brooklyn-Queens Crosstown' },
+        SI: { shortName: 'SIR', name: 'Staten Island Railway' },
+        GS: { shortName: 'S', name: '42 St Shuttle' },
+        FS: { shortName: 'S', name: 'Franklin Avenue Shuttle' },
+        H: { shortName: 'S', name: 'Rockaway Park Shuttle' },
+    };
+
+    it('names a line by its short name', () => {
+        expect(lineName('G', names)).toBe('G line');
+        expect(lineName('SI', names)).toBe('SIR line');
+    });
+
+    it('names each shuttle by its long name, since all three are signed "S"', () => {
+        expect(['GS', 'FS', 'H'].map(id => lineName(id, names)))
+            .toEqual(['42 St Shuttle', 'Franklin Avenue Shuttle', 'Rockaway Park Shuttle']);
+    });
+
+    it('falls back to the route id for a route the map does not know', () => {
+        expect(lineName('Q9', names)).toBe('Q9 line');
     });
 });
 
@@ -213,6 +231,107 @@ describe('stationPanelHtml', () => {
         const one = stationModel(jay, { meta, lineOrder: {}, entrances: 1, complexOf });
         expect(stationHeadingHtml(one)).toContain('Brooklyn · 1 entrance<');
         expect(stationHeadingHtml(stationModel(jay, { meta, lineOrder: {}, complexOf }))).toContain('>Brooklyn</p>');
+    });
+});
+
+describe('lineModel', () => {
+    // The A's real sections, with every station but the Rockaway Park branch
+    // served late at night, and a C that shares its first three stations.
+    const { patterns, daytime } = fixture.lines.A;
+    const sections = lineSections(patterns, new Set(daytime)).sections;
+    const rockawayPark = sections.find(s => s.at(-1) === idNamed('Rockaway Park-Beach 116 St'));
+    const night = [...new Set(sections.flat())].filter(id => !rockawayPark.slice(1).includes(id));
+    const ids = Object.keys(fixture.names);
+    const complexOf = (id) => ({ complexId: String(100 + ids.indexOf(id)), name: fixture.names[id], stationIds: [id] });
+    const order = {
+        A: { sections, hours: { days: ['weekday', 'saturday', 'sunday'], night } },
+        C: { sections: [sections[0].slice(0, 3)], hours: C_HOURS },
+    };
+    const routes = { ...routeMap, A: { shortName: 'A', name: '8 Avenue Express', color: '#0062CF', desc: 'Trains operate <always>.' } };
+    const a = () => lineModel('A', { lineOrder: order, routeMap: routes, complexOf, nameOf: (id) => fixture.names[id] });
+
+    it('names the line and counts its stations', () => {
+        expect(a()).toMatchObject({ id: 'A', name: 'A line', longName: '8 Avenue Express', stationCount: 44 });
+    });
+
+    it('lists every station once, naming each section by its ends', () => {
+        const m = a();
+        expect(m.sections.map(s => s.title)).toEqual([
+            'Inwood-207 St to Rockaway Blvd',
+            'Rockaway Blvd to Broad Channel',
+            'Rockaway Blvd to Ozone Park-Lefferts Blvd',
+            'Broad Channel to Far Rockaway-Mott Av',
+            'Broad Channel to Rockaway Park-Beach 116 St',
+        ]);
+        const names = m.sections.flatMap(s => s.stops.map(stop => stop.name));
+        expect(names).toHaveLength(44);
+        expect(new Set(names).size).toBe(44);
+        expect(m.sections[2].stops[0].name).not.toBe('Rockaway Blvd');
+    });
+
+    it('marks the stops the line skips late at night', () => {
+        const m = a();
+        const rp = m.sections.at(-1).stops;
+        expect(rp.every(s => s.notLate)).toBe(true);
+        expect(m.sections[0].stops.some(s => s.notLate)).toBe(false);
+        expect(m.hours.text).toBe('24 hours');
+    });
+
+    it('leaves stops unmarked when only a short stretch runs late, which the hours line names', () => {
+        const short = { ...order, A: { sections, hours: { days: ['weekday', 'saturday', 'sunday'], night: rockawayPark } } };
+        const m = lineModel('A', { lineOrder: short, routeMap: routes, complexOf, nameOf: (id) => fixture.names[id] });
+        expect(m.sections.flatMap(s => s.stops).some(s => s.notLate)).toBe(false);
+        expect(m.hours.detail).toBe('Late at night, trains run only between Broad Channel and Rockaway Park-Beach 116 St.');
+    });
+
+    it('gives each stop the other lines that stop there, and a link', () => {
+        const [inwood, , third] = a().sections[0].stops;
+        expect(inwood.transfers).toEqual(['C']);
+        expect(third.transfers).toEqual(['C']);
+        expect(a().sections[0].stops[3].transfers).toEqual([]);
+        expect(inwood.path).toBe(`/station/${complexOf(sections[0][0]).complexId}-inwood-207-st`);
+    });
+
+    it('leaves a single-section line untitled and a shuttle without a separate long name', () => {
+        const g = lineModel('C', { lineOrder: order, routeMap: routes, complexOf });
+        expect(g.sections.map(s => s.title)).toEqual(['']);
+        expect(lineModel('GS', { lineOrder: {}, routeMap }).longName).toBe('');
+    });
+
+    it('still names a line with no stop order', () => {
+        const bare = lineModel('A', { lineOrder: {}, routeMap: routes });
+        expect(bare).toMatchObject({ name: 'A line', stationCount: 0, sections: [], hours: null });
+        expect(lineFactsHtml(bare, routes)).not.toContain('line-stops');
+        expect(lineFactsHtml(bare, routes)).toContain('Trains operate &lt;always&gt;.');
+    });
+});
+
+describe('linePanelHtml', () => {
+    it('makes an empty shell with the back link, close button and body', () => {
+        const html = linePanelHtml(null, routeMap);
+        for (const part of ['place-back', 'place-heading', 'popup-close', 'place-body']) expect(html).toContain(part);
+        expect(html).not.toContain('<h1');
+    });
+
+    it('fills the heading, hours, description, status slot and stops', () => {
+        const { patterns, daytime } = fixture.lines.A;
+        const sections = lineSections(patterns, new Set(daytime)).sections;
+        const order = { A: { sections, hours: { days: ['weekday'], night: true } }, C: { sections: [sections[0].slice(0, 2)] } };
+        const complexOf = (id) => ({ complexId: '1', name: fixture.names[id], stationIds: [id] });
+        const routes = { ...routeMap, A: { shortName: 'A', name: '8 Avenue Express', color: '#0062CF', desc: 'Runs & runs.' } };
+        const html = linePanelHtml(lineModel('A', { lineOrder: order, routeMap: routes, complexOf }), routes);
+
+        expect(html).toContain('<h1 class="place-title" id="line-title">A line</h1>');
+        expect(html).toContain('aria-hidden="true">A</span>');
+        expect(html).toContain('8 Avenue Express · 44 stations');
+        expect(html).toContain('<span class="hours-tag hours-tag--ok">24 hours</span>');
+        expect(html).toContain('<p class="line-desc">Runs &amp; runs.</p>');
+        expect(html).toContain('class="line-more hidden"');
+        expect(html).toContain('<div class="line-status" aria-live="polite"></div>');
+        expect(html).toContain('Stops from the north end');
+        expect(html).toContain('<a href="/station/1-inwood-207-st">Inwood-207 St</a>');
+        expect(html).toContain('aria-label="Transfer to C"');
+        expect(html).toContain('<ol class="line-stops" style="--line:#0062CF">');
     });
 });
 

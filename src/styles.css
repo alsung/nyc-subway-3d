@@ -147,54 +147,10 @@ button:active,
     left: 20px;
     width: 280px;
     pointer-events: auto;
-    /* Above the line chip, which sits where the results list drops down. The
-       list is what the rider is acting on while it is open; the chip is
-       standing state and can wait underneath it. */
-    z-index: 2;
-}
-
-/* Shown while a /line URL has a line highlighted. Under the search field,
-   where the eye already is, and dismissed by clicking anywhere on it. Drawn
-   beneath the search results (see #search-bar). */
-#line-chip {
-    position: absolute;
-    top: 66px;
-    left: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 36px;
-    padding: 4px 12px 4px 6px;
-    background: rgba(10, 10, 26, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 18px;
-    color: #fff;
-    font-size: 14px;
-    backdrop-filter: blur(8px);
-    max-width: calc(100% - 40px);
-    pointer-events: auto;
-    cursor: pointer;
-}
-
-.line-chip-label {
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-#line-chip.hidden {
-    display: none;
-}
-
-#line-chip:hover {
-    border-color: rgba(255, 255, 255, 0.4);
-}
-
-.line-chip-close {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 16px;
-    line-height: 1;
+    /* Above the side panels and sheets (z-index 30 and 31): the station and
+       line panel sits right where the results list drops down, and the list is
+       what the rider is acting on while it is open. Below the modals (50). */
+    z-index: 35;
 }
 
 .search-input {
@@ -903,6 +859,183 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     color: #ffb340;
 }
 
+/* ── Line panel (#154) ── */
+
+.place-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* The heading's bullet, at the title's size. */
+.place-title-row .alert-bullet {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+}
+
+.line-hours {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+}
+
+.line-hours .hours-tag { margin-top: 0; }
+
+.line-hours-detail {
+    font-size: 13px;
+    line-height: 1.4;
+    color: rgba(235, 235, 245, 0.7);
+}
+
+.line-desc {
+    margin: 12px 0 0;
+    font-size: 14px;
+    line-height: 1.45;
+    letter-spacing: -0.006em;
+    color: rgba(235, 235, 245, 0.82);
+}
+
+/* Set only by line-panel.js, once it has measured the text as long, so a page
+   without JavaScript shows all of it. */
+.line-desc.is-clamped {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--lines, 3);
+    overflow: hidden;
+}
+
+.line-more {
+    margin: 2px 0 0 -6px;
+    padding: 4px 6px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: #7fb2ff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.line-more:active { opacity: 0.55; }
+
+.line-status { margin-top: 14px; }
+
+.line-status:empty { display: none; }
+
+.line-good {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 13.5px;
+}
+
+.line-good::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #34c759;
+    box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.18);
+}
+
+.line-branch {
+    margin: 16px 0 4px 26px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -0.003em;
+    color: rgba(235, 235, 245, 0.62);
+}
+
+.line-branch:first-of-type { margin-top: 0; }
+
+/* Stops on a rail in the line's color, each a link to its station. */
+.line-stops {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* A busy stop's transfers wrap under its name rather than squeezing it, so the
+   dot and the rail's ends sit on the name's first line, 17px down. */
+.line-stop {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    min-height: 34px;
+    padding-left: 26px;
+    font-size: 14.5px;
+    letter-spacing: -0.008em;
+}
+
+.line-stop::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--line, #808183);
+}
+
+.line-stop:first-child::before { top: 17px; }
+.line-stop:last-child::before { bottom: auto; height: 17px; }
+.line-stop:only-child::before { display: none; }
+
+.line-stop::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 17px;
+    width: 8px;
+    height: 8px;
+    border: 2.5px solid var(--line, #808183);
+    border-radius: 50%;
+    background: #fff;
+    transform: translateY(-50%);
+}
+
+.line-stop a,
+.line-stop > span:first-child {
+    flex: 1 1 150px;
+    min-width: 0;
+    padding: 7px 0;
+    color: #fff;
+    text-decoration: none;
+}
+
+.line-stop a:hover { text-decoration: underline; }
+.line-stop a:active { opacity: 0.55; }
+
+.line-stop-note {
+    flex: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #ffb340;
+}
+
+.line-stop-transfers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-left: auto;
+    padding: 2px 0;
+}
+
+.line-stop-transfers .alert-bullet {
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+}
+
 .popup-badges {
     display: flex;
     flex-wrap: wrap;
@@ -1434,15 +1567,6 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         width: auto;
     }
 
-    /* The search field's row is full width here, and the row below it holds
-       the Live indicator on the left and the controls on the right, so the
-       chip takes a row of its own beneath both. */
-    #line-chip {
-        top: 122px;
-        left: 16px;
-        max-width: calc(100% - 32px);
-    }
-
     #view-controls {
         top: 74px;
         right: 16px;
@@ -1480,6 +1604,10 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     }
 
     .place-title { font-size: 20px; }
+
+    /* A line is about where it goes, so its sheet leaves more of the map in
+       view than a station's; the stop list scrolls inside. */
+    .place-panel--line { max-height: 55vh; }
 
     /* Would otherwise sit under the popup sheet. */
     #staleness {
@@ -1582,7 +1710,10 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     #staleness-label,
     .place-sub,
     .place-section-title,
-    .next-stop-label {
+    .next-stop-label,
+    .line-hours-detail,
+    .line-desc,
+    .line-branch {
         color: #fff;
     }
 

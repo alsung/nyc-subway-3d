@@ -2101,7 +2101,7 @@
       "ui/auth-button.js",
       "ui/auth-modal.js",
       "ui/camera.js",
-      "ui/line-chip.js",
+      "ui/line-panel.js",
       "ui/lines-panel.js",
       "ui/popup.js",
       "ui/reset-password-page.js",
