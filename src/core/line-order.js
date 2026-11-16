@@ -17,8 +17,28 @@
 // Everything reads from the north end, so the 1 starts at Van Cortlandt Park and
 // the L at 8 Av. In MTA's feed direction 1 is southbound, so a direction 1 trip
 // already reads that way and a direction 0 trip is reversed.
+//
+// The same pass records when each line runs (#154): on which kinds of day,
+// whether it runs late at night and where, and otherwise its hours. That also
+// lives only in stop_times.txt, and it's what lets a station say the C doesn't
+// run late nights without anyone keeping a list by hand.
 
 import { expressParent } from './trunks.js';
+
+// The kinds of day hours are reported for, in the order they're shown.
+export const DAY_TYPES = ['weekday', 'saturday', 'sunday'];
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+
+// Late night is 1 to 5 AM, in minutes after midnight. A line with trains at a
+// station in that window runs there all night.
+const NIGHT_START = 60;
+const NIGHT_END = 300;
+
+// When a line runs is tracked in quarter hours. A pause shorter than an hour is
+// the wait between trains; anything longer is a break in service, like the Z's
+// between the morning and evening rush.
+const BUCKET = 15;
+const MIN_BREAK = 60;
 
 /**
  * Every distinct stop pattern each line runs, as parent station ids read from
@@ -163,17 +183,95 @@ export function neighbors(sections, stationId) {
 }
 
 /**
- * Every line's sections, from the parsed feed and stations.json.
+ * Which kinds of day each service id runs on, from calendar.txt.
+ *
+ * @param {Array<object>} calendar rows of calendar.txt
+ * @returns {Map<string, Set<string>>} service id → some of DAY_TYPES
+ */
+export function serviceDays(calendar) {
+    const days = new Map();
+    for (const row of calendar ?? []) {
+        const set = new Set();
+        if (WEEKDAYS.some(d => row[d] === '1')) set.add('weekday');
+        if (row.saturday === '1') set.add('saturday');
+        if (row.sunday === '1') set.add('sunday');
+        days.set(row.service_id, set);
+    }
+    return days;
+}
+
+/**
+ * When each line runs, from its scheduled stop times.
+ *
+ * `night` is true when every one of the line's daytime stations has trains
+ * between 1 and 5 AM, false when none does, and otherwise the stations that do,
+ * in the line's order: the 5 runs all night, but only between Eastchester-Dyre
+ * Av and E 180 St. `spans` is kept only for lines that stop at night, since
+ * those are the only ones whose hours need spelling out: minutes after midnight
+ * on the service day, so a train at 12:15 AM on a weekday's late run is 1455.
+ *
+ * @param {Array<object>} stopTimes rows of stop_times.txt
+ * @param {Array<object>} trips rows of trips.txt
+ * @param {Array<object>} stops rows of stops.txt
+ * @param {Array<object>} calendar rows of calendar.txt
+ * @param {Map<string, string[]>} daytimeByLine each line's daytime stations, in order
+ * @returns {Map<string, {days: string[], night: boolean|string[], spans?: Object<string, number[][]>}>}
+ */
+export function lineHours(stopTimes, trips, stops, calendar, daytimeByLine) {
+    const parentOf = new Map(stops.map(s => [s.stop_id, s.parent_station || s.stop_id]));
+    const tripById = new Map(trips.map(t => [t.trip_id, t]));
+    const days = serviceDays(calendar);
+
+    const running = new Map();
+    const atNight = new Map();
+    for (const st of stopTimes) {
+        const trip = tripById.get(st.trip_id);
+        const minutes = toMinutes(st.departure_time || st.arrival_time);
+        if (!trip || minutes === null) continue;
+        const line = expressParent(trip.route_id) ?? trip.route_id;
+
+        let byDay = running.get(line);
+        if (!byDay) running.set(line, byDay = new Map());
+        for (const day of days.get(trip.service_id) ?? []) {
+            if (!byDay.has(day)) byDay.set(day, new Set());
+            byDay.get(day).add(Math.floor(minutes / BUCKET));
+        }
+
+        const clock = minutes % 1440;
+        if (clock >= NIGHT_START && clock < NIGHT_END) {
+            if (!atNight.has(line)) atNight.set(line, new Set());
+            atNight.get(line).add(parentOf.get(st.stop_id) ?? st.stop_id);
+        }
+    }
+
+    const hours = new Map();
+    for (const [line, byDay] of running) {
+        const daytime = daytimeByLine.get(line) ?? [];
+        const nightSet = atNight.get(line) ?? new Set();
+        const served = daytime.filter(id => nightSet.has(id));
+        const night = served.length === 0 ? false : served.length === daytime.length ? true : served;
+
+        const entry = { days: DAY_TYPES.filter(d => byDay.has(d)), night };
+        if (night === false) {
+            entry.spans = Object.fromEntries(entry.days.map(d => [d, spansOf(byDay.get(d))]));
+        }
+        hours.set(line, entry);
+    }
+    return hours;
+}
+
+/**
+ * Every line's sections and hours, from the parsed feed and stations.json.
  *
  * Lines with no daytime stations at all are left out and listed in `empty`,
  * rather than failing, so a temporary route MTA adds to the feed can't break
  * the build. Lines that fell back to their longest pattern are listed in
- * `fallbacks`.
+ * `fallbacks`. Hours are added only when calendar.txt is given.
  *
- * @param {{stopTimes: object[], trips: object[], stops: object[], routes: object[], stations: object[]}} feed
- * @returns {{lines: Object<string, string[][]>, fallbacks: string[], empty: string[]}}
+ * @param {{stopTimes: object[], trips: object[], stops: object[], routes: object[], stations: object[], calendar?: object[]}} feed
+ * @returns {{lines: Object<string, {sections: string[][], hours?: object}>, fallbacks: string[], empty: string[]}}
  */
-export function buildLineOrder({ stopTimes, trips, stops, routes, stations }) {
+export function buildLineOrder({ stopTimes, trips, stops, routes, stations, calendar = [] }) {
     const shortName = new Map(routes.map(r => [r.route_id, r.route_short_name || r.route_id]));
     const lines = {};
     const fallbacks = [];
@@ -184,11 +282,38 @@ export function buildLineOrder({ stopTimes, trips, stops, routes, stations }) {
         const daytime = daytimeStations(stations, shortName.get(line) ?? line);
         const { sections, fallback } = lineSections(linePats, daytime);
         if (fallback) fallbacks.push(line);
-        if (sections.length) lines[line] = sections;
+        if (sections.length) lines[line] = { sections };
         else empty.push(line);
     }
 
+    if (calendar.length) {
+        const daytimeByLine = new Map(Object.entries(lines).map(([line, { sections }]) => [line, [...new Set(sections.flat())]]));
+        for (const [line, hours] of lineHours(stopTimes, trips, stops, calendar, daytimeByLine)) {
+            if (lines[line]) lines[line].hours = hours;
+        }
+    }
+
     return { lines, fallbacks, empty };
+}
+
+// "25:30:00" → 1530. GTFS counts past 24 hours for trips that run after
+// midnight on the previous day's service.
+function toMinutes(time) {
+    const match = /^(\d+):(\d\d)/.exec(time ?? '');
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+// Quarter hours with trains → [start, end] spans in minutes, joining pauses
+// shorter than MIN_BREAK.
+function spansOf(buckets) {
+    const sorted = [...(buckets ?? [])].sort((a, b) => a - b);
+    const spans = [];
+    for (const b of sorted) {
+        const last = spans.at(-1);
+        if (last && b * BUCKET - last[1] < MIN_BREAK) last[1] = (b + 1) * BUCKET;
+        else spans.push([b * BUCKET, (b + 1) * BUCKET]);
+    }
+    return spans;
 }
 
 // Kahn's algorithm, taking the lowest station id first whenever there's a

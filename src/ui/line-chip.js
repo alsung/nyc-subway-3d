@@ -5,18 +5,11 @@
 // clear a highlight. The chip names what the map is showing and is the way out.
 
 import { routeBullet } from './route-bullet.js';
+import { lineName } from '../core/place-card.js';
 
-/**
- * What a rider calls a route: "G line", or "42 St Shuttle" for the three
- * shuttles, which are all signed "S" and so need their long names. Used for
- * the chip and the tab title.
- */
-export function lineName(routeId, routeMap) {
-    const route = routeMap?.[routeId];
-    return route?.shortName === 'S' && route?.name
-        ? route.name
-        : `${route?.shortName ?? routeId} line`;
-}
+// Moved to core so the station panel's line links, which the pre-built pages
+// carry too, name lines the same way. Re-exported for the chip's callers.
+export { lineName };
 
 /**
  * @param {HTMLElement} container

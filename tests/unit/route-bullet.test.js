@@ -62,3 +62,22 @@ describe('routeBullet', () => {
         expect(el.style.backgroundColor).toBe('#808183');
     });
 });
+
+// The station panel's HTML bullets, which the pre-built pages carry, come from
+// the same bulletSpec. Two bullets for one line that disagree would be the
+// drift this module exists to prevent.
+describe('routeBullet and bulletHtml', () => {
+    it('agree on label, shape and color for every kind of route', async () => {
+        const { bulletHtml } = await import('../../src/core/place-card.js');
+        for (const id of ['6', '6X', 'FX', 'SI', 'N', 'ZZ']) {
+            const el = routeBullet(id, routeMap);
+            const html = bulletHtml(id, routeMap);
+            expect(html).toContain(`>${el.textContent}</span>`);
+            expect(html).toContain(`background-color:${el.style.backgroundColor}`);
+            expect(html).toContain(`color:${el.style.color}`);
+            for (const cls of ['alert-bullet--express', 'alert-bullet--wide']) {
+                expect(html.includes(cls)).toBe(el.classList.contains(cls));
+            }
+        }
+    });
+});

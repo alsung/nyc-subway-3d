@@ -3,14 +3,11 @@
 //
 // Shared because the alerts panel and the lines panel both render it, and a
 // rider reading the same line in two places must see the same badge. Two copies
-// of this would drift.
+// of this would drift, which is also why its label, colors and shape come from
+// bulletSpec in core/place-card.js: the station panel's HTML bullets, which the
+// pre-built pages carry too, read from the same place.
 
-import { contrastColor } from '../core/color.js';
-import { expressParent } from '../core/trunks.js';
-
-// Falls back to the MTA's own gray for a route the feed does not describe,
-// rather than rendering an invisible or default-black bullet.
-const UNKNOWN_COLOR = '#808183';
+import { bulletSpec } from '../core/place-card.js';
 
 /**
  * A bullet for one route id. Label and color come from routeMap; unknown ids
@@ -23,26 +20,15 @@ const UNKNOWN_COLOR = '#808183';
  * Flushing-Main St, 3 min" names a train nobody can look for on a platform.
  */
 export function routeBullet(routeId, routeMap) {
-    const route = routeMap?.[routeId];
-    const color = route?.color ?? UNKNOWN_COLOR;
-
-    const parent = expressParent(routeId);
-    const label = parent
-        ? (routeMap?.[parent]?.shortName ?? parent)
-        : (route?.shortName ?? routeId);
+    const spec = bulletSpec(routeId, routeMap);
 
     const el = document.createElement('span');
     el.className = 'alert-bullet';
-    el.textContent = label;
-    el.style.backgroundColor = color;
-    el.style.color = contrastColor(color);
+    el.textContent = spec.label;
+    el.style.backgroundColor = spec.color;
+    el.style.color = spec.textColor;
 
-    if (parent) {
-        el.classList.add('alert-bullet--express');
-    } else if (label.length > 2) {
-        // SIR and similar need an oval; a circle would clip the third character.
-        // Never reachable for an express, whose label is always one character.
-        el.classList.add('alert-bullet--wide');
-    }
+    if (spec.express) el.classList.add('alert-bullet--express');
+    else if (spec.wide) el.classList.add('alert-bullet--wide');
     return el;
 }

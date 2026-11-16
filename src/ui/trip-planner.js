@@ -57,7 +57,9 @@ function renderCarAdvice(legs, carDeps, nameOf) {
  * @param {object} routeMap
  * @param {HTMLElement} toggleButton
  * @param {object} carDeps  car positioning data: { carPositions, complexOf, stationById }
- * @param {{onPlan: (journey, stations) => void, onClear: () => void}} handlers
+ * @param {{onPlan: (journey, stations) => void, onClear: () => void, isCovered?: () => boolean}} handlers
+ *   isCovered: true while another panel sits on top of this one, which then
+ *   gets Escape first
  * @param {{open: () => void}} [authModal]
  */
 export function buildTripPlanner(container, entries, stations, routeMap, toggleButton, carDeps = {}, handlers = {}, authModal = null) {
@@ -460,8 +462,10 @@ export function buildTripPlanner(container, entries, stations, routeMap, toggleB
         else handlers.onClear?.();
     });
 
+    // Skipped while a station panel covers this one (#154): the key goes to
+    // what's on top, so one Escape still closes one thing.
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+        if (e.key === 'Escape' && !panel.classList.contains('hidden') && !handlers.isCovered?.()) {
             e.preventDefault();
             dismiss();
         }

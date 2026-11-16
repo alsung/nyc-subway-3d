@@ -1,0 +1,288 @@
+// src/core/place-card.js
+// The station panel's HTML, written the same way for the map and for the
+// pre-built pages (#154, #155).
+//
+// A pre-built page has to show visitors the same text a crawler reads, or
+// Google treats it as cloaking, so the panel a page ships must be the panel the
+// app draws. Both come from here: popup.js puts this HTML into its panel, and
+// scripts/build-seo-pages.mjs will write it into each page. It is HTML text
+// rather than DOM so it runs in Node at build time, and every value passes
+// through escapeHtml, since station names and labels come from outside data.
+//
+// The live parts (alerts, direction tabs, arrivals) are empty slots here that
+// popup.js fills, so a pre-built page shows them empty until the app loads.
+
+import { contrastColor } from './color.js';
+import { expressParent, TRUNKS } from './trunks.js';
+import { boroughName } from './station-meta.js';
+import { linePath, stationPath } from './slugs.js';
+import { neighbors, DAY_TYPES } from './line-order.js';
+
+// MTA's gray, for a route the feed doesn't describe, rather than an invisible
+// or default-black bullet.
+const UNKNOWN_COLOR = '#808183';
+
+// A line whose late-night trains still reach this share of its daytime
+// stations reads as "some stops skipped" (the A, F and N), rather than naming
+// the short stretch that's left (the 3, 5, M and R).
+const MOST_STATIONS = 0.8;
+
+const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/** Text made safe for HTML content and attribute values. */
+export function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ENTITIES[c]);
+}
+
+/**
+ * What a rider calls a route: "G line", or "42 St Shuttle" for the three
+ * shuttles, which are all signed "S" and so need their long names.
+ */
+export function lineName(routeId, routeMap) {
+    const route = routeMap?.[routeId];
+    return route?.shortName === 'S' && route?.name
+        ? route.name
+        : `${route?.shortName ?? routeId} line`;
+}
+
+/**
+ * How a route's bullet looks: its label, colors and shape.
+ *
+ * An express pattern carries its parent line's letter in a diamond, which is
+ * how MTA signs it; no sign in the system reads "FX". A label longer than two
+ * characters (SIR) needs an oval, since a circle would clip it. route-bullet.js
+ * builds its DOM bullet from this too, so the two can't drift apart.
+ *
+ * @returns {{label: string, color: string, textColor: string, express: boolean, wide: boolean}}
+ */
+export function bulletSpec(routeId, routeMap) {
+    const route = routeMap?.[routeId];
+    const color = route?.color ?? UNKNOWN_COLOR;
+    const parent = expressParent(routeId);
+    const label = parent
+        ? (routeMap?.[parent]?.shortName ?? parent)
+        : (route?.shortName ?? routeId);
+    return {
+        label,
+        color,
+        textColor: contrastColor(color),
+        express: Boolean(parent),
+        wide: !parent && label.length > 2,
+    };
+}
+
+/** A route bullet as HTML, linking to the line's page when the line has one. */
+export function bulletHtml(routeId, routeMap, { link = false } = {}) {
+    const b = bulletSpec(routeId, routeMap);
+    const classes = ['alert-bullet', b.express && 'alert-bullet--express', b.wide && 'alert-bullet--wide']
+        .filter(Boolean).join(' ');
+    const style = `background-color:${escapeHtml(b.color)};color:${escapeHtml(b.textColor)}`;
+    const label = escapeHtml(b.label);
+    if (!link) return `<span class="${classes}" style="${style}">${label}</span>`;
+    return `<a class="${classes}" style="${style}" href="${escapeHtml(linePath(routeId))}"`
+        + ` aria-label="${escapeHtml(lineName(routeId, routeMap))}">${label}</a>`;
+}
+
+/**
+ * When a line runs, in words, from its entry in line-order.json.
+ *
+ * `text` is the short label ("24 hours", "No late nights", "Weekdays only",
+ * "Weekday rush hours only"); `detail` is a sentence with the times or the
+ * late-night stretch. `tone` is "ok" for all night and "limited" otherwise.
+ * Null when the entry has no hours.
+ *
+ * @param {{sections: string[][], hours?: object}} entry
+ * @param {(stationId: string) => string} nameOf
+ * @returns {{text: string, tone: string, detail: string}|null}
+ */
+export function hoursSummary(entry, nameOf = (id) => id) {
+    const hours = entry?.hours;
+    if (!hours) return null;
+    const { days = [], night, spans = {} } = hours;
+
+    if (night === true) return { text: '24 hours', tone: 'ok', detail: '' };
+
+    if (Array.isArray(night)) {
+        const daytime = new Set((entry.sections ?? []).flat()).size;
+        if (night.length >= daytime * MOST_STATIONS) {
+            return { text: '24 hours', tone: 'ok', detail: 'Some stops are skipped late at night.' };
+        }
+        const ends = nightEnds(entry.sections ?? [], new Set(night));
+        return {
+            text: '24 hours',
+            tone: 'ok',
+            detail: ends
+                ? `Late at night, trains run only between ${nameOf(ends[0])} and ${nameOf(ends[1])}.`
+                : 'Late at night, trains run on only part of the line.',
+        };
+    }
+
+    const everyDay = DAY_TYPES.every(d => days.includes(d));
+    const weekdays = spans.weekday ?? [];
+    if (everyDay) {
+        const same = DAY_TYPES.every(d => JSON.stringify(spans[d]) === JSON.stringify(weekdays));
+        return { text: 'No late nights', tone: 'limited', detail: `About ${spanText(weekdays)}${same ? '' : ' on weekdays'}.` };
+    }
+    if (days.length === 1 && days[0] === 'weekday') {
+        return weekdays.length > 1
+            ? { text: 'Weekday rush hours only', tone: 'limited', detail: `About ${spanText(weekdays)}.` }
+            : { text: 'Weekdays only', tone: 'limited', detail: `About ${spanText(weekdays)}.` };
+    }
+    if (days.length && !days.includes('weekday')) return { text: 'Weekends only', tone: 'limited', detail: '' };
+    return { text: 'Not every day', tone: 'limited', detail: '' };
+}
+
+/**
+ * The tag beside a line at one station, or null when the line runs there all
+ * night. Only the exceptions are tagged, so a station served around the clock
+ * reads calmly.
+ *
+ * @returns {{text: string, tone: string}|null}
+ */
+export function hoursTag(entry, stationId) {
+    const hours = entry?.hours;
+    if (!hours || hours.night === true) return null;
+    if (Array.isArray(hours.night)) {
+        return hours.night.includes(stationId) ? null : { text: 'No late nights', tone: 'limited' };
+    }
+    const { text } = hoursSummary(entry);
+    return { text: text === 'Weekday rush hours only' ? 'Rush hours only' : text, tone: 'limited' };
+}
+
+/**
+ * What the station panel shows about a station complex, from the same data on
+ * the map and at build time.
+ *
+ * One row per line through the complex, each with the stations either side
+ * and MTA's direction names for them. Lines that stop at the same neighbors
+ * with the same hours share a row, so Jay St lists the A and C together only
+ * when both run the same hours.
+ *
+ * @param {{complexId?: string, name: string, stationIds: string[]}} complex
+ * @param {{meta: Map, lineOrder: object, entrances?: number, complexOf: (id: string) => object|undefined, nameOf?: (id: string) => string}} data
+ */
+export function stationModel(complex, { meta, lineOrder, entrances = null, complexOf, nameOf }) {
+    const ids = complex?.stationIds ?? [];
+    const borough = ids.map(id => boroughName(meta, id)).find(Boolean) ?? '';
+    // A neighbor is named as its own platform is signed (the R's "Court St"),
+    // not by its complex ("Borough Hall"), and links to the complex's page.
+    const nameFor = (id) => nameOf?.(id) ?? complexOf?.(id)?.name ?? id;
+    const linkFor = (id) => ({ name: nameFor(id), path: stationPath(complexOf?.(id)) });
+
+    const rows = [];
+    for (const routeId of inTrunkOrder(Object.keys(lineOrder ?? {}))) {
+        const entry = lineOrder[routeId];
+        for (const id of ids) {
+            const { prev, next } = neighbors(entry.sections, id);
+            if (!prev.length && !next.length) continue;
+            const row = meta?.get(id);
+            rows.push({
+                routeIds: [routeId],
+                north: { label: row?.north || 'Northbound', stops: prev.map(linkFor) },
+                south: { label: row?.south || 'Southbound', stops: next.map(linkFor) },
+                tag: hoursTag(entry, id),
+            });
+            break;
+        }
+    }
+
+    return {
+        name: complex?.name ?? '',
+        borough,
+        entrances,
+        rows: mergeRows(rows),
+    };
+}
+
+/** The station panel's inside, empty when model is null (popup.js's shell). */
+export function stationPanelHtml(model, routeMap) {
+    return `<div class="place-head">`
+        + `<button type="button" class="place-back hidden">‹ Trip</button>`
+        + `<div class="place-heading">${model ? stationHeadingHtml(model) : ''}</div>`
+        + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
+        + `</div>`
+        + `<div class="place-body">`
+        + `<div class="popup-trunks"></div>`
+        + `<div class="popup-alerts hidden"></div>`
+        + `<div class="popup-tabs" role="tablist"></div>`
+        + `<div class="popup-arrivals"></div>`
+        + `<div class="popup-note hidden"></div>`
+        + `<div class="place-facts">${model ? stationFactsHtml(model, routeMap) : ''}</div>`
+        + `</div>`;
+}
+
+/** The station's name as the page heading, with its borough and entrances. */
+export function stationHeadingHtml(model) {
+    const facts = [model.borough];
+    if (model.entrances) facts.push(`${model.entrances} ${model.entrances === 1 ? 'entrance' : 'entrances'}`);
+    const sub = facts.filter(Boolean).join(' · ');
+    return `<h1 class="place-title" id="station-title">${escapeHtml(model.name)}</h1>`
+        + (sub ? `<p class="place-sub">${escapeHtml(sub)}</p>` : '');
+}
+
+/** The "Next stops" section, or nothing when there is no stop order. */
+export function stationFactsHtml(model, routeMap) {
+    if (!model.rows?.length) return '';
+    const stops = (list) => list
+        .map(s => (s.path ? `<a href="${escapeHtml(s.path)}">${escapeHtml(s.name)}</a>` : escapeHtml(s.name)))
+        .join(' or ');
+    const side = (dir) => (dir.stops.length
+        ? `<span class="next-stop-dir"><span class="next-stop-label">${escapeHtml(dir.label)}</span> ${stops(dir.stops)}</span>`
+        : '');
+    const items = model.rows.map(row => `<li class="next-stop">`
+        + `<span class="next-stop-lines">${row.routeIds.map(id => bulletHtml(id, routeMap, { link: true })).join('')}</span>`
+        + `<span class="next-stop-text">${side(row.north)}${side(row.south)}`
+        + (row.tag ? `<span class="hours-tag hours-tag--${escapeHtml(row.tag.tone)}">${escapeHtml(row.tag.text)}</span>` : '')
+        + `</span></li>`).join('');
+    return `<section class="place-section" aria-labelledby="station-next-title">`
+        + `<h2 class="place-section-title" id="station-next-title">Next stops</h2>`
+        + `<ul class="next-stops">${items}</ul></section>`;
+}
+
+// Lines in the order the rest of the app lists them (A C E, B D F M, ...), with
+// anything the trunk table doesn't know at the end.
+function inTrunkOrder(routeIds) {
+    const rank = new Map();
+    for (const trunk of TRUNKS) for (const id of trunk.routeIds) if (!rank.has(id)) rank.set(id, rank.size);
+    const at = (id) => (rank.has(id) ? rank.get(id) : Number.MAX_SAFE_INTEGER);
+    return [...routeIds].sort((a, b) => at(a) - at(b) || a.localeCompare(b));
+}
+
+// Joins rows that differ only in their line, keeping the first row's place.
+function mergeRows(rows) {
+    const byKey = new Map();
+    for (const row of rows) {
+        const key = JSON.stringify([row.north, row.south, row.tag]);
+        const seen = byKey.get(key);
+        if (seen) seen.routeIds.push(...row.routeIds);
+        else byKey.set(key, row);
+    }
+    return [...byKey.values()];
+}
+
+// The two ends of a late-night stretch, north end first: the stations with
+// fewer than two late-night neighbors. Null when the stretch isn't one run.
+function nightEnds(sections, night) {
+    const ends = [...night].filter(id => {
+        const { prev, next } = neighbors(sections, id);
+        return [...prev, ...next].filter(n => night.has(n)).length < 2;
+    });
+    if (ends.length !== 2) return null;
+    const runsSouth = (id) => neighbors(sections, id).next.some(n => night.has(n));
+    return runsSouth(ends[0]) ? ends : [ends[1], ends[0]];
+}
+
+// "About 5:15 AM to 11:45 PM", or two ranges joined for a line with a break.
+function spanText(spans) {
+    return spans.map(([start, end]) => `${clock(start)} to ${clock(end)}`).join(' and ');
+}
+
+// Minutes after midnight on the service day → "6 AM", "11:45 PM", "midnight".
+function clock(minutes) {
+    const m = ((minutes % 1440) + 1440) % 1440;
+    if (m === 0) return 'midnight';
+    if (m === 720) return 'noon';
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    return `${h % 12 || 12}${min ? `:${String(min).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+}
