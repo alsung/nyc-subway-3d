@@ -60,11 +60,17 @@ export function setStationPanel(popup, model, routeMap) {
 // the alerts that explain an empty station are station-scoped and name it
 // directly, so they reach here without needing to know which routes serve it.
 function renderAlerts(popup, station, routeMap, alerts, routeIds) {
-    const band = popup.querySelector('.popup-alerts');
-    band.innerHTML = '';
-
     const ids = station.stationIds ?? [station.id];
-    const matched = alertsForStation(alerts, ids, routeIds);
+    return fillAlertBand(popup.querySelector('.popup-alerts'), alertsForStation(alerts, ids, routeIds), routeMap);
+}
+
+/**
+ * Shows up to POPUP_ALERT_LIMIT alerts in a band, with a "+N more" line, and
+ * returns how many there were. Hidden when there are none. Shared by the
+ * station panel and the line panel (#154), which show alerts the same way.
+ */
+export function fillAlertBand(band, matched, routeMap) {
+    band.innerHTML = '';
 
     if (matched.length === 0) {
         band.classList.add('hidden');
