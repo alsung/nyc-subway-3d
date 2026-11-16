@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Downloads the two static datasets the app needs into public/:
+# Downloads the static data the app needs into public/:
 #
-#   gtfs/*.txt      the MTA GTFS static ZIP, extracted to four files
-#   stations.json   per-station borough and direction labels, from MTA's own
-#                   open-data portal
+#   gtfs/*.txt       the MTA GTFS static ZIP, extracted to four files
+#   stations.json    per-station borough and direction labels, from MTA's own
+#                    open-data portal
+#   entrances.json   street entrances and exits, from the same portal
+#   line-order.json  each line's stations in order, worked out from the ZIP's
+#                    stop_times.txt, which itself is never kept (#153)
 #
 # This runs automatically as npm's `prebuild` hook, so any `npm run build` —
 # local, CI, or Vercel's own build — produces a dist/ that contains the data.
@@ -49,6 +52,11 @@ STATIONS_OUT="$(dirname "$0")/../public/stations.json"
 ENTRANCES_URL="https://data.ny.gov/resource/i9wp-a4ja.json?\$limit=5000&\$select=complex_id,entrance_type,entry_allowed,exit_allowed,entrance_latitude,entrance_longitude"
 ENTRANCES_OUT="$(dirname "$0")/../public/entrances.json"
 
+# Stop order. stop_times.txt is the only file in the feed that has it, and at
+# 36 MB it is far too big to ship, so it is extracted into the temporary folder
+# below, read by build-line-order.mjs, and deleted with that folder on exit.
+LINE_ORDER_OUT="$(dirname "$0")/../public/line-order.json"
+
 # `mktemp -d` with no template is the one form both GNU and BSD accept: GNU
 # rejects a -t template without at least three X's, BSD treats it as a prefix.
 # The trap cleans up even when curl or unzip fails partway.
@@ -69,6 +77,7 @@ if [[ $force -eq 0 ]]; then
     done
     [[ -s "$STATIONS_OUT" ]] || missing=1
     [[ -s "$ENTRANCES_OUT" ]] || missing=1
+    [[ -s "$LINE_ORDER_OUT" ]] || missing=1
     if [[ $missing -eq 0 ]]; then
         echo "Static data already present — skipping download (--force to refresh)"
         exit 0
@@ -80,6 +89,7 @@ curl -fsSL "$GTFS_URL" -o "$TMP_ZIP"
 
 echo "Extracting..."
 unzip -o "$TMP_ZIP" "${FILES[@]}" -d "$OUT_DIR"
+unzip -o -q "$TMP_ZIP" stop_times.txt -d "$TMP_DIR"
 
 # unzip preserves the archive's stored mode, which is 600 in MTA's ZIP. These
 # are static assets that get copied into dist/ and served, so pin them readable
@@ -161,4 +171,13 @@ fi
 mv "$TMP_ENTRANCES.trim" "$ENTRANCES_OUT"
 chmod 644 "$ENTRANCES_OUT"
 
-echo "Done — $count stations, $ecount entrances across $ecomplexes complexes, GTFS files in $OUT_DIR"
+# Needs stations.json, saved above, for MTA's daytime list of which lines stop
+# where. The builder exits non-zero on a short result, which set -e turns into
+# a failed download rather than a line page with no stops.
+echo "Working out each line's stop order..."
+node "$(dirname "$0")/build-line-order.mjs" \
+    "$TMP_DIR/stop_times.txt" "$OUT_DIR" "$STATIONS_OUT" "$TMP_DIR/line-order.json"
+mv "$TMP_DIR/line-order.json" "$LINE_ORDER_OUT"
+chmod 644 "$LINE_ORDER_OUT"
+
+echo "Done — $count stations, $ecount entrances across $ecomplexes complexes, GTFS files in $OUT_DIR, stop order in $LINE_ORDER_OUT"
