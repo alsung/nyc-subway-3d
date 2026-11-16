@@ -2073,6 +2073,7 @@
       "core/geo.js",
       "core/gtfs-loader.js",
       "core/gtfs-parser.js",
+      "core/line-order.js",
       "core/plan.js",
       "core/platforms.js",
       "core/polyline.js",
@@ -2134,6 +2135,20 @@
       "outputs": []
     },
     {
+      "file": "scripts/build-line-order-fixture.mjs",
+      "externals": [],
+      "outputs": [
+        "public/stations.json"
+      ]
+    },
+    {
+      "file": "scripts/build-line-order.mjs",
+      "externals": [],
+      "outputs": [
+        "public/line-order.json"
+      ]
+    },
+    {
       "file": "scripts/check-metrics.mjs",
       "externals": [
         "fly-prom"
@@ -2149,7 +2164,8 @@
       "outputs": [
         "public/gtfs",
         "public/stations.json",
-        "public/entrances.json"
+        "public/entrances.json",
+        "public/line-order.json"
       ]
     },
     {
@@ -2466,6 +2482,10 @@
   "history": {
     "baseline": "2026-10-27",
     "since": {
+      "build:scripts/build-line-order-fixture.mjs": "2026-11-16",
+      "build:scripts/build-line-order.mjs": "2026-11-16",
+      "edge:ext:mta-static|static:/line-order.json|build": "2026-11-16",
+      "edge:ext:nygov|static:/line-order.json|build": "2026-11-16",
       "edge:fe:src/core/auth.js|route:POST /api/auth/logout|call": "2026-10-29",
       "edge:fe:src/ui/alerts-panel.js|ext:mta-web|call": "2026-11-04",
       "edge:route:PATCH /api/commutes/{id}|cache:features|read": "2026-10-29",
@@ -2476,6 +2496,7 @@
       "metric:email_send_total": "2026-10-29",
       "metric:timetable_services_active_today": "2026-10-29",
       "mw:bodyLimitMiddleware": "2026-10-29",
+      "static:/line-order.json": "2026-11-16",
       "wfjob:.github/workflows/pages.yml#deploy": "2026-10-28",
       "workflow:.github/workflows/pages.yml": "2026-10-28"
     },
