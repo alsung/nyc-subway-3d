@@ -7,7 +7,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, addStationLayer, setStationAlerts, addRouteLines, addTripPathLayer, applyBasemapRestraint } from './scene/renderer.js';
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
-import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath } from './scene/lines.js';
+import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath, highlightStations } from './scene/lines.js';
+import { linesByStation } from './core/line-order.js';
 import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
 import { flyToStation, fitPadding } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
@@ -262,10 +263,20 @@ async function init() {
     // route under its own path, a line view dims all but its line, and
     // otherwise nothing is dimmed. Re-run after anything changes the dimming
     // (a popup's route bullet), so the trip and the line view outlast it.
+    // Stations follow the lines (#160): a line view lights its own stops and
+    // dims the rest; a trip leaves them alone, which #150 will change.
     const applyHighlight = () => {
-        if (activeTrip) dimAllLines(map);
-        else if (activeLine) highlightLine(map, lineRouteIds(activeLine, allRouteIds));
-        else clearLineHighlight(map);
+        if (activeTrip) {
+            dimAllLines(map);
+            highlightStations(map, null);
+        } else if (activeLine) {
+            const ids = lineRouteIds(activeLine, allRouteIds);
+            highlightLine(map, ids);
+            highlightStations(map, ids);
+        } else {
+            clearLineHighlight(map);
+            highlightStations(map, null);
+        }
     };
 
     // Draws the open trip's ridden stretches and walks, or clears them. Waits
@@ -475,8 +486,13 @@ async function init() {
         closeLine();
     });
 
-    const highlight = (routeId) => {
-        highlightLine(map, routeId);
+    // The lines a station panel's selected trunk highlights (those with trains
+    // arriving there), with their stops lit and every other station dimmed
+    // (#160).
+    const highlight = (routeIds) => {
+        const ids = [routeIds ?? []].flat().filter(Boolean);
+        highlightLine(map, ids);
+        highlightStations(map, ids.length ? ids : null);
     };
 
     buildLinesPanel(
@@ -624,7 +640,7 @@ async function init() {
         complexRouteCounts.set(c.stationIds[0], total);
     }
 
-    addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts);
+    addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts, linesByStation(lineOrder));
 
     // Added after the station layers so it can be inserted beneath them: the
     // dots are the anchor and the lines run behind them.
@@ -722,11 +738,14 @@ async function init() {
     setInterval(refreshRT, RT_REFRESH_MS);
     setInterval(refreshAlerts, RT_REFRESH_MS);
 
-    // All four circle layers — complexes (low zoom) and individuals (high zoom).
-    // Both store stationIds as a pipe-separated string so this handler is uniform.
+    // Every station circle layer: complexes (low zoom), individuals (high zoom),
+    // and a selected line's stops, which shows stops the complex layers leave
+    // out at city zoom and only while a line is selected (#160). All of them
+    // store stationIds as a pipe-separated string, so this handler is uniform.
     const STATION_LAYERS = [
         'station-complexes-major', 'station-complexes-minor',
         'station-circles-major',   'station-circles-minor',
+        'station-line-stops',
     ];
 
     map.on('click', (e) => {
