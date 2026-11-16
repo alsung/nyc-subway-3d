@@ -11,12 +11,13 @@ import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, show
 import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
 import { flyToStation, fitPadding } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
-import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames } from './ui/popup.js';
+import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames, setStationPanel } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
 import { buildTripPlanner } from './ui/trip-planner.js';
 import { tripPathFeatures } from './core/trip-path.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
-import { loadAndParseGTFS, loadStationMeta, loadEntrances, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
+import { loadAndParseGTFS, loadStationMeta, loadEntrances, loadLineOrder, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
+import { stationModel } from './core/place-card.js';
 import { loadPlatforms, loadCarPositions } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors } from './core/corridors.js';
@@ -89,12 +90,13 @@ async function init() {
     // Fetched together: both files are small and independent of the GTFS
     // parse, and serialising them behind it would delay the UI for data that
     // only labels tabs and marks entrances.
-    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex, platformsByComplex, carPositions] = await Promise.all([
+    const [{ stations, routeMap, lineRoutes }, stationMeta, entrancesByComplex, platformsByComplex, carPositions, lineOrder] = await Promise.all([
         loadAndParseGTFS(),
         loadStationMeta(),
         loadEntrances(),
         loadPlatforms(),
         loadCarPositions(),
+        loadLineOrder(),
     ]);
 
     // Arrivals name their destination by GTFS id; the popup needs a name.
@@ -141,6 +143,22 @@ async function init() {
     // no entrance data simply clears the layer rather than leaving the previous
     // station's dots on screen.
     const stationById = new Map(stations.map(st => [st.id, st]));
+
+    // What the station panel says about a station beyond its arrivals (#154):
+    // borough, entrances, and each line's neighbors and hours. Built once per
+    // station opened, from the same core/place-card.js the pre-built pages use.
+    const complexForStation = (id) => complexById.get(String(complexOf.get(id)));
+    const stationPanelModel = (station) => {
+        const complex = complexOfStation(station)
+            ?? { name: station.name, stationIds: station.stationIds ?? [station.id] };
+        return stationModel(complex, {
+            meta: stationMeta,
+            lineOrder,
+            entrances: entrancesByComplex.get(String(complex.complexId))?.length ?? null,
+            complexOf: complexForStation,
+            nameOf: (id) => stationById.get(id)?.name,
+        });
+    };
 
     const showEntrances = (station) => {
         const complexId = station ? complexOf.get(station.id) : null;
@@ -306,6 +324,8 @@ async function init() {
         lastStation = withComplex(station);
         showEntrances(lastStation);
         flyToStation(map, lastStation);
+        setStationPanel(popup, stationPanelModel(lastStation), routeMap);
+        syncTripBack();
         openStationPopup(lastStation);
 
         const complex = complexOfStation(lastStation);
@@ -335,6 +355,11 @@ async function init() {
         }
     };
 
+    const stationOfComplex = (complex) => ({
+        id: complex.stationIds[0], name: complex.name,
+        lat: complex.lat, lng: complex.lng, stationIds: complex.stationIds,
+    });
+
     // Brings the page into line with the address bar: on first load, and on
     // Back and Forward.
     const syncFromUrl = () => {
@@ -349,10 +374,7 @@ async function init() {
                 return;
             }
             if (complexOfStation(lastStation) !== complex) {
-                openStation({
-                    id: complex.stationIds[0], name: complex.name,
-                    lat: complex.lat, lng: complex.lng, stationIds: complex.stationIds,
-                }, { history: 'none' });
+                openStation(stationOfComplex(complex), { history: 'none' });
             }
             // A link with an old or trimmed name still opens; the address bar
             // is corrected to the current name.
@@ -373,6 +395,36 @@ async function init() {
     window.addEventListener('popstate', syncFromUrl);
 
     popup.querySelector('.popup-close').addEventListener('click', dismissPopup);
+
+    // A station opened while the trip planner is open covers it (#154): one left
+    // panel at a time on desktop, one sheet on a phone. "‹ Trip" in the station's
+    // header steps back to the trip, which is still there underneath.
+    const tripOpen = () => {
+        const panel = document.getElementById('trip-panel');
+        return Boolean(panel && !panel.classList.contains('hidden'));
+    };
+    const backToTrip = popup.querySelector('.place-back');
+    const syncTripBack = () => backToTrip.classList.toggle('hidden', !tripOpen());
+    backToTrip.addEventListener('click', dismissPopup);
+
+    // The station panel's links are real URLs, so they open in a new tab and
+    // work for crawlers on the pre-built pages. A plain click is handled here
+    // instead, without reloading the map: a station replaces the one open, and a
+    // line gets a history entry of its own so Back returns to the station.
+    popup.addEventListener('click', (e) => {
+        const link = e.target.closest('a[href^="/"]');
+        if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        const href = link.getAttribute('href');
+        const complex = complexById.get(parseStationPath(href) ?? '');
+        if (complex) {
+            e.preventDefault();
+            openStation(stationOfComplex(complex));
+        } else if (parseLinePath(href, allRouteIds)) {
+            e.preventDefault();
+            history.pushState(null, '', `${href}${window.location.search}${window.location.hash}`);
+            syncFromUrl();
+        }
+    });
 
     // Escape closes the popup, as it already does for the lines panel, the
     // alerts panel and the search results. The popup was the only dismissible
@@ -459,10 +511,20 @@ async function init() {
             onClear: () => {
                 activeTrip = null;
                 drawTrip();
+                syncTripBack();
             },
+            // A station panel on top takes Escape first.
+            isCovered: () => !popup.classList.contains('hidden'),
         },
         authModal,
     );
+
+    // Opening the trip planner closes a station panel that would cover it; the
+    // planner is what was just asked for. Runs after the planner's own toggle.
+    document.getElementById('btn-trip').addEventListener('click', () => {
+        if (tripOpen() && lastStation) dismissPopup();
+        syncTripBack();
+    });
 
     // Fetches arrivals for a station on demand (Phase 5 lazy per-station fetch).
     // A station may be a raw GTFS station (from search) or an enriched click

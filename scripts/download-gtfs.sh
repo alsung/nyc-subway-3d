@@ -5,8 +5,9 @@
 #   stations.json    per-station borough and direction labels, from MTA's own
 #                    open-data portal
 #   entrances.json   street entrances and exits, from the same portal
-#   line-order.json  each line's stations in order, worked out from the ZIP's
-#                    stop_times.txt, which itself is never kept (#153)
+#   line-order.json  each line's stations in order and its hours, worked out
+#                    from the ZIP's stop_times.txt, which itself is never kept
+#                    (#153, #154)
 #
 # This runs automatically as npm's `prebuild` hook, so any `npm run build` —
 # local, CI, or Vercel's own build — produces a dist/ that contains the data.
@@ -52,9 +53,10 @@ STATIONS_OUT="$(dirname "$0")/../public/stations.json"
 ENTRANCES_URL="https://data.ny.gov/resource/i9wp-a4ja.json?\$limit=5000&\$select=complex_id,entrance_type,entry_allowed,exit_allowed,entrance_latitude,entrance_longitude"
 ENTRANCES_OUT="$(dirname "$0")/../public/entrances.json"
 
-# Stop order. stop_times.txt is the only file in the feed that has it, and at
-# 36 MB it is far too big to ship, so it is extracted into the temporary folder
-# below, read by build-line-order.mjs, and deleted with that folder on exit.
+# Stop order and hours. stop_times.txt is the only file in the feed that has
+# them, and at 36 MB it is far too big to ship, so it is extracted into the
+# temporary folder below with calendar.txt (which says which days each schedule
+# runs), read by build-line-order.mjs, and deleted with that folder on exit.
 LINE_ORDER_OUT="$(dirname "$0")/../public/line-order.json"
 
 # `mktemp -d` with no template is the one form both GNU and BSD accept: GNU
@@ -89,7 +91,7 @@ curl -fsSL "$GTFS_URL" -o "$TMP_ZIP"
 
 echo "Extracting..."
 unzip -o "$TMP_ZIP" "${FILES[@]}" -d "$OUT_DIR"
-unzip -o -q "$TMP_ZIP" stop_times.txt -d "$TMP_DIR"
+unzip -o -q "$TMP_ZIP" stop_times.txt calendar.txt -d "$TMP_DIR"
 
 # unzip preserves the archive's stored mode, which is 600 in MTA's ZIP. These
 # are static assets that get copied into dist/ and served, so pin them readable
@@ -174,9 +176,9 @@ chmod 644 "$ENTRANCES_OUT"
 # Needs stations.json, saved above, for MTA's daytime list of which lines stop
 # where. The builder exits non-zero on a short result, which set -e turns into
 # a failed download rather than a line page with no stops.
-echo "Working out each line's stop order..."
+echo "Working out each line's stop order and hours..."
 node "$(dirname "$0")/build-line-order.mjs" \
-    "$TMP_DIR/stop_times.txt" "$OUT_DIR" "$STATIONS_OUT" "$TMP_DIR/line-order.json"
+    "$TMP_DIR" "$OUT_DIR" "$STATIONS_OUT" "$TMP_DIR/line-order.json"
 mv "$TMP_DIR/line-order.json" "$LINE_ORDER_OUT"
 chmod 644 "$LINE_ORDER_OUT"
 

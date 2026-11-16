@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    linePatterns, daytimeStations, lineSections, neighbors, buildLineOrder,
+    linePatterns, daytimeStations, lineSections, neighbors, buildLineOrder, serviceDays, lineHours,
 } from '../../src/core/line-order.js';
 
 // Real patterns for the G, A and 5, from scripts/build-line-order-fixture.mjs.
@@ -149,7 +149,7 @@ describe('buildLineOrder', () => {
         const stations = ['g1', 'g2', 'f1', 'f2', 'f3'].map(id => ({ gtfs_stop_id: id, daytime_routes: 'S' }));
 
         const { lines } = buildLineOrder({ stopTimes, trips, stops, routes, stations });
-        expect(lines).toEqual({ FS: [['f1', 'f2', 'f3']], GS: [['g1', 'g2']] });
+        expect(lines).toEqual({ FS: { sections: [['f1', 'f2', 'f3']] }, GS: { sections: [['g1', 'g2']] } });
     });
 
     it('leaves out a line with no daytime stations, and names it', () => {
@@ -158,7 +158,7 @@ describe('buildLineOrder', () => {
         const stations = [{ gtfs_stop_id: 'a', daytime_routes: 'G' }, { gtfs_stop_id: 'b', daytime_routes: 'G' }];
 
         const result = buildLineOrder({ stopTimes, trips, stops, routes, stations });
-        expect(result.lines).toEqual({ G: [['a', 'b']] });
+        expect(result.lines).toEqual({ G: { sections: [['a', 'b']] } });
         expect(result.empty).toEqual(['NEW']);
     });
 
@@ -168,7 +168,7 @@ describe('buildLineOrder', () => {
 
         const result = buildLineOrder({ stopTimes, trips, stops, routes: [{ route_id: 'G', route_short_name: 'G' }], stations });
         expect(result.fallbacks).toEqual(['G']);
-        expect(result.lines.G).toEqual([['a', 'b', 'c']]);
+        expect(result.lines.G.sections).toEqual([['a', 'b', 'c']]);
     });
 });
 
@@ -226,5 +226,103 @@ describe('against the real feed', () => {
         const { patterns, daytime } = fixture.lines.A;
         const shuffled = [...patterns].reverse();
         expect(lineSections(shuffled, new Set(daytime))).toEqual(run('A'));
+    });
+});
+
+// Timed trips for the hours tests: [route, service, [[platform, "HH:MM"], ...]].
+function timedFeed(trips) {
+    const stopTimes = [];
+    const tripRows = [];
+    const platforms = new Set();
+    trips.forEach(([route, service, stops], n) => {
+        const tripId = `t-${n}`;
+        tripRows.push({ trip_id: tripId, route_id: route, direction_id: '1', service_id: service });
+        stops.forEach(([id, time], i) => {
+            stopTimes.push({ trip_id: tripId, stop_id: id, stop_sequence: String(i + 1), departure_time: `${time}:00` });
+            platforms.add(id);
+        });
+    });
+    const stops = [...platforms].map(id => ({ stop_id: id, parent_station: id.replace(/[NS]$/, '') }));
+    return { stopTimes, trips: tripRows, stops };
+}
+
+const CALENDAR = [
+    { service_id: 'Weekday', monday: '1', tuesday: '1', wednesday: '1', thursday: '1', friday: '1', saturday: '0', sunday: '0' },
+    { service_id: 'Saturday', monday: '0', tuesday: '0', wednesday: '0', thursday: '0', friday: '0', saturday: '1', sunday: '0' },
+    { service_id: 'Sunday', monday: '0', tuesday: '0', wednesday: '0', thursday: '0', friday: '0', saturday: '0', sunday: '1' },
+];
+
+describe('serviceDays', () => {
+    it('reads which kinds of day each service runs from calendar.txt', () => {
+        const days = serviceDays([...CALENDAR, { service_id: 'Fri', friday: '1' }]);
+        expect(days.get('Weekday')).toEqual(new Set(['weekday']));
+        expect(days.get('Sunday')).toEqual(new Set(['sunday']));
+        expect(days.get('Fri')).toEqual(new Set(['weekday']));
+    });
+});
+
+describe('lineHours', () => {
+    const daytime = (line, ids) => new Map([[line, ids]]);
+
+    it('marks a line with trains at every station late at night as all night', () => {
+        const feed = timedFeed(['Weekday', 'Saturday', 'Sunday'].map(day => ['G', day, [['aS', '27:00'], ['bS', '27:05']]]));
+        const hours = lineHours(feed.stopTimes, feed.trips, feed.stops, CALENDAR, daytime('G', ['a', 'b'])).get('G');
+        expect(hours).toEqual({ days: ['weekday', 'saturday', 'sunday'], night: true });
+    });
+
+    it('lists the stations a line still reaches late at night, in its order', () => {
+        const feed = timedFeed([
+            ['5', 'Weekday', [['aS', '08:00'], ['bS', '08:05'], ['cS', '08:10'], ['dS', '08:15']]],
+            ['5', 'Weekday', [['cS', '26:00'], ['dS', '26:05']]],
+        ]);
+        const hours = lineHours(feed.stopTimes, feed.trips, feed.stops, CALENDAR, daytime('5', ['a', 'b', 'c', 'd'])).get('5');
+        expect(hours.night).toEqual(['c', 'd']);
+        expect(hours).not.toHaveProperty('spans');
+    });
+
+    it('gives the hours of a line with no late-night trains, per kind of day', () => {
+        const feed = timedFeed([
+            ['C', 'Weekday', [['aS', '05:15'], ['bS', '05:20']]],
+            ['C', 'Weekday', [['aS', '23:30'], ['bS', '23:40']]],
+            ['C', 'Sunday', [['aS', '06:45'], ['bS', '06:50']]],
+            ['C', 'Sunday', [['aS', '23:20'], ['bS', '23:25']]],
+        ]);
+        // A pause of more than an hour between these two weekday trips would be
+        // a break, so fill the day with hourly service to keep it one span.
+        for (let h = 6; h <= 23; h++) {
+            const t = `${String(h).padStart(2, '0')}:00`;
+            feed.stopTimes.push({ trip_id: 't-0', stop_id: 'aS', stop_sequence: '9', departure_time: `${t}:00` });
+        }
+        const hours = lineHours(feed.stopTimes, feed.trips, feed.stops, CALENDAR, daytime('C', ['a', 'b'])).get('C');
+        expect(hours.days).toEqual(['weekday', 'sunday']);
+        expect(hours.night).toBe(false);
+        expect(hours.spans.weekday).toEqual([[315, 1425]]);
+    });
+
+    it('keeps a midday break as two spans, like the Z between rush hours', () => {
+        const feed = timedFeed([
+            ['Z', 'Weekday', [['aS', '07:15'], ['bS', '07:45'], ['aS', '08:30'], ['bS', '09:00']]],
+            ['Z', 'Weekday', [['aS', '16:45'], ['bS', '17:30'], ['aS', '18:15'], ['bS', '18:40']]],
+        ]);
+        const hours = lineHours(feed.stopTimes, feed.trips, feed.stops, CALENDAR, daytime('Z', ['a', 'b'])).get('Z');
+        expect(hours.days).toEqual(['weekday']);
+        expect(hours.spans.weekday).toEqual([[435, 555], [1005, 1125]]);
+    });
+
+    it('folds an express route into its line', () => {
+        const feed = timedFeed([['6X', 'Weekday', [['aS', '08:00'], ['bS', '08:10']]]]);
+        const hours = lineHours(feed.stopTimes, feed.trips, feed.stops, CALENDAR, daytime('6', ['a', 'b']));
+        expect([...hours.keys()]).toEqual(['6']);
+    });
+});
+
+describe('buildLineOrder with a calendar', () => {
+    it('adds each line\'s hours beside its sections', () => {
+        const feed = timedFeed([['G', 'Weekday', [['aS', '27:00'], ['bS', '27:05']]]]);
+        const stations = ['a', 'b'].map(id => ({ gtfs_stop_id: id, daytime_routes: 'G' }));
+        const { lines } = buildLineOrder({
+            ...feed, calendar: CALENDAR, routes: [{ route_id: 'G', route_short_name: 'G' }], stations,
+        });
+        expect(lines.G).toEqual({ sections: [['a', 'b']], hours: { days: ['weekday'], night: true } });
     });
 });

@@ -696,43 +696,211 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 
 /* ── Station popup ───────────────────────────────────────────────────────── */
 
-#station-popup {
+/* ── Place panel (#154) ─────────────────────────────────────────────────────
+   One panel for whatever is being looked at, a station now and a line next.
+   On desktop it takes the trip planner's place on the left, at its width, so
+   there is room for the facts the pre-built pages carry; it sits above the
+   planner when both are open. On a phone it is a bottom sheet (below).
+
+   One translucent layer, a little heavier than the floating buttons, with a
+   real shadow: content inside uses faint fills rather than more blur, since
+   translucency stacked on translucency turns to mud. The header stays put and
+   the body scrolls under a soft edge instead of a divider. */
+.place-panel {
     position: absolute;
-    bottom: 80px;
+    top: 68px;
     left: 20px;
-    width: 300px;
-    background: rgba(10, 10, 26, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
-    padding: 14px 16px;
+    width: min(380px, calc(100vw - 40px));
+    max-height: calc(100vh - 88px);
+    display: flex;
+    flex-direction: column;
+    background: rgba(14, 16, 24, 0.78);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    backdrop-filter: blur(28px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+    color: #fff;
     pointer-events: auto;
-    backdrop-filter: blur(8px);
-    z-index: 10;
+    overflow: hidden;
+    z-index: 31;
+    /* Appears from the edge it is attached to, and leaves the same way. A
+       transition rather than keyframes, so closing it halfway reverses from
+       where it is. */
+    transform-origin: left center;
+    transition: opacity var(--dur-panel) var(--ease-out),
+                transform var(--dur-panel) var(--ease-out),
+                visibility var(--dur-panel);
 }
 
-.popup-close {
-    position: absolute;
-    top: 8px;
-    right: 10px;
+.place-panel.hidden {
+    display: flex;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateX(-12px) scale(0.98);
+    pointer-events: none;
+}
+
+.place-head {
+    position: relative;
+    flex: none;
+    padding: 16px 56px 8px 18px;
+}
+
+.place-back {
+    display: inline-flex;
+    align-items: center;
+    margin: -4px 0 6px -6px;
+    padding: 4px 6px;
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 18px;
-    line-height: 1;
-    padding: 2px 4px;
+    border-radius: 6px;
+    color: #7fb2ff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
 }
 
-.popup-close:hover {
-    color: #fff;
+.place-back:active { opacity: 0.55; }
+
+/* Tracking is set per size: tight on the title, neutral on body text. */
+.place-title {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    overflow-wrap: anywhere;
 }
 
-.popup-name {
-    color: #fff;
-    font-size: 15px;
+.place-sub {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 1.35;
+    letter-spacing: -0.003em;
+    color: rgba(235, 235, 245, 0.6);
+}
+
+/* A 28px circle inside a 40px hit area: the drawn button stays small while
+   the target is generous. */
+.place-panel .popup-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    background: none;
+    border: none;
+    color: rgba(235, 235, 245, 0.75);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.place-panel .popup-close::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    z-index: -1;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.place-panel .popup-close:hover { color: #fff; }
+.place-panel .popup-close:active::before { background: rgba(255, 255, 255, 0.22); }
+
+/* The fades sit over the body's own padding, so nothing is faded at rest and
+   content passing under the header softens instead of hitting a line. */
+.place-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 10px 18px 22px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
+}
+
+.place-section { margin-top: 20px; }
+
+.place-section-title {
+    margin: 0 0 8px;
+    font-size: 12px;
     font-weight: 600;
-    margin-right: 20px;
-    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+    color: rgba(235, 235, 245, 0.55);
+}
+
+.next-stops {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.next-stop {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    align-items: start;
+    font-size: 14px;
+    line-height: 1.4;
+    letter-spacing: -0.006em;
+}
+
+.next-stop-lines {
+    display: flex;
+    gap: 3px;
+    min-width: 20px;
+    padding-top: 1px;
+}
+
+.next-stop-lines a { text-decoration: none; }
+
+.next-stop-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.next-stop-label { color: rgba(235, 235, 245, 0.55); }
+
+.next-stop-text a {
+    color: #fff;
+    text-decoration: none;
+}
+
+.next-stop-text a:hover { text-decoration: underline; }
+
+/* Pressed links answer on the press, not the release. */
+.next-stop a:active { opacity: 0.55; }
+
+/* Hours in words, with color as a second signal rather than the only one. */
+.hours-tag {
+    justify-self: start;
+    margin-top: 3px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+}
+
+.hours-tag--ok {
+    background: rgba(52, 199, 89, 0.16);
+    color: #5fe08a;
+}
+
+.hours-tag--limited {
+    background: rgba(255, 159, 10, 0.16);
+    color: #ffb340;
 }
 
 .popup-badges {
@@ -1199,6 +1367,15 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         min-height: 44px;
     }
 
+    .place-panel .popup-close {
+        top: 4px;
+        right: 4px;
+        width: 44px;
+        height: 44px;
+    }
+
+    .place-panel .popup-close::before { inset: 8px; }
+
     /* Absolutely positioned, so growing it costs no layout. Anchored to the
        corner it already occupied; the glyph centres within the larger box. */
     .popup-close {
@@ -1276,7 +1453,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
        anchored to the bottom edge, capped so the map stays partly visible. */
     #alerts-panel,
     #lines-panel,
-    #station-popup {
+    .place-panel {
         top: auto;
         bottom: 0;
         left: 0;
@@ -1288,19 +1465,21 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         border-bottom: 0;
     }
 
-    #station-popup { overflow-y: auto; }
-
     /* A sheet rises from the edge it is attached to rather than scaling from a
        corner it no longer touches. */
     #alerts-panel,
-    #lines-panel {
+    #lines-panel,
+    .place-panel {
         transform-origin: bottom center;
     }
 
     #alerts-panel.hidden,
-    #lines-panel.hidden {
+    #lines-panel.hidden,
+    .place-panel.hidden {
         transform: translateY(12px);
     }
+
+    .place-title { font-size: 20px; }
 
     /* Would otherwise sit under the popup sheet. */
     #staleness {
@@ -1330,7 +1509,8 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     #view-controls button,
     #alerts-panel,
     #lines-panel,
-    #station-popup {
+    .place-panel {
+        -webkit-backdrop-filter: none;
         backdrop-filter: none;
     }
 
@@ -1339,9 +1519,12 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
         background: #0a0a1a;
     }
 
-    .search-results,
-    #station-popup {
+    .search-results {
         background: #0a0a1a;
+    }
+
+    .place-panel {
+        background: #0e1018;
     }
 
     #alerts-panel,
@@ -1371,7 +1554,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     #view-controls button,
     #alerts-panel,
     #lines-panel,
-    #station-popup,
+    .place-panel,
     .lines-action,
     .popup-retry {
         border-color: rgba(255, 255, 255, 0.7);
@@ -1396,8 +1579,16 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     .alerts-message,
     .alerts-foot,
     .popup-tab,
-    #staleness-label {
+    #staleness-label,
+    .place-sub,
+    .place-section-title,
+    .next-stop-label {
         color: #fff;
+    }
+
+    /* Solid rather than translucent, so the map can't show through text. */
+    .place-panel {
+        background: #0e1018;
     }
 }
 
@@ -2374,4 +2565,17 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     color: rgba(255, 255, 255, 0.55);
     white-space: nowrap;
     flex: 0 0 auto;
+}
+
+/* Reduced motion for the place panel (#154): a fade, no movement. Last in the
+   file on purpose, since the panel's own rules and the phone sheet's come later
+   than the reduced-motion block near the top and would win on source order. */
+@media (prefers-reduced-motion: reduce) {
+    .place-panel {
+        transition: opacity var(--dur-hover) linear, visibility var(--dur-hover);
+    }
+
+    .place-panel.hidden {
+        transform: none;
+    }
 }

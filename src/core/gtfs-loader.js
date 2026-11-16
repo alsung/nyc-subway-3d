@@ -90,6 +90,29 @@ export async function loadEntrances() {
     }
 }
 
+/**
+ * Each line's stations in order and its hours, written by build-line-order.mjs
+ * during the download (#153, #154).
+ *
+ * Degrades to no lines rather than failing: without it the station panel loses
+ * its next stops and hours tags, and everything else works as before. Same
+ * content-type guard as above.
+ */
+export async function loadLineOrder() {
+    try {
+        const res = await fetch('/line-order.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.includes('text/html')) throw new Error('got HTML, not JSON');
+        const lines = await res.json();
+        if (!lines || typeof lines !== 'object' || Array.isArray(lines)) throw new Error('not an object of lines');
+        return lines;
+    } catch (err) {
+        console.warn(`[gtfs-loader] line order unavailable (${err.message}) — stations will show no next stops or hours`);
+        return {};
+    }
+}
+
 export async function loadAndParseGTFS() {
     // call loadGTFS()
     const raw = await loadGTFS();

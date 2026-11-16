@@ -32,10 +32,10 @@ const MIN_ENTRANCES = 2000;
 // path of every deploy would trade a stale asset for a failed build.
 const MIN_PLATFORMS = 800;
 
-// Each line's stations in order, for the line card and the pre-built line pages
-// (#153). download-gtfs.sh already refuses to write fewer than this many lines,
-// so a short file here means the prebuild step was skipped or the file was
-// copied in from somewhere else.
+// Each line's stations in order and its hours, for the station and line panels
+// and the pre-built pages (#153, #154). download-gtfs.sh already refuses to
+// write fewer than this many lines, so a short file here means the prebuild
+// step was skipped or the file was copied in from somewhere else.
 const MIN_LINES = 24;
 
 const problems = [];
@@ -132,8 +132,10 @@ try {
         problems.push('dist/line-order.json is not an object of lines');
     } else if (byLine.length < MIN_LINES) {
         problems.push(`dist/line-order.json has ${byLine.length} lines, expected at least ${MIN_LINES}`);
-    } else if (!byLine.every(s => Array.isArray(s) && s.length > 0 && s.every(Array.isArray))) {
+    } else if (!byLine.every(l => Array.isArray(l?.sections) && l.sections.length > 0 && l.sections.every(Array.isArray))) {
         problems.push('dist/line-order.json has a line with no sections');
+    } else if (!byLine.every(l => Array.isArray(l.hours?.days) && 'night' in l.hours)) {
+        problems.push('dist/line-order.json has a line with no hours');
     }
 } catch (err) {
     problems.push(`dist/line-order.json unreadable — did prebuild (scripts/download-gtfs.sh) run? (${err.message})`);

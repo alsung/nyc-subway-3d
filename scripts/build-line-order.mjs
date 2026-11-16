@@ -1,16 +1,16 @@
 // Writes public/line-order.json: each line's daytime stations in order, with
-// branches as separate sections (#153).
+// branches as separate sections (#153), and when it runs (#154).
 //
 // scripts/download-gtfs.sh runs this once per download, while stop_times.txt
-// still sits in its temporary folder. stop_times.txt is 36 MB and is the only
-// file in the feed that knows stop order, so it is read here and then deleted
-// with the rest of the temporary folder, and never reaches public/ or dist/.
-// The algorithm lives in src/core/line-order.js.
+// and calendar.txt still sit in its temporary folder. stop_times.txt is 36 MB
+// and is the only file in the feed that knows stop order or times, so it is
+// read here and then deleted with the rest of the temporary folder, and never
+// reaches public/ or dist/. The algorithm lives in src/core/line-order.js.
 //
 // Run by hand:
-//   node scripts/build-line-order.mjs <stop_times.txt> <gtfs dir> <stations.json> <out.json>
-// where <gtfs dir> holds trips.txt, stops.txt and routes.txt from the same
-// download as stop_times.txt.
+//   node scripts/build-line-order.mjs <feed dir> <gtfs dir> <stations.json> <out.json>
+// where <feed dir> holds stop_times.txt and calendar.txt, and <gtfs dir> holds
+// trips.txt, stops.txt and routes.txt, all from the same download.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,15 +22,16 @@ import { buildLineOrder } from '../src/core/line-order.js';
 // many more than that means the files didn't line up.
 const MIN_LINES = 24;
 
-const [stopTimesPath, gtfsDir, stationsPath, outPath] = process.argv.slice(2);
+const [feedDir, gtfsDir, stationsPath, outPath] = process.argv.slice(2);
 if (!outPath) {
-    console.error('usage: node scripts/build-line-order.mjs <stop_times.txt> <gtfs dir> <stations.json> <out.json>');
+    console.error('usage: node scripts/build-line-order.mjs <feed dir> <gtfs dir> <stations.json> <out.json>');
     process.exit(2);
 }
 
 const csv = (path) => parseCSV(readFileSync(path, 'utf8'));
 const { lines, fallbacks, empty } = buildLineOrder({
-    stopTimes: csv(stopTimesPath),
+    stopTimes: csv(join(feedDir, 'stop_times.txt')),
+    calendar: csv(join(feedDir, 'calendar.txt')),
     trips: csv(join(gtfsDir, 'trips.txt')),
     stops: csv(join(gtfsDir, 'stops.txt')),
     routes: csv(join(gtfsDir, 'routes.txt')),
@@ -51,6 +52,13 @@ if (count < MIN_LINES) {
     process.exit(1);
 }
 
+const missingHours = Object.keys(lines).filter(line => !lines[line].hours);
+if (missingHours.length) {
+    console.error(`ERROR: no hours for ${missingHours.join(', ')}. Is calendar.txt from the same download? Run: npm run gtfs`);
+    process.exit(1);
+}
+
 writeFileSync(outPath, JSON.stringify(lines));
-const sections = Object.values(lines).reduce((n, s) => n + s.length, 0);
-console.log(`Stop order for ${count} lines in ${sections} sections`);
+const sections = Object.values(lines).reduce((n, line) => n + line.sections.length, 0);
+const allNight = Object.values(lines).filter(line => line.hours.night === true).length;
+console.log(`Stop order for ${count} lines in ${sections} sections; ${allNight} run all night`);

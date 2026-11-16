@@ -5,6 +5,7 @@ import { dedupeBulletRoutes } from '../core/alert-status.js';
 import { alertsForStation } from '../core/station-alerts.js';
 import { parseAlertText } from '../core/alert-text.js';
 import { routeBullet } from './route-bullet.js';
+import { stationPanelHtml, stationHeadingHtml, stationFactsHtml } from '../core/place-card.js';
 
 // How many alerts to show before the popup turns into a wall of text. The
 // panel is the place to read all of them; here we are answering "is something
@@ -25,21 +26,30 @@ const VISIBLE_ROWS = 6;
 // platform entirely.
 let selection = { stationId: null, trunkKey: null, dir: null };
 
+// The panel's structure comes from core/place-card.js, the same code the
+// pre-built pages use (#154), so a page's panel and the app's are one panel.
+// The shell is built once; setStationPanel fills in the station's own facts and
+// the functions below fill the live slots.
 export function buildPopup(container) {
     const popup = document.createElement('div');
     popup.id = 'station-popup';
-    popup.classList.add('hidden');
-    popup.innerHTML = `
-        <button class="popup-close">×</button>
-        <div class="popup-name"></div>
-        <div class="popup-trunks"></div>
-        <div class="popup-alerts hidden"></div>
-        <div class="popup-tabs" role="tablist"></div>
-        <div class="popup-arrivals"></div>
-        <div class="popup-note hidden"></div>
-    `;
+    popup.className = 'place-panel hidden';
+    popup.setAttribute('role', 'region');
+    popup.setAttribute('aria-labelledby', 'station-title');
+    popup.innerHTML = stationPanelHtml(null);
     container.appendChild(popup);
     return popup;
+}
+
+/**
+ * Shows a station's name, borough, entrances and next stops, from a
+ * stationModel(). Called once per station, before the arrivals load; the
+ * 30-second refresh leaves it alone, so the panel doesn't jump while you read.
+ */
+export function setStationPanel(popup, model, routeMap) {
+    popup.querySelector('.place-heading').innerHTML = stationHeadingHtml(model);
+    popup.querySelector('.place-facts').innerHTML = stationFactsHtml(model, routeMap);
+    popup.querySelector('.place-body').scrollTop = 0;
 }
 
 // Fills the disruption band above the arrival columns, and returns how many
@@ -111,8 +121,6 @@ function renderAlerts(popup, station, routeMap, alerts, routeIds) {
  * button shown in the error state.
  */
 export function showPopup(popup, station, routeMap, result, onLineSelect, onRetry, alerts, stationMeta) {
-    popup.querySelector('.popup-name').textContent = station.name;
-
     const { status = 'error', arrivals = [], updatedAt = null, failedCount = 0 } = result ?? {};
 
     const seenRoutes = [...new Set(arrivals.map(a => a.routeId))];
@@ -332,8 +340,8 @@ function renderMessage(popup, text) {
 // Opens the popup immediately in a loading state — station name shown, arrival
 // columns showing a placeholder — while arrivals are fetched (Phase 5 lazy
 // per-station fetch). showPopup replaces this with real data when it resolves.
+// The name comes from setStationPanel, which main.js calls first.
 export function showPopupLoading(popup, station, routeMap, alerts) {
-    popup.querySelector('.popup-name').textContent = station.name;
     // Trunks and tabs are not known until arrivals land — which routes are
     // running is what decides them — so the chrome stays hidden rather than
     // rendering placeholder controls that would shift when the data arrives.
