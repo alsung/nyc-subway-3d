@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     linePatterns, daytimeStations, lineSections, neighbors, buildLineOrder, serviceDays, lineHours,
+    linesByStation, linesKey,
 } from '../../src/core/line-order.js';
 
 // Real patterns for the G, A and 5, from scripts/build-line-order-fixture.mjs.
@@ -324,5 +325,28 @@ describe('buildLineOrder with a calendar', () => {
             ...feed, calendar: CALENDAR, routes: [{ route_id: 'G', route_short_name: 'G' }], stations,
         });
         expect(lines.G).toEqual({ sections: [['a', 'b']], hours: { days: ['weekday'], night: true } });
+    });
+});
+
+describe('linesByStation and linesKey', () => {
+    const order = {
+        A: { sections: [['a1', 'j', 'a2'], ['j', 'a3']] },
+        C: { sections: [['a1', 'j']] },
+        G: { sections: [['g1', 'g2']] },
+    };
+
+    it('lists the lines that stop at each station, once each', () => {
+        const byStation = linesByStation(order);
+        expect(byStation.get('j')).toEqual(new Set(['A', 'C']));
+        expect(byStation.get('a3')).toEqual(new Set(['A']));
+        expect(byStation.has('nowhere')).toBe(false);
+    });
+
+    it('joins a complex\'s lines into one searchable string', () => {
+        const byStation = linesByStation(order);
+        expect(linesKey(['j'], byStation)).toBe('|A|C|');
+        expect(linesKey(['a3', 'g1'], byStation)).toBe('|A|G|');
+        expect(linesKey(['nowhere'], byStation)).toBe('');
+        expect(linesKey(['j'], null)).toBe('');
     });
 });

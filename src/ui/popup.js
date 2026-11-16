@@ -206,8 +206,13 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
         renderTabs(popup, tabs, activeDir, (d) => { activeDir = d; renderForTrunk(); });
         renderArrivals(popup, activeDir ? split[activeDir] : [], routeMap, station);
 
-        // Keeps the 3D line highlight in step with what the popup is showing.
-        onLineSelect?.(routeIds?.[0] ?? seenRoutes[0]);
+        // Keeps the map's line highlight in step with what the popup is showing:
+        // the selected trunk's lines that have trains arriving here. Taking the
+        // trunk's first route instead lit the B at Jay St, where only the F of
+        // the B/D/F/M stops, and with stations dimmed off the highlighted line
+        // (#160) it dimmed the very station being shown.
+        const arriving = (routeIds ?? []).filter(id => seenRoutes.includes(id));
+        onLineSelect?.(arriving.length ? arriving : seenRoutes.slice(0, 1));
     }
 
     function selectTrunk(t) {

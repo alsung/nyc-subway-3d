@@ -5,6 +5,7 @@
 import maplibregl from 'maplibre-gl';
 import { MAP_CENTER } from '../core/geo.js';
 import { segmentCoords } from '../core/corridors.js';
+import { linesKey } from '../core/line-order.js';
 
 const STADIA_KEY = import.meta.env.VITE_STADIA_API_KEY;
 const STYLE_URL = STADIA_KEY
@@ -84,12 +85,22 @@ const STATION_STROKE = 1.75;
 // representation is on screen at any zoom.
 const SPLIT_ZOOM = 13;
 
+// The lowest zoom a selected line's stops are drawn at (#160). Below the
+// complex layers' own minzoom, so a whole line fitted on screen still shows
+// every stop; the dots shrink toward it so they don't merge into a bar.
+const LINE_STOPS_MINZOOM = 8;
+
 // Held so the sources can be rebuilt when alerts arrive; the feature geometry
 // never changes, only the `alert` flag on each.
 let stationFeatures = null;
 let complexFeatures = null;
 
-export function addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts) {
+/**
+ * @param {Map<string, Set<string>>} [linesByStation] the lines stopping at each
+ *   station, from line-order.json; each feature carries them as `lines`
+ *   ("|A|C|F|") so a selected line's stops can be picked out (#160)
+ */
+export function addStationLayer(map, complexes, stations, complexRouteCounts, routeCounts, linesByStation = null) {
     complexFeatures = complexes.map(c => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
@@ -98,6 +109,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             stationIds: c.stationIds.join('|'),
             major: (complexRouteCounts.get(c.stationIds[0]) ?? 1) >= 3 ? 1 : 0,
             alert: false,
+            lines: linesKey(c.stationIds, linesByStation),
         },
     }));
 
@@ -109,6 +121,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             stationIds: s.id,
             major: (routeCounts.get(s.id) ?? 1) >= 3 ? 1 : 0,
             alert: false,
+            lines: linesKey([s.id], linesByStation),
         },
     }));
 
@@ -147,6 +160,27 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         filter: ['==', ['get', 'major'], 0],
         paint: {
             'circle-radius': STATION_RADIUS,
+            'circle-color': '#ffffff',
+            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-color': PLAIN_STROKE,
+        },
+    });
+
+    // A selected line's stops, as the same white dots, at zooms where the
+    // complex layers would leave the smaller ones out (#160). Hidden, and
+    // filtered to nothing, until highlightStations picks a line.
+    map.addLayer({
+        id: 'station-line-stops',
+        type: 'circle',
+        source: 'station-complexes',
+        minzoom: LINE_STOPS_MINZOOM,
+        maxzoom: SPLIT_ZOOM,
+        // ['==', 1, 0] would read as the old key/value filter syntax and the
+        // whole layer would be rejected, so "nothing" is spelled as a boolean.
+        filter: ['boolean', false],
+        layout: { visibility: 'none' },
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], LINE_STOPS_MINZOOM, 2.5, 10, 4, 11, STATION_RADIUS],
             'circle-color': '#ffffff',
             'circle-stroke-width': STATION_STROKE,
             'circle-stroke-color': PLAIN_STROKE,

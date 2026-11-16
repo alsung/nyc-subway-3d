@@ -183,6 +183,41 @@ export function neighbors(sections, stationId) {
 }
 
 /**
+ * The lines that stop at each station in the daytime, from line-order.json.
+ *
+ * Used to light up a selected line's stops and dim the rest (#160). Built from
+ * the same daytime lists as the panels, so the map and the stop list agree on
+ * which stations a line serves.
+ *
+ * @param {Object<string, {sections: string[][]}>} lineOrder
+ * @returns {Map<string, Set<string>>} station id → line ids
+ */
+export function linesByStation(lineOrder) {
+    const byStation = new Map();
+    for (const [line, entry] of Object.entries(lineOrder ?? {})) {
+        for (const id of new Set((entry?.sections ?? []).flat())) {
+            if (!byStation.has(id)) byStation.set(id, new Set());
+            byStation.get(id).add(line);
+        }
+    }
+    return byStation;
+}
+
+/**
+ * The lines at one or more stations as one string, "|A|C|F|", which a map
+ * expression can search for "|A|" without matching "|AA|". A complex passes
+ * all its stations and gets every line that stops at any of them.
+ *
+ * @param {string[]} stationIds
+ * @param {Map<string, Set<string>>} byStation from linesByStation
+ */
+export function linesKey(stationIds, byStation) {
+    const lines = new Set();
+    for (const id of stationIds ?? []) for (const line of byStation?.get(id) ?? []) lines.add(line);
+    return lines.size ? `|${[...lines].sort().join('|')}|` : '';
+}
+
+/**
  * Which kinds of day each service id runs on, from calendar.txt.
  *
  * @param {Array<object>} calendar rows of calendar.txt
