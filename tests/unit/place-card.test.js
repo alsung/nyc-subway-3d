@@ -197,6 +197,21 @@ describe('stationModel', () => {
         expect(r.south.label).toBe('Southbound');
     });
 
+    it('gives each side an empty time slot for its lines and platform direction', () => {
+        const html = stationFactsHtml(model(), routeMap);
+        expect(html).toContain('<a href="/station/940-high-st">High St</a> <span class="next-stop-time" data-lines="A E" data-dir="N"></span>');
+        expect(html).toContain('<span class="next-stop-time" data-lines="A E" data-dir="S"></span>');
+        expect(html).toContain('data-lines="C" data-dir="N"');
+        expect(html.match(/class="next-stop-time"/g)).toHaveLength(8);
+    });
+
+    it('leaves out the slot on a side with no next stop', () => {
+        const end = stationModel(jay, { meta, lineOrder: { A: { sections: [['A40', 'A41']], hours: ALL_NIGHT } }, complexOf });
+        const html = stationFactsHtml(end, routeMap);
+        expect(html).toContain('data-dir="N"');
+        expect(html).not.toContain('data-dir="S"');
+    });
+
     it('has no rows without a stop order, and nothing to show for them', () => {
         const bare = stationModel(jay, { meta, lineOrder: {}, complexOf });
         expect(bare.rows).toEqual([]);
