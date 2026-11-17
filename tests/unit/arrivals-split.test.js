@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitByDirection, trunksInArrivals } from '../../src/core/arrivals.js';
+import { splitByDirection, trunksInArrivals, soonestMinutes, minutesText } from '../../src/core/arrivals.js';
 
 const a = (routeId, direction, minutes, destination = 'X') =>
     ({ routeId, direction, minutes, destination, tripId: `${routeId}-${minutes}` });
@@ -76,5 +76,50 @@ describe('trunksInArrivals', () => {
     it('returns nothing when no trains are running', () => {
         expect(trunksInArrivals([], TRUNKS)).toEqual([]);
         expect(trunksInArrivals(undefined, TRUNKS)).toEqual([]);
+    });
+});
+
+// The times on the station panel's Next stops rows (#161).
+describe('soonestMinutes', () => {
+    const board = [
+        a('C', 'N', 9), a('A', 'N', 4), a('A', 'S', 2), a('F', 'N', 1), a('A', 'N', 12),
+    ];
+
+    it('gives the soonest train of the row\'s lines in one direction', () => {
+        expect(soonestMinutes(board, ['A'], 'N')).toBe(4);
+        expect(soonestMinutes(board, ['A'], 'S')).toBe(2);
+        expect(soonestMinutes(board, ['A', 'C'], 'N')).toBe(4);
+        expect(soonestMinutes(board, ['C'], 'N')).toBe(9);
+    });
+
+    it('gives null when none of the lines has a train that way', () => {
+        expect(soonestMinutes(board, ['C'], 'S')).toBeNull();
+        expect(soonestMinutes(board, ['R'], 'N')).toBeNull();
+        expect(soonestMinutes([], ['A'], 'N')).toBeNull();
+        expect(soonestMinutes(null, ['A'], 'N')).toBeNull();
+    });
+
+    it('counts an express pattern for its line', () => {
+        expect(soonestMinutes([a('6X', 'S', 3), a('6', 'S', 7)], ['6'], 'S')).toBe(3);
+    });
+
+    it('skips a train whose last stop is this station', () => {
+        const here = [a('A', 'S', 1, 'A41'), a('A', 'S', 6, 'A65')];
+        expect(soonestMinutes(here, ['A'], 'S', ['A41', 'R29'])).toBe(6);
+        expect(soonestMinutes(here, ['A'], 'S')).toBe(1);
+    });
+
+    it('keeps a train at the platform, which the feed can give as slightly negative', () => {
+        expect(soonestMinutes([a('A', 'N', -1), a('A', 'N', 5)], ['A'], 'N')).toBe(-1);
+        expect(soonestMinutes([a('A', 'N', undefined)], ['A'], 'N')).toBeNull();
+    });
+});
+
+describe('minutesText', () => {
+    it('says Now at or past the platform, and minutes otherwise', () => {
+        expect(minutesText(0)).toBe('Now');
+        expect(minutesText(-1)).toBe('Now');
+        expect(minutesText(1)).toBe('1 min');
+        expect(minutesText(12)).toBe('12 min');
     });
 });

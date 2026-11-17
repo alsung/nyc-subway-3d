@@ -225,18 +225,27 @@ export function stationHeadingHtml(model) {
         + (sub ? `<p class="place-sub">${escapeHtml(sub)}</p>` : '');
 }
 
-/** The "Next stops" section, or nothing when there is no stop order. */
+/**
+ * The "Next stops" section, or nothing when there is no stop order.
+ *
+ * Each side ends in an empty slot for the next train's minutes (#161), keyed
+ * by the row's lines and a platform direction, which popup.js fills from the
+ * live arrivals. The stop order reads from the north end, so the north side is
+ * where an N train goes next and the south side an S train. Pre-built pages
+ * ship the slots empty.
+ */
 export function stationFactsHtml(model, routeMap) {
     if (!model.rows?.length) return '';
     const stops = (list) => list
         .map(s => (s.path ? `<a href="${escapeHtml(s.path)}">${escapeHtml(s.name)}</a>` : escapeHtml(s.name)))
         .join(' or ');
-    const side = (dir) => (dir.stops.length
-        ? `<span class="next-stop-dir"><span class="next-stop-label">${escapeHtml(dir.label)}</span> ${stops(dir.stops)}</span>`
+    const side = (dir, lines, platform) => (dir.stops.length
+        ? `<span class="next-stop-dir"><span class="next-stop-label">${escapeHtml(dir.label)}</span> ${stops(dir.stops)}`
+            + ` <span class="next-stop-time" data-lines="${escapeHtml(lines)}" data-dir="${platform}"></span></span>`
         : '');
     const items = model.rows.map(row => `<li class="next-stop">`
         + `<span class="next-stop-lines">${row.routeIds.map(id => bulletHtml(id, routeMap, { link: true })).join('')}</span>`
-        + `<span class="next-stop-text">${side(row.north)}${side(row.south)}`
+        + `<span class="next-stop-text">${side(row.north, row.routeIds.join(' '), 'N')}${side(row.south, row.routeIds.join(' '), 'S')}`
         + (row.tag ? `<span class="hours-tag hours-tag--${escapeHtml(row.tag.tone)}">${escapeHtml(row.tag.text)}</span>` : '')
         + `</span></li>`).join('');
     return `<section class="place-section" aria-labelledby="station-next-title">`

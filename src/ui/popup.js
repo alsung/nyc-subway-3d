@@ -1,4 +1,4 @@
-import { isArrivalsStale, formatAge, splitByDirection, trunksInArrivals } from '../core/arrivals.js';
+import { isArrivalsStale, formatAge, splitByDirection, trunksInArrivals, soonestMinutes, minutesText } from '../core/arrivals.js';
 import { directionLabel, stopIdForTrunk, routeLabelsFor } from '../core/station-meta.js';
 import { trunksFor, bulletRoutes } from '../core/trunks.js';
 import { dedupeBulletRoutes } from '../core/alert-status.js';
@@ -131,6 +131,9 @@ export function showPopup(popup, station, routeMap, result, onLineSelect, onRetr
 
     const seenRoutes = [...new Set(arrivals.map(a => a.routeId))];
     const alertCount = renderAlerts(popup, station, routeMap, alerts, seenRoutes);
+    // Before the early returns: an error or an empty station has no arrivals,
+    // which clears the times rather than leaving the last refresh's behind.
+    fillNextStopTimes(popup, arrivals, station);
 
     if (status === 'error') {
         renderTrunks(popup, [], null, () => {});
@@ -302,7 +305,7 @@ function renderArrivals(popup, list, routeMap, station) {
 
             const time = document.createElement('span');
             time.className = 'arrival-time';
-            time.textContent = a.minutes <= 0 ? 'Now' : `${a.minutes} min`;
+            time.textContent = minutesText(a.minutes);
             row.appendChild(time);
 
             box.appendChild(row);
@@ -318,6 +321,18 @@ function renderArrivals(popup, list, routeMap, station) {
     };
 
     render(VISIBLE_ROWS);
+}
+
+// Puts the next train's minutes on each Next stops row (#161): one slot per
+// row and direction, keyed by the row's lines, so Times Sq reads as a board of
+// every line both ways without switching tabs. No train coming leaves the slot
+// empty, and its separator with it, rather than showing a dash.
+function fillNextStopTimes(popup, arrivals, station) {
+    const endsHere = [station?.id, ...(station?.stationIds ?? [])].filter(Boolean);
+    for (const slot of popup.querySelectorAll('.next-stop-time')) {
+        const minutes = soonestMinutes(arrivals, slot.dataset.lines.split(' '), slot.dataset.dir, endsHere);
+        slot.textContent = minutes === null ? '' : minutesText(minutes);
+    }
 }
 
 // Station names are not carried on the arrival itself — only the destination's

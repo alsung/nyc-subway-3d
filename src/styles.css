@@ -838,6 +838,20 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
 /* Pressed links answer on the press, not the release. */
 .next-stop a:active { opacity: 0.55; }
 
+/* The next train's minutes on each side (#161), filled by popup.js. The dot
+   comes with the time, so an empty slot leaves nothing behind; the empty alt
+   text keeps screen readers from announcing it. */
+.next-stop-time {
+    color: rgba(235, 235, 245, 0.55);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.next-stop-time:not(:empty)::before {
+    content: '\B7\00A0';
+    content: '\B7\00A0' / '';
+}
+
 /* Hours in words, with color as a second signal rather than the only one. */
 .hours-tag {
     justify-self: start;
@@ -1711,6 +1725,7 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     .place-sub,
     .place-section-title,
     .next-stop-label,
+    .next-stop-time,
     .line-hours-detail,
     .line-desc,
     .line-branch {

@@ -11,6 +11,8 @@
 //
 // This module keeps the outcome, so the UI can say which one happened.
 
+import { expressParent } from './trunks.js';
+
 // How old the server's data may be before arrivals are labeled delayed.
 // Matches the vehicles staleness window in main.js; the API refreshes its feed
 // cache every 30s, so 90s means roughly three missed refreshes.
@@ -146,4 +148,35 @@ export function splitByDirection(arrivals, routeIds = null) {
 export function trunksInArrivals(arrivals, trunks) {
     const present = new Set((arrivals ?? []).map(a => a?.routeId));
     return (trunks ?? []).filter(t => t.routeIds.some(id => present.has(id)));
+}
+
+/**
+ * Minutes until the next train of these lines leaves in one direction, or null
+ * when none is coming. Feeds the times on the station panel's Next stops rows
+ * (#161), one per line and direction, from the arrivals the panel already has.
+ *
+ * An express pattern counts for its line, so a 6X gives the 6 row its time. A
+ * train whose last stop is this station doesn't leave it, so destinations in
+ * endsHere are skipped: a train short-turning here would otherwise put a time
+ * on the side whose next stop it never reaches.
+ */
+export function soonestMinutes(arrivals, lineIds, dir, endsHere = []) {
+    const lines = new Set(lineIds ?? []);
+    const ends = new Set(endsHere ?? []);
+    let soonest = null;
+    for (const a of arrivals ?? []) {
+        if (a?.direction !== dir || !Number.isFinite(a.minutes)) continue;
+        if (!lines.has(expressParent(a.routeId) ?? a.routeId)) continue;
+        if (ends.has(a.destination)) continue;
+        if (soonest === null || a.minutes < soonest) soonest = a.minutes;
+    }
+    return soonest;
+}
+
+/**
+ * A countdown in words. The API rounds to whole minutes and can report a train
+ * at the platform as slightly negative, so anything up to zero is "Now".
+ */
+export function minutesText(minutes) {
+    return minutes <= 0 ? 'Now' : `${minutes} min`;
 }
