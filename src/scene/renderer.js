@@ -69,17 +69,6 @@ const STRAND_OFFSET = [
 const TRIP_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 3.5, 13, 8];
 const TRIP_WALK_WIDTH_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3];
 
-// One radius for every station dot, at every zoom.
-//
-// The circles used to grow with zoom — 4→7 for complexes, 5→9 for individual
-// stations — which made the same station a different size depending on how far
-// in you happened to be, and made the map feel like it was breathing while you
-// navigated. A station is a station: constant size reads as a consistent symbol
-// rather than a scaling decoration, and it keeps the network's shape legible at
-// the moment complexes split into their constituent platforms.
-const STATION_RADIUS = 5;
-const STATION_STROKE = 1.75;
-
 // Where a complex stops being one dot and becomes its own platforms. Both the
 // complex layers' maxzoom and the individual layers' minzoom, so exactly one
 // representation is on screen at any zoom.
@@ -87,8 +76,37 @@ const SPLIT_ZOOM = 13;
 
 // The lowest zoom a selected line's stops are drawn at (#160). Below the
 // complex layers' own minzoom, so a whole line fitted on screen still shows
-// every stop; the dots shrink toward it so they don't merge into a bar.
+// every stop.
 const LINE_STOPS_MINZOOM = 8;
+
+// Station dots grow with the zoom at about the rate of the lines they sit on
+// (2.2 px wide at zoom 10, 5 px at 13), so the network scales as one drawing
+// rather than the dots scaling on their own (#164).
+//
+// They were one fixed size before: 13.5 px across at every zoom, after an
+// earlier version grew the dots alone (radius 4→7 for complexes, 5→9 for
+// platforms) and the map felt like it was breathing. Fixed was too big at city
+// zoom. Measured on screen, transfer stations at zoom 10 sit a median 9 px from
+// their nearest neighbor and every station at zoom 11 sits 19 px from its
+// nearest, so 61% and 24% of dots overlapped one, and a dot outweighed both its
+// line and the train markers. Each zoom now gets the size its spacing allows.
+//
+// Every station layer reads this one curve, so nothing changes size at
+// SPLIT_ZOOM, where complexes become platforms. The tap area does not shrink
+// with the dots: see scene/hit-test.js.
+const STATION_RADIUS_BY_ZOOM = [
+    'interpolate', ['linear'], ['zoom'],
+    LINE_STOPS_MINZOOM, 2, 10, 2.5, 11, 3, 12, 4, SPLIT_ZOOM, 5, 16, 6.5,
+];
+
+// The outline thins with the dot, so a small dot reads as white rather than as
+// a ring. It reaches full width at SPLIT_ZOOM, where the platform layers hold it
+// constant and only an alert thickens it.
+const STATION_STROKE = 1.75;
+const STATION_STROKE_BY_ZOOM = [
+    'interpolate', ['linear'], ['zoom'],
+    LINE_STOPS_MINZOOM, 1, 10, 1, 11, 1.25, 12, 1.5, SPLIT_ZOOM, STATION_STROKE,
+];
 
 // Held so the sources can be rebuilt when alerts arrive; the feature geometry
 // never changes, only the `alert` flag on each.
@@ -144,9 +162,9 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         maxzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': STATION_RADIUS,
+            'circle-radius': STATION_RADIUS_BY_ZOOM,
             'circle-color': '#ffffff',
-            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-width': STATION_STROKE_BY_ZOOM,
             'circle-stroke-color': PLAIN_STROKE,
         },
     });
@@ -159,9 +177,9 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         maxzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 0],
         paint: {
-            'circle-radius': STATION_RADIUS,
+            'circle-radius': STATION_RADIUS_BY_ZOOM,
             'circle-color': '#ffffff',
-            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-width': STATION_STROKE_BY_ZOOM,
             'circle-stroke-color': PLAIN_STROKE,
         },
     });
@@ -180,9 +198,9 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         filter: ['boolean', false],
         layout: { visibility: 'none' },
         paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], LINE_STOPS_MINZOOM, 2.5, 10, 4, 11, STATION_RADIUS],
+            'circle-radius': STATION_RADIUS_BY_ZOOM,
             'circle-color': '#ffffff',
-            'circle-stroke-width': STATION_STROKE,
+            'circle-stroke-width': STATION_STROKE_BY_ZOOM,
             'circle-stroke-color': PLAIN_STROKE,
         },
     });
@@ -195,7 +213,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         minzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 1],
         paint: {
-            'circle-radius': STATION_RADIUS,
+            'circle-radius': STATION_RADIUS_BY_ZOOM,
             'circle-color': '#ffffff',
             // Alerted stations get a thicker amber ring. Only the individual
             // circles carry it, never the complex dots below zoom 13: a third
@@ -206,7 +224,8 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
             // lookup in each stop value. Maplibre permits only one zoom-based
             // subexpression per property, so wrapping two interpolates in a
             // case fails to parse and the layer silently falls back to default.
-            // Constant, like the radius — only the alert state changes it.
+            // Constant from SPLIT_ZOOM up, where the outline curve has reached
+            // full width; only the alert state changes it.
             'circle-stroke-width': ['case', ['get', 'alert'], 3, STATION_STROKE],
             'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],
         },
@@ -219,7 +238,7 @@ export function addStationLayer(map, complexes, stations, complexRouteCounts, ro
         minzoom: SPLIT_ZOOM,
         filter: ['==', ['get', 'major'], 0],
         paint: {
-            'circle-radius': STATION_RADIUS,
+            'circle-radius': STATION_RADIUS_BY_ZOOM,
             'circle-color': '#ffffff',
             'circle-stroke-width': ['case', ['get', 'alert'], 3, STATION_STROKE],
             'circle-stroke-color': ['case', ['get', 'alert'], ALERT_STROKE, PLAIN_STROKE],

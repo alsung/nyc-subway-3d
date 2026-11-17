@@ -32,6 +32,10 @@ const STATION_DOT_LAYERS = [
 const STATION_LABEL_LAYER = 'station-labels';
 const LINE_STOPS_LAYER = 'station-line-stops';
 
+// The lines highlightStations last lit, express routes folded into their line,
+// so a tap can prefer a lit stop over a closer dimmed one (#164).
+let litLines = [];
+
 /**
  * Dims every route except the given ones.
  *
@@ -72,6 +76,7 @@ export function clearLineHighlight(map) {
  */
 export function highlightStations(map, lineIds) {
     if (!map?.getLayer?.(LINE_STOPS_LAYER)) return;
+    litLines = lineKeys(lineIds);
     const on = stationsOn(lineIds);
 
     const opacity = on ? ['case', on, 1, DIMMED_STATION_OPACITY] : 1;
@@ -90,9 +95,25 @@ export function highlightStations(map, lineIds) {
  * null for none. Exported for tests.
  */
 export function stationsOn(lineIds) {
-    const ids = [...new Set((lineIds ?? []).filter(Boolean).map(id => expressParent(id) ?? id))];
+    const ids = lineKeys(lineIds);
     if (!ids.length) return null;
     return ['any', ...ids.map(id => ['in', `|${id}|`, ['get', 'lines']])];
+}
+
+/**
+ * Whether a station feature is on a line highlightStations has lit. False for
+ * every station when no line is lit.
+ *
+ * @param {{properties?: {lines?: string}}} feature with `lines` as "|A|C|F|"
+ */
+export function onLitLine(feature) {
+    const lines = feature?.properties?.lines ?? '';
+    return litLines.some(id => lines.includes(`|${id}|`));
+}
+
+// Line ids with express routes folded into their line, once each.
+function lineKeys(lineIds) {
+    return [...new Set((lineIds ?? []).filter(Boolean).map(id => expressParent(id) ?? id))];
 }
 
 /**

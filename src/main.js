@@ -7,7 +7,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { createMap, addStationLayer, setStationAlerts, addRouteLines, addTripPathLayer, applyBasemapRestraint } from './scene/renderer.js';
 import { addEntranceLayer, setEntrancesFor } from './scene/entrances.js';
 import { addPlatformLayer, setPlatformsFor } from './scene/platform-layer.js';
-import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath, highlightStations } from './scene/lines.js';
+import { setLineVisibility, highlightLine, clearLineHighlight, dimAllLines, showTripPath, highlightStations, onLitLine } from './scene/lines.js';
+import { nearestWithin, targetSize, POINTER_TARGET_PX } from './scene/hit-test.js';
 import { linesByStation } from './core/line-order.js';
 import { addTrainLayer, buildRouteIndex, createTrainState, syncTrains, setTrainVisibility, setTrainsEnabled, startTrainLoop } from './scene/train-layer.js';
 import { flyToStation, fitPadding } from './ui/camera.js';
@@ -748,10 +749,23 @@ async function init() {
         'station-line-stops',
     ];
 
+    // The station a tap or click at `point` means: the nearest dot within half
+    // a target size, a lit line's stops first (#164). The dots are drawn small
+    // at city zoom, so the area that answers is larger than the dot.
+    const coarsePointer = window.matchMedia?.('(pointer: coarse)');
+    function stationAt(point, size) {
+        const r = size / 2;
+        const hits = map.queryRenderedFeatures(
+            [[point.x - r, point.y - r], [point.x + r, point.y + r]],
+            { layers: STATION_LAYERS },
+        );
+        return nearestWithin(hits, point, (c) => map.project(c), r, onLitLine);
+    }
+
     map.on('click', (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: STATION_LAYERS });
-        if (!features.length) return;
-        const feat = features[0];
+        const size = targetSize(e.originalEvent?.pointerType, coarsePointer?.matches ?? false);
+        const feat = stationAt(e.point, size);
+        if (!feat) return;
         const ids = feat.properties.stationIds.split('|');
         if (!stations.find(s => s.id === ids[0])) return;
         openStation({
@@ -763,10 +777,16 @@ async function init() {
         });
     });
 
-    for (const layer of STATION_LAYERS) {
-        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
-    }
+    // The hand cursor shows wherever a click would open a station, so it uses
+    // the same test as the click rather than the drawn dot's edge.
+    let pointing = false;
+    const setPointing = (on) => {
+        if (on === pointing) return;
+        pointing = on;
+        map.getCanvas().style.cursor = on ? 'pointer' : '';
+    };
+    map.on('mousemove', (e) => setPointing(Boolean(stationAt(e.point, POINTER_TARGET_PX))));
+    map.on('mouseout', () => setPointing(false));
 }
 
 // ── Privacy modal ──────────────────────────────────────────────────────────
