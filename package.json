@@ -7,7 +7,7 @@
     "dev": "vite",
     "predev": "bash scripts/download-gtfs.sh",
     "prebuild": "bash scripts/download-gtfs.sh",
-    "build": "vite build && node scripts/verify-build.mjs",
+    "build": "vite build && node scripts/build-seo-pages.mjs && node scripts/verify-build.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

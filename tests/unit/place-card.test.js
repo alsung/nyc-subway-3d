@@ -4,6 +4,7 @@ import {
     escapeHtml, lineName, bulletSpec, bulletHtml, hoursSummary, hoursTag,
     stationModel, stationPanelHtml, stationHeadingHtml, stationFactsHtml,
     lineModel, linePanelHtml, lineFactsHtml,
+    stationPanelElementHtml, linePanelElementHtml,
 } from '../../src/core/place-card.js';
 import { buildStationMeta } from '../../src/core/station-meta.js';
 import { lineSections } from '../../src/core/line-order.js';
@@ -228,6 +229,12 @@ describe('stationPanelHtml', () => {
         expect(html).not.toContain('<h1');
     });
 
+    it('ships the line-group and direction rows hidden until arrivals fill them', () => {
+        const html = stationPanelHtml(model(), routeMap);
+        expect(html).toContain('<div class="popup-trunks hidden"></div>');
+        expect(html).toContain('<div class="popup-tabs hidden" role="tablist"></div>');
+    });
+
     it('fills the heading and next stops when given a station', () => {
         const html = stationPanelHtml(model(), routeMap);
         expect(html).toContain('<h1 class="place-title" id="station-title">Jay St-MetroTech</h1>');
@@ -246,6 +253,20 @@ describe('stationPanelHtml', () => {
         const one = stationModel(jay, { meta, lineOrder: {}, entrances: 1, complexOf });
         expect(stationHeadingHtml(one)).toContain('Brooklyn · 1 entrance<');
         expect(stationHeadingHtml(stationModel(jay, { meta, lineOrder: {}, complexOf }))).toContain('>Brooklyn</p>');
+    });
+});
+
+describe('stationPanelElementHtml', () => {
+    it('wraps the panel open for a pre-built page, labelled by its heading', () => {
+        const html = stationPanelElementHtml(model(), routeMap);
+        expect(html.startsWith('<div id="station-popup" class="place-panel" role="region" aria-labelledby="station-title">')).toBe(true);
+        expect(html).toContain(stationPanelHtml(model(), routeMap));
+        expect(html.endsWith('</div>')).toBe(true);
+    });
+
+    it('starts hidden and empty for the app', () => {
+        expect(stationPanelElementHtml(null, null, { hidden: true }))
+            .toBe(`<div id="station-popup" class="place-panel hidden" role="region" aria-labelledby="station-title">${stationPanelHtml(null)}</div>`);
     });
 });
 
@@ -347,6 +368,14 @@ describe('linePanelHtml', () => {
         expect(html).toContain('<a href="/station/1-inwood-207-st">Inwood-207 St</a>');
         expect(html).toContain('aria-label="Transfer to C"');
         expect(html).toContain('<ol class="line-stops" style="--line:#0062CF">');
+    });
+});
+
+describe('linePanelElementHtml', () => {
+    it('wraps the line panel open for a pre-built page, or hidden for the app', () => {
+        const open = linePanelElementHtml(null, routeMap);
+        expect(open).toBe(`<div id="line-panel" class="place-panel place-panel--line" role="region" aria-labelledby="line-title">${linePanelHtml(null, routeMap)}</div>`);
+        expect(linePanelElementHtml(null, routeMap, { hidden: true })).toContain('class="place-panel place-panel--line hidden"');
     });
 });
 

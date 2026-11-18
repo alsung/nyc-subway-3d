@@ -185,6 +185,11 @@ const externalFor = (url) => EXTERNALS.find((e) => url.includes(e.host));
 // Hosts that are this project rather than a third party.
 const OWN_HOSTS = [/^localhost$/, /^127\.0\.0\.1$/, /^localexpress\.nyc$/, /\.fly\.dev$/, /\.vercel\.app$/];
 
+// Hosts that name a vocabulary rather than a service: the pre-built pages
+// (#155) write schema.org types and the sitemap namespace, and nothing ever
+// sends them a request.
+const NAMESPACE_HOSTS = [/^schema\.org$/, /^www\.sitemaps\.org$/];
+
 function touches(decls, root, tableNames) {
     const names = reach(decls, root);
     const out = { ping: false, libs: new Set(), reads: new Set(), writes: new Set(), caches: new Set(), externals: new Set(), env: new Set(), metrics: new Set(), funcs: [] };
@@ -507,7 +512,8 @@ export function unknownHosts(root = ROOT) {
             for (const [url] of stripComments(text).matchAll(/https?:\/\/[^\s"'`?)\\]+/g)) {
                 const host = url.replace(/^https?:\/\//, '').split(/[/:]/)[0];
                 // Placeholders such as "https://…vercel.app" in usage text.
-                if (!/^[a-z0-9.-]+$/i.test(host) || OWN_HOSTS.some((re) => re.test(host)) || externalFor(url)) continue;
+                if (!/^[a-z0-9.-]+$/i.test(host) || OWN_HOSTS.some((re) => re.test(host))
+                    || NAMESPACE_HOSTS.some((re) => re.test(host)) || externalFor(url)) continue;
                 if (!found.has(host)) found.set(host, `${file}:${i + 1}`);
             }
         });
