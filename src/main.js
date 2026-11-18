@@ -19,7 +19,9 @@ import { buildTripPlanner } from './ui/trip-planner.js';
 import { tripPathFeatures } from './core/trip-path.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
 import { loadAndParseGTFS, loadStationMeta, loadEntrances, loadLineOrder, usingEmbeddedData, showEmbeddedDataWarning } from './core/gtfs-loader.js';
-import { stationModel, lineModel, lineName } from './core/place-card.js';
+import { stationModel, lineModel } from './core/place-card.js';
+import { HOME, stationPageMeta, linePageMeta } from './core/page-meta.js';
+import { setPageHead } from './ui/page-head.js';
 import { loadPlatforms, loadCarPositions } from './core/rt-loader.js';
 import { buildStationComplexes } from './core/gtfs-parser.js';
 import { buildCorridors } from './core/corridors.js';
@@ -231,7 +233,10 @@ async function init() {
     // and the #lines / #alerts hash are carried through every change, so the
     // hash panels keep working on top of either.
 
-    const BASE_TITLE = document.title;
+    // The page's head follows what's open (#155): a station's or a line's
+    // title, description and canonical URL, or HOME's when nothing is. HOME is
+    // a constant rather than the title the page loaded with, since a pre-built
+    // station page loads with the station's.
     const allRouteIds = Object.keys(routeMap);
     // The line a /line URL is showing, or null.
     let activeLine = null;
@@ -309,16 +314,17 @@ async function init() {
     const showLine = (routeId) => {
         if (activeLine === routeId) return;
         activeLine = routeId;
-        linePanel.show(lineModel(routeId, {
+        const model = lineModel(routeId, {
             lineOrder, routeMap,
             complexOf: complexForStation,
             nameOf: (id) => stationById.get(id)?.name,
-        }));
+        });
+        linePanel.show(model);
         syncTripBack();
         updateLineStatus();
         applyHighlight();
         fitLine();
-        document.title = `${lineName(routeId, routeMap)} · Local Express`;
+        setPageHead(linePageMeta(routeId, model, routeMap));
     };
 
     const clearLine = () => {
@@ -326,7 +332,7 @@ async function init() {
         activeLine = null;
         linePanel.hide();
         applyHighlight();
-        document.title = BASE_TITLE;
+        setPageHead(HOME);
     };
 
     // ✕, Escape and "‹ Trip" on the line panel: back to the bare map, as the
@@ -358,12 +364,13 @@ async function init() {
         lastStation = withComplex(station);
         showEntrances(lastStation);
         flyToStation(map, lastStation);
-        setStationPanel(popup, stationPanelModel(lastStation), routeMap);
+        const model = stationPanelModel(lastStation);
+        setStationPanel(popup, model, routeMap);
         syncTripBack();
         openStationPopup(lastStation);
 
         const complex = complexOfStation(lastStation);
-        document.title = `${complex?.name ?? lastStation.name} · Local Express`;
+        setPageHead(stationPageMeta(complex, model, routeMap));
         const path = complex ? stationPath(complex) : null;
         if (!path || mode === 'none' || window.location.pathname === path) return;
         setPath(path, mode === 'push' && !wasOpen ? 'push' : 'replace');
@@ -376,7 +383,7 @@ async function init() {
         setEntrancesFor(map, null);
         setPlatformsFor(map, null);
         lastStation = null;
-        document.title = BASE_TITLE;
+        setPageHead(HOME);
         applyHighlight();
     };
 
@@ -403,7 +410,9 @@ async function init() {
             const complex = complexById.get(complexId);
             if (!complex) {
                 // A station id that does not exist. Real 404s are #119.
-                if (lastStation) closeStation();
+                // Closed even when nothing is open yet: a pre-built page whose
+                // station the data no longer has arrives with its panel open.
+                closeStation();
                 replaceWithHome();
                 return;
             }
@@ -423,7 +432,13 @@ async function init() {
         if (routeId) showLine(routeId);
         else {
             clearLine();
-            if (path.startsWith('/line/')) replaceWithHome();
+            if (path.startsWith('/line/')) {
+                // A line the data doesn't have. As with a station above, a
+                // pre-built page for it arrives with the panel open.
+                linePanel.hide();
+                setPageHead(HOME);
+                replaceWithHome();
+            }
         }
     };
     window.addEventListener('popstate', syncFromUrl);

@@ -5,7 +5,7 @@
 // A pre-built page has to show visitors the same text a crawler reads, or
 // Google treats it as cloaking, so the panel a page ships must be the panel the
 // app draws. Both come from here: popup.js and line-panel.js put this HTML into
-// their panels, and scripts/build-seo-pages.mjs will write it into each page. It is HTML text
+// their panels, and scripts/build-seo-pages.mjs writes it into each page. It is HTML text
 // rather than DOM so it runs in Node at build time, and every value passes
 // through escapeHtml, since station names and labels come from outside data.
 //
@@ -199,6 +199,16 @@ export function stationModel(complex, { meta, lineOrder, entrances = null, compl
     };
 }
 
+/**
+ * The whole station panel, as a pre-built page ships it open and popup.js
+ * builds it hidden. One function for both, so the panel the app takes over on
+ * a pre-built page (#155) is the one it would have made.
+ */
+export function stationPanelElementHtml(model, routeMap, { hidden = false } = {}) {
+    return `<div id="station-popup" class="place-panel${hidden ? ' hidden' : ''}" role="region" aria-labelledby="station-title">`
+        + `${stationPanelHtml(model, routeMap)}</div>`;
+}
+
 /** The station panel's inside, empty when model is null (popup.js's shell). */
 export function stationPanelHtml(model, routeMap) {
     return `<div class="place-head">`
@@ -207,9 +217,9 @@ export function stationPanelHtml(model, routeMap) {
         + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
         + `</div>`
         + `<div class="place-body">`
-        + `<div class="popup-trunks"></div>`
+        + `<div class="popup-trunks hidden"></div>`
         + `<div class="popup-alerts hidden"></div>`
-        + `<div class="popup-tabs" role="tablist"></div>`
+        + `<div class="popup-tabs hidden" role="tablist"></div>`
         + `<div class="popup-arrivals"></div>`
         + `<div class="popup-note hidden"></div>`
         + `<div class="place-facts">${model ? stationFactsHtml(model, routeMap) : ''}</div>`
@@ -317,6 +327,12 @@ export function lineModel(lineId, { lineOrder, routeMap, complexOf, nameOf }) {
     };
 }
 
+/** The whole line panel, for a pre-built page and line-panel.js alike. */
+export function linePanelElementHtml(model, routeMap, { hidden = false } = {}) {
+    return `<div id="line-panel" class="place-panel place-panel--line${hidden ? ' hidden' : ''}" role="region" aria-labelledby="line-title">`
+        + `${linePanelHtml(model, routeMap)}</div>`;
+}
+
 /** The line panel's inside, empty when model is null (line-panel.js's shell). */
 export function linePanelHtml(model, routeMap) {
     return `<div class="place-head">`
@@ -371,9 +387,11 @@ export function lineFactsHtml(model, routeMap) {
     return `${hours}${description}<div class="line-status" aria-live="polite"></div>${stops}`;
 }
 
-// Lines in the order the rest of the app lists them (A C E, B D F M, ...), with
-// anything the trunk table doesn't know at the end.
-function inTrunkOrder(routeIds) {
+/**
+ * Lines in the order the rest of the app lists them (A C E, B D F M, ...), with
+ * anything the trunk table doesn't know at the end.
+ */
+export function inTrunkOrder(routeIds) {
     const rank = new Map();
     for (const trunk of TRUNKS) for (const id of trunk.routeIds) if (!rank.has(id)) rank.set(id, rank.size);
     const at = (id) => (rank.has(id) ? rank.get(id) : Number.MAX_SAFE_INTEGER);

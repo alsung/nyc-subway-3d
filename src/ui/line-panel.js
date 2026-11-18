@@ -8,7 +8,7 @@
 // pages use, so a page's panel and the app's are one panel. This file adds the
 // behavior: closing, shortening the description, and the live status.
 
-import { linePanelHtml, lineHeadingHtml, lineFactsHtml } from '../core/place-card.js';
+import { linePanelElementHtml, lineHeadingHtml, lineFactsHtml } from '../core/place-card.js';
 import { fillAlertBand } from './popup.js';
 
 // How many lines of MTA's description show before "More". The A's runs to
@@ -22,13 +22,13 @@ const DESCRIPTION_LINES = 3;
  * @returns {{element: HTMLElement, show: (model: object) => void, hide: () => void, setStatus: (alerts: object[]|null) => void}}
  */
 export function buildLinePanel(container, routeMap, onClose) {
-    const panel = document.createElement('div');
-    panel.id = 'line-panel';
-    panel.className = 'place-panel place-panel--line hidden';
-    panel.setAttribute('role', 'region');
-    panel.setAttribute('aria-labelledby', 'line-title');
-    panel.innerHTML = linePanelHtml(null, routeMap);
-    container.appendChild(panel);
+    // A pre-built line page (#155) ships the panel open and filled in; take it
+    // over rather than adding a second. show() writes the same facts back.
+    let panel = container.querySelector('#line-panel');
+    if (!panel) {
+        container.insertAdjacentHTML('beforeend', linePanelElementHtml(null, routeMap, { hidden: true }));
+        panel = container.lastElementChild;
+    }
 
     const heading = panel.querySelector('.place-heading');
     const body = panel.querySelector('.place-body');

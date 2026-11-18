@@ -2385,6 +2385,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "core/gtfs-loader.js",
       "core/gtfs-parser.js",
       "core/line-order.js",
+      "core/page-meta.js",
       "core/place-card.js",
       "core/plan.js",
       "core/platforms.js",
@@ -2412,6 +2413,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "ui/camera.js",
       "ui/line-panel.js",
       "ui/lines-panel.js",
+      "ui/page-head.js",
       "ui/popup.js",
       "ui/reset-password-page.js",
       "ui/route-bullet.js",
@@ -2460,6 +2462,11 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "outputs": [
         "public/line-order.json"
       ]
+    },
+    {
+      "file": "scripts/build-seo-pages.mjs",
+      "externals": [],
+      "outputs": []
     },
     {
       "file": "scripts/check-metrics.mjs",
@@ -2797,6 +2804,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
     "since": {
       "build:scripts/build-line-order-fixture.mjs": "2026-11-16",
       "build:scripts/build-line-order.mjs": "2026-11-16",
+      "build:scripts/build-seo-pages.mjs": "2026-11-17",
       "edge:ext:mta-static|static:/line-order.json|build": "2026-11-16",
       "edge:ext:nygov|static:/line-order.json|build": "2026-11-16",
       "edge:fe:src/core/auth.js|route:POST /api/auth/logout|call": "2026-10-29",

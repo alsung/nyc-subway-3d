@@ -5,7 +5,7 @@ import { dedupeBulletRoutes } from '../core/alert-status.js';
 import { alertsForStation } from '../core/station-alerts.js';
 import { parseAlertText } from '../core/alert-text.js';
 import { routeBullet } from './route-bullet.js';
-import { stationPanelHtml, stationHeadingHtml, stationFactsHtml } from '../core/place-card.js';
+import { stationPanelElementHtml, stationHeadingHtml, stationFactsHtml } from '../core/place-card.js';
 
 // How many alerts to show before the popup turns into a wall of text. The
 // panel is the place to read all of them; here we are answering "is something
@@ -30,15 +30,15 @@ let selection = { stationId: null, trunkKey: null, dir: null };
 // pre-built pages use (#154), so a page's panel and the app's are one panel.
 // The shell is built once; setStationPanel fills in the station's own facts and
 // the functions below fill the live slots.
+//
+// A pre-built station page (#155) already has the panel, open and filled in, so
+// the app takes that one over rather than adding a second. Opening the station
+// from the URL then writes the same facts back into it.
 export function buildPopup(container) {
-    const popup = document.createElement('div');
-    popup.id = 'station-popup';
-    popup.className = 'place-panel hidden';
-    popup.setAttribute('role', 'region');
-    popup.setAttribute('aria-labelledby', 'station-title');
-    popup.innerHTML = stationPanelHtml(null);
-    container.appendChild(popup);
-    return popup;
+    const prebuilt = container.querySelector('#station-popup');
+    if (prebuilt) return prebuilt;
+    container.insertAdjacentHTML('beforeend', stationPanelElementHtml(null, null, { hidden: true }));
+    return container.lastElementChild;
 }
 
 /**

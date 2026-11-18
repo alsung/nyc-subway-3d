@@ -8,8 +8,9 @@
 //
 // This turns that silent degradation into a failed build.
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { SITE } from '../src/core/page-meta.js';
 
 const DIST = 'dist';
 const REQUIRED = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
@@ -37,6 +38,12 @@ const MIN_PLATFORMS = 800;
 // write fewer than this many lines, so a short file here means the prebuild
 // step was skipped or the file was copied in from somewhere else.
 const MIN_LINES = 24;
+
+// The pre-built station and line pages (#155). 445 stations and 26 lines today;
+// a short count means build-seo-pages.mjs didn't run or read thin data, and the
+// missing pages would quietly fall back to the empty app shell.
+const MIN_STATION_PAGES = 440;
+const MIN_LINE_PAGES = 20;
 
 const problems = [];
 
@@ -141,6 +148,54 @@ try {
     problems.push(`dist/line-order.json unreadable — did prebuild (scripts/download-gtfs.sh) run? (${err.message})`);
 }
 
+// Pre-built pages and the sitemap — written by build-seo-pages.mjs.
+try {
+    const home = readFileSync(join(DIST, 'index.html'), 'utf8');
+    const bundle = /<script type="module" crossorigin src="(\/assets\/[^"]+)"/.exec(home)?.[1];
+    if (!bundle) problems.push('dist/index.html has no module script for the app');
+    if (canonicalOf(home) !== `${SITE}/`) problems.push(`dist/index.html canonical is ${canonicalOf(home)}, expected ${SITE}/`);
+
+    const titles = new Map();
+    const paths = [];
+    for (const [kind, min, panelId, titleId] of [
+        ['station', MIN_STATION_PAGES, 'station-popup', 'station-title'],
+        ['line', MIN_LINE_PAGES, 'line-panel', 'line-title'],
+    ]) {
+        const slugs = listDirs(join(DIST, kind));
+        if (slugs.length < min) problems.push(`dist/${kind}/ has ${slugs.length} pages, expected at least ${min}`);
+        for (const slug of slugs) {
+            const path = `/${kind}/${slug}`;
+            const html = readFileSync(join(DIST, kind, slug, 'index.html'), 'utf8');
+            paths.push(path);
+            const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '';
+            titles.set(title, [...(titles.get(title) ?? []), path]);
+            // Each page has to name itself, carry its panel open, and load the
+            // app; a page missing any of them is a dead end for whoever lands
+            // on it.
+            if (canonicalOf(html) !== `${SITE}${path}`) problems.push(`${path} canonical is ${canonicalOf(html)}`);
+            if (!html.includes(`id="${panelId}" class="place-panel`) || html.includes(`id="${panelId}" class="place-panel hidden`)) {
+                problems.push(`${path} has no open #${panelId}`);
+            }
+            if (!html.includes(`id="${titleId}"`)) problems.push(`${path} has no heading`);
+            if (bundle && !html.includes(`src="${bundle}"`)) problems.push(`${path} doesn't load the app's script`);
+        }
+    }
+    for (const [title, where] of titles) {
+        if (!title || title === /<title>([^<]*)<\/title>/.exec(home)?.[1]) problems.push(`${where[0]} has the home page's title`);
+        else if (where.length > 1) problems.push(`${where.join(', ')} share the title "${title}"`);
+    }
+
+    const sitemap = readFileSync(join(DIST, 'sitemap.xml'), 'utf8');
+    const listed = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]));
+    const expected = [`${SITE}/`, ...paths.map(p => `${SITE}${p}`)];
+    const missing = expected.filter(url => !listed.has(url));
+    if (listed.size !== expected.length || missing.length) {
+        problems.push(`dist/sitemap.xml lists ${listed.size} URLs for ${expected.length} pages${missing.length ? `, missing ${missing[0]}` : ''}`);
+    }
+} catch (err) {
+    problems.push(`pre-built pages unreadable — did build-seo-pages.mjs run? (${err.message})`);
+}
+
 if (problems.length) {
     console.error('\nBuild verification failed:\n');
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -148,4 +203,12 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present, pre-built pages and sitemap complete`);
+
+function canonicalOf(html) {
+    return /<link rel="canonical" href="([^"]*)"/.exec(html)?.[1] ?? 'missing';
+}
+
+function listDirs(dir) {
+    return readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name);
+}
