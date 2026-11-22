@@ -1,6 +1,6 @@
 // src/core/place-card.js
-// The station and line panels' HTML, written the same way for the map and for
-// the pre-built pages (#154, #155).
+// The station and line panels' HTML, and the home panel under the search bar,
+// written the same way for the map and for the pre-built pages (#154, #155).
 //
 // A pre-built page has to show visitors the same text a crawler reads, or
 // Google treats it as cloaking, so the panel a page ships must be the panel the
@@ -14,7 +14,7 @@
 // loads.
 
 import { contrastColor } from './color.js';
-import { expressParent, TRUNKS } from './trunks.js';
+import { expressParent, TRUNKS, trunksFor, bulletRoutes } from './trunks.js';
 import { boroughName } from './station-meta.js';
 import { linePath, stationPath } from './slugs.js';
 import { neighbors, DAY_TYPES } from './line-order.js';
@@ -385,6 +385,76 @@ export function lineFactsHtml(model, routeMap) {
             + `<h2 class="place-section-title" id="line-stops-title">Stops from the north end</h2>${sections}</section>`
         : '';
     return `${hours}${description}<div class="line-status" aria-live="polite"></div>${stops}`;
+}
+
+// The home panel's words (#155). The page title in page-meta.js says the same
+// thing with the site's name in front.
+export const HOME_HEADING = 'Live NYC Subway Map';
+export const HOME_INTRO = 'Every subway train in New York, moving on the map as the MTA reports it. '
+    + 'Tap a station for live arrivals, or pick a line for its stops, hours and service status.';
+
+// The three shuttles are all signed "S", so their bullets can't tell them
+// apart, and the SIR is a railway rather than a subway line. They get their
+// names written out, in this order.
+const NAMED_LINES = ['GS', 'FS', 'H', 'SI'];
+const SHORT_NAMES = { GS: '42 St', FS: 'Franklin Av', H: 'Rockaway Park', SI: 'Staten Island' };
+
+/**
+ * The home panel's inside: the site's heading, what it does, and a link to
+ * every line page, grouped the way the Lines filter groups them.
+ *
+ * Only lines with a page are linked (lineIds, the keys of line-order.json), so
+ * a link here never lands on the app's catch-all. The named rows' visible text
+ * is short; their accessible name is the route's full name ("42 St Shuttle"),
+ * which contains it.
+ *
+ * @param {object} routeMap
+ * @param {string[]} lineIds
+ */
+export function searchHomeHtml(routeMap, lineIds) {
+    const hasPage = new Set(lineIds ?? []);
+    const groups = trunksFor(routeMap)
+        .map(trunk => bulletRoutes(trunk.routeIds).filter(id => hasPage.has(id) && !NAMED_LINES.includes(id)))
+        .filter(ids => ids.length);
+    const named = NAMED_LINES.filter(id => hasPage.has(id) && routeMap?.[id]);
+
+    const groupHtml = groups
+        .map(ids => `<span class="home-group">${ids.map(id => bulletHtml(id, routeMap, { link: true })).join('')}</span>`)
+        .join('');
+    const namedHtml = named
+        .map(id => `<a href="${escapeHtml(linePath(id))}" aria-label="${escapeHtml(routeMap[id].name || lineName(id, routeMap))}">`
+            + `${bulletHtml(id, routeMap, { decorative: true })}<span>${escapeHtml(SHORT_NAMES[id])}</span></a>`)
+        .join('');
+
+    // No lines when line-order.json didn't load, and then no empty heading.
+    const lines = groupHtml || namedHtml
+        ? `<section class="place-section" aria-labelledby="home-lines-title">`
+            + `<h2 class="place-section-title" id="home-lines-title">Lines</h2>`
+            + (groupHtml ? `<nav class="home-lines" aria-label="Subway lines">${groupHtml}</nav>` : '')
+            + (namedHtml ? `<div class="home-named">${namedHtml}</div>` : '')
+            + `</section>`
+        : '';
+
+    return `<div class="place-head">`
+        + `<div class="place-heading"><h1 class="place-title" id="search-home-title">${escapeHtml(HOME_HEADING)}</h1></div>`
+        + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
+        + `</div>`
+        + `<div class="place-body">`
+        + `<p class="home-intro">${escapeHtml(HOME_INTRO)}</p>`
+        + lines
+        + `</div>`;
+}
+
+/**
+ * The home panel with its wrapper. `landing` is the copy the build puts in the
+ * home page: open on a wide screen and hidden by CSS on a phone, before any
+ * script runs. `hidden` is the closed panel the app adds on other pages.
+ */
+export function searchHomeElementHtml(routeMap, lineIds, { hidden = false, landing = false } = {}) {
+    const classes = ['place-panel', 'search-home', hidden && 'hidden', landing && 'search-home--landing']
+        .filter(Boolean).join(' ');
+    return `<div id="search-home" class="${classes}" role="region" aria-labelledby="search-home-title">`
+        + `${searchHomeHtml(routeMap, lineIds)}</div>`;
 }
 
 /**

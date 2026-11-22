@@ -117,7 +117,8 @@ function renderRow(entry, routeMap) {
  * @param {HTMLElement} container
  * @param {(station: object) => void} onSelect
  * @param {{idPrefix?: string, placeholder?: string, ariaLabel?: string,
- *          clearOnSelect?: boolean}} [options]
+ *          clearOnSelect?: boolean,
+ *          emptyState?: {open: () => void, close: () => void, isOpen: () => boolean}}} [options]
  * @returns {{input: HTMLInputElement, wrapper: HTMLElement,
  *            setValue: (text: string) => void, clear: () => void}}
  */
@@ -136,6 +137,10 @@ export function buildSearch(stations, container, onSelect, options = {}) {
         // means to an end. A trip planner field is the opposite: the chosen
         // station is the value, and clearing it would erase what you just set.
         clearOnSelect = true,
+        // What the box shows while it is empty: the home panel (#155) for the
+        // map's search, which opens when you click the box and gives way to the
+        // results as you type. The trip planner's fields pass nothing.
+        emptyState = null,
     } = options;
     const ids = idsFor(idPrefix);
 
@@ -243,8 +248,21 @@ export function buildSearch(stations, container, onSelect, options = {}) {
         syncActive();
     }
 
-    input.addEventListener('input', () => renderResults(input.value.trim()));
+    input.addEventListener('input', () => {
+        const query = input.value.trim();
+        renderResults(query);
+        if (emptyState) query ? emptyState.close() : emptyState.open();
+    });
 
+    // Focus for Tab and the first click; click for a box that already has
+    // focus, after ✕ closed the panel.
+    const showEmptyState = () => { if (emptyState && !input.value.trim()) emptyState.open(); };
+    input.addEventListener('focus', showEmptyState);
+    input.addEventListener('click', showEmptyState);
+
+    // Only the results. The home panel closes itself when focus or a click
+    // goes somewhere other than the box and the panel, so Tab can reach its
+    // links.
     input.addEventListener('blur', () => closeResults());
 
     input.addEventListener('keydown', (e) => {
@@ -273,14 +291,18 @@ export function buildSearch(stations, container, onSelect, options = {}) {
                 select(matches[activeIndex]);
                 break;
 
-            case 'Escape':
-                // Mark the key used only if there was a search to clear, so
-                // Escape in an empty box still reaches the station popup.
-                if (input.value || open) e.preventDefault();
+            case 'Escape': {
+                // Mark the key used only if there was a search to clear or a
+                // home panel to close, so Escape in an empty box still reaches
+                // the station popup.
+                const homeOpen = emptyState?.isOpen() ?? false;
+                if (input.value || open || homeOpen) e.preventDefault();
                 input.value = '';
                 closeResults();
+                emptyState?.close();
                 input.blur();
                 break;
+            }
         }
     });
 
