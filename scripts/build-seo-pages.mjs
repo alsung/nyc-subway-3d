@@ -1,5 +1,6 @@
 // scripts/build-seo-pages.mjs
-// Pre-built pages for every station and line, and the sitemap (#155).
+// Pre-built pages for every station and line, the home page's panel, and the
+// sitemap (#155).
 //
 // The app is one HTML page that draws everything with JavaScript, so a crawler
 // that reads /station/636-jay-st-metrotech without running it finds an empty
@@ -20,7 +21,7 @@ import { parseStops, parseRoutes, buildStationComplexes } from '../src/core/gtfs
 import { buildStationMeta, complexIdIndex } from '../src/core/station-meta.js';
 import { parseEntrances, indexByComplex } from '../src/core/entrances.js';
 import {
-    escapeHtml, stationModel, lineModel, stationPanelElementHtml, linePanelElementHtml,
+    escapeHtml, stationModel, lineModel, stationPanelElementHtml, linePanelElementHtml, searchHomeElementHtml,
 } from '../src/core/place-card.js';
 import {
     SITE, HOME, stationPageMeta, linePageMeta, stationJsonLd, lineJsonLd, sitemapXml,
@@ -30,6 +31,20 @@ const DIST = 'dist';
 
 // Where index.html marks the panel's place, inside #ui.
 const PANEL_MARKER = /<!-- place-panel:[\s\S]*?-->/g;
+
+// Where index.html marks the home panel's place, just after the search bar.
+// Only the home page fills it; every other page has it removed, so a station
+// page carries one heading, its station's.
+const HOME_MARKER = /<!-- search-home:[\s\S]*?-->/g;
+
+// Replaces a pattern that must be in the html exactly once. A template that has
+// lost one fails the build, rather than shipping pages that are quietly wrong.
+function swapOnce(html, pattern, replacement, what) {
+    const found = html.match(pattern)?.length ?? 0;
+    if (found !== 1) throw new Error(`index.html has ${found} ${what}, expected exactly one`);
+    // A function, so a "$" in a station name is never read as a pattern.
+    return html.replace(pattern, () => replacement);
+}
 
 /**
  * One page: the app's index.html with this page's head and its panel open.
@@ -45,12 +60,7 @@ export function renderPage(template, page) {
     const url = `${SITE}${page.path}`;
     const attr = escapeHtml;
     let html = template;
-    const swap = (pattern, replacement, what) => {
-        const found = html.match(pattern)?.length ?? 0;
-        if (found !== 1) throw new Error(`index.html has ${found} ${what}, expected exactly one`);
-        // A function, so a "$" in a station name is never read as a pattern.
-        html = html.replace(pattern, () => replacement);
-    };
+    const swap = (pattern, replacement, what) => { html = swapOnce(html, pattern, replacement, what); };
     swap(/<title>[^<]*<\/title>/g, `<title>${escapeHtml(page.title)}</title>`, '<title> tags');
     swap(/<meta name="description" content="[^"]*" \/>/g,
         `<meta name="description" content="${attr(page.description)}" />`, 'description tags');
@@ -66,7 +76,19 @@ export function renderPage(template, page) {
     const json = JSON.stringify(page.jsonLd).replace(/</g, '\\u003c');
     swap(/<\/head>/g, `<script type="application/ld+json">${json}</script>\n</head>`, '</head> tags');
     swap(PANEL_MARKER, page.panelHtml, 'place-panel markers');
+    swap(HOME_MARKER, '', 'search-home markers');
     return html;
+}
+
+/**
+ * The home page: the app's index.html with the home panel under the search bar.
+ * Its head already describes the home page, so only the panel goes in.
+ *
+ * @param {string} template dist/index.html
+ * @param {string} panelHtml from searchHomeElementHtml
+ */
+export function renderHome(template, panelHtml) {
+    return swapOnce(template, HOME_MARKER, panelHtml, 'search-home markers');
 }
 
 /** Every station and line page, from the data in a build's output folder. */
@@ -102,7 +124,10 @@ export function buildPages(read) {
         const head = linePageMeta(lineId, model, routeMap);
         return { ...head, jsonLd: lineJsonLd(head), panelHtml: linePanelElementHtml(model, routeMap) };
     });
-    return { stationPages, linePages };
+    // Links every line that has a page, so a crawler on the home page reaches
+    // all of them, and through their stop lists every station.
+    const homePanelHtml = searchHomeElementHtml(routeMap, Object.keys(lineOrder), { landing: true });
+    return { stationPages, linePages, homePanelHtml };
 }
 
 /** Titles or paths that more than one page claims. */
@@ -122,7 +147,7 @@ function main() {
         }
     };
     const template = read('index.html');
-    const { stationPages, linePages } = buildPages(read);
+    const { stationPages, linePages, homePanelHtml } = buildPages(read);
     const pages = [...stationPages, ...linePages];
 
     // Two pages with one title compete for the same searches; two with one
@@ -137,9 +162,12 @@ function main() {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, renderPage(template, page));
     }
+    // Last, because every page above was built from this file as it came out of
+    // vite build.
+    writeFileSync(join(DIST, 'index.html'), renderHome(template, homePanelHtml));
     writeFileSync(join(DIST, 'sitemap.xml'), sitemapXml([HOME.path, ...pages.map(p => p.path)]));
 
-    console.log(`✓ pre-built ${stationPages.length} station pages and ${linePages.length} line pages, `
+    console.log(`✓ pre-built ${stationPages.length} station pages, ${linePages.length} line pages and the home panel, `
         + `and a sitemap of ${pages.length + 1} URLs`);
 }
 

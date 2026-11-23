@@ -5,7 +5,9 @@ import {
     stationModel, stationPanelHtml, stationHeadingHtml, stationFactsHtml,
     lineModel, linePanelHtml, lineFactsHtml,
     stationPanelElementHtml, linePanelElementHtml,
+    searchHomeHtml, searchHomeElementHtml, HOME_HEADING, HOME_INTRO,
 } from '../../src/core/place-card.js';
+import { linePath } from '../../src/core/slugs.js';
 import { buildStationMeta } from '../../src/core/station-meta.js';
 import { lineSections } from '../../src/core/line-order.js';
 
@@ -376,6 +378,89 @@ describe('linePanelElementHtml', () => {
         const open = linePanelElementHtml(null, routeMap);
         expect(open).toBe(`<div id="line-panel" class="place-panel place-panel--line" role="region" aria-labelledby="line-title">${linePanelHtml(null, routeMap)}</div>`);
         expect(linePanelElementHtml(null, routeMap, { hidden: true })).toContain('class="place-panel place-panel--line hidden"');
+    });
+});
+
+describe('searchHomeHtml', () => {
+    const homeRoutes = {
+        A: { shortName: 'A', color: '#0062CF' },
+        C: { shortName: 'C', color: '#0062CF' },
+        E: { shortName: 'E', color: '#0062CF' },
+        F: { shortName: 'F', color: '#EB6800' },
+        FX: { shortName: 'FX', color: '#EB6800' },
+        G: { shortName: 'G', color: '#799534' },
+        1: { shortName: '1', color: '#D82233' },
+        2: { shortName: '2', color: '#D82233' },
+        3: { shortName: '3', color: '#D82233' },
+        6: { shortName: '6', color: '#009952' },
+        '6X': { shortName: '6X', color: '#009952' },
+        Z: { shortName: 'Z', color: '#8E5C33' },
+        GS: { shortName: 'S', name: '42 St Shuttle', color: '#808183' },
+        H: { shortName: 'S', name: 'Rockaway Park Shuttle', color: '#808183' },
+        SI: { shortName: 'SIR', name: 'Staten Island Railway', color: '#08179C' },
+    };
+    // The lines with a page: line-order.json has no Z here, and never the
+    // express patterns, which share their line's page.
+    const homeLines = ['1', '2', '3', '6', 'A', 'C', 'E', 'F', 'G', 'GS', 'H', 'SI'];
+    const html = searchHomeHtml(homeRoutes, homeLines);
+    const groups = [...html.matchAll(/<span class="home-group">(.*?)<\/span>/g)]
+        .map(m => [...m[1].matchAll(/>([^<]+)<\/a>/g)].map(x => x[1]));
+
+    it("heads the panel with the site's heading, then says what it does", () => {
+        const heading = html.indexOf(`<h1 class="place-title" id="search-home-title">${HOME_HEADING}</h1>`);
+        expect(heading).toBeGreaterThan(-1);
+        expect(html.indexOf(`<p class="home-intro">${escapeHtml(HOME_INTRO)}</p>`)).toBeGreaterThan(heading);
+        expect(html).toContain('<button type="button" class="popup-close" aria-label="Close">✕</button>');
+    });
+
+    it('links every line that has a page, once each, to that page', () => {
+        for (const id of homeLines) {
+            expect(html.split(`href="${linePath(id)}"`)).toHaveLength(2);
+        }
+    });
+
+    it('groups the lines the way the Lines filter does, A C E first', () => {
+        expect(groups).toEqual([['A', 'C', 'E'], ['F'], ['G'], ['1', '2', '3'], ['6']]);
+    });
+
+    it('announces each bullet as its line', () => {
+        expect(html).toContain('aria-label="A line">A</a>');
+        expect(html).toContain('aria-label="6 line">6</a>');
+    });
+
+    it('drops the Lines section when no line has a page (line-order.json missing)', () => {
+        const bare = searchHomeHtml(homeRoutes, []);
+        expect(bare).toContain(HOME_HEADING);
+        expect(bare).not.toContain('Lines');
+        expect(bare).not.toContain('href=');
+    });
+
+    it('leaves out express patterns and lines without a page', () => {
+        expect(searchHomeHtml(homeRoutes, [...homeLines, 'FX', '6X'])).not.toContain('alert-bullet--express');
+        expect(html).not.toContain(linePath('Z'));
+    });
+
+    it('names the shuttles and the SIR, whose bullets look alike, with their full names for screen readers', () => {
+        const named = [...html.matchAll(/<a href="([^"]+)" aria-label="([^"]+)">.*?<span>([^<]+)<\/span><\/a>/g)]
+            .map(([, href, label, text]) => [href, label, text]);
+        expect(named).toEqual([
+            [linePath('GS'), '42 St Shuttle', '42 St'],
+            [linePath('H'), 'Rockaway Park Shuttle', 'Rockaway Park'],
+            [linePath('SI'), 'Staten Island Railway', 'Staten Island'],
+        ]);
+        // Their bullets are pictures of the name beside them.
+        expect(html).toContain('<div class="home-named"><a href="/line/');
+        expect(html).toMatch(/<a href="[^"]+" aria-label="42 St Shuttle"><span class="alert-bullet"[^>]*aria-hidden="true">S<\/span>/);
+        expect(groups.flat()).not.toContain('S');
+    });
+});
+
+describe('searchHomeElementHtml', () => {
+    it('wraps the home panel open for the home page, or closed for the app', () => {
+        const inner = searchHomeHtml(routeMap, ['A']);
+        expect(searchHomeElementHtml(routeMap, ['A'], { landing: true })).toBe(
+            `<div id="search-home" class="place-panel search-home search-home--landing" role="region" aria-labelledby="search-home-title">${inner}</div>`);
+        expect(searchHomeElementHtml(routeMap, ['A'], { hidden: true })).toContain('class="place-panel search-home hidden"');
     });
 });
 

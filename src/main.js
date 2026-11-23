@@ -15,6 +15,7 @@ import { flyToStation, fitPadding } from './ui/camera.js';
 import { buildLinesPanel } from './ui/lines-panel.js';
 import { buildPopup, showPopup, showPopupLoading, hidePopup, setStationNames, setStationPanel } from './ui/popup.js';
 import { buildSearch } from './ui/search.js';
+import { buildSearchHome, PHONE_QUERY } from './ui/search-home.js';
 import { buildTripPlanner } from './ui/trip-planner.js';
 import { tripPathFeatures } from './core/trip-path.js';
 import { buildAlertsPanel } from './ui/alerts-panel.js';
@@ -242,6 +243,10 @@ async function init() {
     let activeLine = null;
     // The trip planner's open itinerary, or null.
     let activeTrip = null;
+    // The home panel under the search bar (#155). Built further down, after
+    // followPanelLink, which opens its line links; anything that opens a
+    // station, a line or the trip planner closes it.
+    let searchHome = null;
 
     // Marks a history entry this page pushed for a station. Closing the popup
     // steps back over a marked entry; on any other (a link the visitor arrived
@@ -312,6 +317,7 @@ async function init() {
     };
 
     const showLine = (routeId) => {
+        searchHome?.close();
         if (activeLine === routeId) return;
         activeLine = routeId;
         const model = lineModel(routeId, {
@@ -359,6 +365,7 @@ async function init() {
     // closes the popup in one press. 'none' is for syncing from the URL, which
     // is already right.
     function openStation(station, { history: mode = 'push' } = {}) {
+        searchHome?.close();
         const wasOpen = lastStation !== null && !popup.classList.contains('hidden');
         clearLine();
         lastStation = withComplex(station);
@@ -580,8 +587,9 @@ async function init() {
                 drawTrip();
                 syncTripBack();
             },
-            // A station or line panel on top takes Escape first.
-            isCovered: placeOpen,
+            // A station or line panel, or the home panel, on top takes Escape
+            // first.
+            isCovered: () => placeOpen() || Boolean(searchHome?.isOpen()),
         },
         authModal,
     );
@@ -590,6 +598,7 @@ async function init() {
     // it; the planner is what was just asked for. Runs after the planner's own
     // toggle.
     document.getElementById('btn-trip').addEventListener('click', () => {
+        searchHome?.close();
         if (tripOpen() && lastStation) dismissPopup();
         if (tripOpen() && activeLine) closeLine();
         syncTripBack();
@@ -623,10 +632,22 @@ async function init() {
             () => openStationPopup(station), alerts, stationMeta);
     }
 
+    // Open when the home page loads on a wide screen, where it sits over New
+    // Jersey. On a phone it would cover the controls and half the map, so it
+    // waits for the search box. Any other address the app was served on (an
+    // old station link, say) starts with it closed.
+    searchHome = buildSearchHome(document.getElementById('ui'), {
+        routeMap,
+        lineIds: Object.keys(lineOrder ?? {}),
+        anchor: document.getElementById('search-bar'),
+        openOnLoad: window.location.pathname === '/' && !window.matchMedia?.(PHONE_QUERY)?.matches,
+        onLinkClick: followPanelLink,
+    });
+
     buildSearch(
         searchEntries, document.getElementById('search-bar'),
         (station) => openStation(station),
-        { routeMap, labelFor: searchEntryLabel },
+        { routeMap, labelFor: searchEntryLabel, emptyState: searchHome },
     );
 
     // A /station or /line link opens straight away, before the map's tiles

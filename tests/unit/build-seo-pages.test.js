@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { renderPage, duplicates } from '../../scripts/build-seo-pages.mjs';
+import { fileURLToPath } from 'node:url';
+import { renderPage, renderHome, buildPages, duplicates } from '../../scripts/build-seo-pages.mjs';
 import { SITE, HOME } from '../../src/core/page-meta.js';
+import { linePath } from '../../src/core/slugs.js';
 
 // The source index.html: the build runs on the copy vite writes to dist/, which
 // keeps these tags as they are here. CI has no dist/, so the tests use this.
@@ -46,6 +48,11 @@ describe('renderPage', () => {
         expect(JSON.parse(json)).toEqual(page.jsonLd);
     });
 
+    it('leaves the home panel out, so the page has one heading, its own', () => {
+        expect(html).not.toContain('<!-- search-home');
+        expect(html).not.toContain('search-home');
+    });
+
     it('keeps the rest of the page, including the app itself', () => {
         expect(html).toContain('<script type="module" src="/src/main.js"></script>');
         expect(html).toContain('<div id="privacy-modal"');
@@ -60,6 +67,54 @@ describe('renderPage', () => {
             .toThrow('index.html has 0 place-panel markers, expected exactly one');
         expect(() => renderPage(template.replace(/<link rel="canonical"[^>]*>/, ''), page))
             .toThrow('0 canonical links');
+    });
+});
+
+describe('renderHome', () => {
+    const panelHtml = '<div id="search-home" class="place-panel search-home search-home--landing">home</div>';
+    const html = renderHome(template, panelHtml);
+
+    it('puts the home panel right after the search bar, so Tab goes from one to the other', () => {
+        const search = html.indexOf('<div id="search-bar"></div>');
+        const panel = html.indexOf(panelHtml);
+        const controls = html.indexOf('<div id="view-controls">');
+        expect(search).toBeGreaterThan(-1);
+        expect(panel).toBeGreaterThan(search);
+        expect(panel).toBeLessThan(controls);
+        expect(html).not.toContain('<!-- search-home');
+    });
+
+    it("keeps the home page's own head", () => {
+        expect(html).toContain(`<title>${HOME.title}</title>`);
+        expect(html).toContain(`<link rel="canonical" href="${SITE}/" />`);
+    });
+
+    it('fails when the template has lost the marker', () => {
+        expect(() => renderHome(template.replace(/<!-- search-home:[\s\S]*?-->/, ''), panelHtml))
+            .toThrow('index.html has 0 search-home markers, expected exactly one');
+    });
+});
+
+// public/ holds the downloaded data the build copies into dist/. It is
+// gitignored, so these run only where `npm run gtfs` has been.
+const readPublic = (path) => readFileSync(fileURLToPath(new URL(`../../public/${path}`, import.meta.url)), 'utf8');
+const hasData = (() => {
+    try {
+        ['gtfs/stops.txt', 'gtfs/routes.txt', 'stations.json', 'entrances.json', 'line-order.json'].forEach(readPublic);
+        return true;
+    } catch {
+        return false;
+    }
+})();
+
+describe.skipIf(!hasData)('buildPages, on the real data', () => {
+    it("gives the home panel a link to every line that has a page", () => {
+        const { homePanelHtml, linePages } = buildPages(readPublic);
+        const lineIds = Object.keys(JSON.parse(readPublic('line-order.json')));
+        expect(linePages).toHaveLength(lineIds.length);
+        for (const id of lineIds) expect(homePanelHtml).toContain(`href="${linePath(id)}"`);
+        expect(homePanelHtml).toContain('search-home--landing');
+        expect(homePanelHtml).not.toMatch(/class="[^"]*\bhidden\b/);
     });
 });
 

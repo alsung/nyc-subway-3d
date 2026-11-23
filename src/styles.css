@@ -2713,6 +2713,166 @@ button.alert-row-head:hover { background: rgba(255, 255, 255, 0.05); }
     flex: 0 0 auto;
 }
 
+/* ── Search home (#155) ─────────────────────────────────────────────────────
+   The home panel drops down from the search box: the site's heading, what it
+   does, and every line. It is a place panel in material and type, but it hangs
+   from the search box instead of the left edge, and sits above the station and
+   line panels, as the results it gives way to do. */
+.place-panel.search-home {
+    top: 64px;
+    z-index: 35;
+    /* Set from the visible height while it is open, so on a phone it ends
+       above the keyboard (search-home.js). */
+    max-height: var(--search-home-max, calc(100vh - 84px));
+    transform-origin: top left;
+}
+
+.place-panel.search-home.hidden {
+    transform: translateY(-8px) scale(0.98);
+}
+
+.home-intro {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.45;
+    letter-spacing: -0.006em;
+    color: rgba(235, 235, 245, 0.62);
+}
+
+.home-lines {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* One pill per trunk, the way the Lines filter groups them. */
+.home-group {
+    display: flex;
+    gap: 4px;
+    padding: 5px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* These bullets are links, so larger than the 22px ones that only label. */
+.home-lines .alert-bullet {
+    width: 28px;
+    height: 28px;
+    font-size: 15px;
+    text-decoration: none;
+}
+
+.home-lines .alert-bullet--wide {
+    width: auto;
+    padding: 0 8px;
+    border-radius: 14px;
+}
+
+/* The shuttles and the SIR, by name. */
+.home-named {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.home-named a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.home-named .alert-bullet {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+}
+
+.home-named .alert-bullet--wide {
+    width: auto;
+    padding: 0 6px;
+    border-radius: 12px;
+    font-size: 11px;
+}
+
+@media (hover: hover) {
+    .home-lines .alert-bullet:hover { filter: brightness(1.15); }
+    .home-named a:hover { background: rgba(255, 255, 255, 0.11); }
+}
+
+/* While you type, the station results take the home panel's place, at its
+   width and in its material: 44px down from the search bar's top is the
+   panel's 64px from the page's. Only the map's search; the trip planner's
+   fields keep their own list. */
+#search-bar .search-results {
+    position: absolute;
+    top: 44px;
+    left: 0;
+    width: min(380px, calc(100vw - 40px));
+    margin-top: 0;
+    background: rgba(14, 16, 24, 0.78);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    backdrop-filter: blur(28px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 640px) {
+    /* Hangs from the search box at the top, not a bottom sheet like the
+       station panel: the keyboard covers the bottom half while you search. */
+    .place-panel.search-home {
+        top: 64px;
+        bottom: auto;
+        left: 16px;
+        right: 16px;
+        width: auto;
+        max-height: var(--search-home-max, calc(100vh - 84px));
+        border-radius: 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        transform-origin: top center;
+    }
+
+    .place-panel.search-home.hidden {
+        transform: translateY(-8px);
+    }
+
+    /* The home page's copy before the app runs: closed on a phone, where open
+       it would cover the controls and half the map. It stays in the page as
+       text behind a tap on the search box. */
+    .place-panel.search-home--landing {
+        visibility: hidden;
+        opacity: 0;
+        pointer-events: none;
+        transition: none;
+    }
+
+    #search-bar .search-results { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .place-panel.search-home.hidden { transform: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    #search-bar .search-results {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: #0e1018;
+    }
+}
+
+@media (prefers-contrast: more) {
+    #search-bar .search-results { border-color: rgba(255, 255, 255, 0.7); }
+}
+
 /* Reduced motion for the place panel (#154): a fade, no movement. Last in the
    file on purpose, since the panel's own rules and the phone sheet's come later
    than the reduced-motion block near the top and would win on source order. */

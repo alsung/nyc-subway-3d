@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { SITE } from '../src/core/page-meta.js';
+import { HOME_HEADING } from '../src/core/place-card.js';
 
 const DIST = 'dist';
 const REQUIRED = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
@@ -177,9 +178,23 @@ try {
                 problems.push(`${path} has no open #${panelId}`);
             }
             if (!html.includes(`id="${titleId}"`)) problems.push(`${path} has no heading`);
+            // The home panel's heading would be a second h1 on the page.
+            if (html.includes('id="search-home"')) problems.push(`${path} carries the home panel`);
             if (bundle && !html.includes(`src="${bundle}"`)) problems.push(`${path} doesn't load the app's script`);
         }
     }
+    // The home page's panel (#155): open, with its heading, and a link to
+    // every line page, which is how a crawler gets from / to the lines and,
+    // through their stop lists, to every station.
+    const homePanel = /<div id="search-home" class="([^"]*)"/.exec(home)?.[1];
+    if (homePanel === undefined) problems.push('dist/index.html has no home panel (#search-home)');
+    else if (homePanel.split(' ').includes('hidden')) problems.push('dist/index.html ships its home panel closed');
+    if (!home.includes(`<h1 class="place-title" id="search-home-title">${HOME_HEADING}</h1>`)) {
+        problems.push(`dist/index.html has no "${HOME_HEADING}" heading`);
+    }
+    const unlinked = listDirs(join(DIST, 'line')).filter(slug => !home.includes(`href="/line/${slug}"`));
+    if (unlinked.length) problems.push(`dist/index.html doesn't link ${unlinked.length} line pages, e.g. /line/${unlinked[0]}`);
+
     for (const [title, where] of titles) {
         if (!title || title === /<title>([^<]*)<\/title>/.exec(home)?.[1]) problems.push(`${where[0]} has the home page's title`);
         else if (where.length > 1) problems.push(`${where.join(', ')} share the title "${title}"`);
@@ -203,7 +218,7 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present, pre-built pages and sitemap complete`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present, pre-built pages, home panel and sitemap complete`);
 
 function canonicalOf(html) {
     return /<link rel="canonical" href="([^"]*)"/.exec(html)?.[1] ?? 'missing';
