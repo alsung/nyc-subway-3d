@@ -416,7 +416,10 @@ async function init() {
         if (complexId) {
             const complex = complexById.get(complexId);
             if (!complex) {
-                // A station id that does not exist. Real 404s are #119.
+                // A station id the data doesn't have. Vercel answers an address
+                // with no page with the 404 page (#119), so this is a page the
+                // build wrote that the app's data can't place, as when
+                // stations.json or the GTFS files fail to load.
                 // Closed even when nothing is open yet: a pre-built page whose
                 // station the data no longer has arrives with its panel open.
                 closeStation();

@@ -1,6 +1,7 @@
 {
     "buildCommand": "npm run build",
     "outputDirectory": "dist",
+    "trailingSlash": false,
     "redirects": [
         {
             "source": "/status{/}?",
@@ -9,7 +10,8 @@
         }
     ],
     "rewrites": [
-        { "source": "/(.*)", "destination": "/index.html" }
+        { "source": "/verify", "destination": "/index.html" },
+        { "source": "/reset-password", "destination": "/index.html" }
     ],
     "headers": [
         {
@@ -21,6 +23,12 @@
                 },
                 { "key": "X-Content-Type-Options", "value": "nosniff" },
                 { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+            ]
+        },
+        {
+            "source": "/(verify|reset-password)",
+            "headers": [
+                { "key": "X-Robots-Tag", "value": "noindex" }
             ]
         },
         {

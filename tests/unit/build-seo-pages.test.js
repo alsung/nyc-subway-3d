@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { renderPage, renderHome, buildPages, duplicates } from '../../scripts/build-seo-pages.mjs';
+import {
+    renderPage, renderHome, renderNotFound, notFoundAssets, buildPages, duplicates, NOT_FOUND_TITLE, NOT_FOUND_HEADING,
+} from '../../scripts/build-seo-pages.mjs';
 import { SITE, HOME } from '../../src/core/page-meta.js';
-import { linePath } from '../../src/core/slugs.js';
+import { linePath, parseStationPath } from '../../src/core/slugs.js';
 
 // The source index.html: the build runs on the copy vite writes to dist/, which
 // keeps these tags as they are here. CI has no dist/, so the tests use this.
@@ -95,6 +97,61 @@ describe('renderHome', () => {
     });
 });
 
+describe('renderNotFound', () => {
+    const pagePaths = {
+        stations: { 611: '/station/611-times-sq-42-st', 9: '/station/9-</script><b>' },
+        lines: ['/line/g'],
+    };
+    const html = renderNotFound({
+        cssHref: '/assets/index-abc.css',
+        scriptSrc: '/assets/not-found-xyz.js',
+        linesHtml: '<section class="place-section">lines</section>',
+        pagePaths,
+    });
+
+    it('says the page is missing, and leads back to the map and to every line', () => {
+        expect(html).toContain(`<title>${NOT_FOUND_TITLE}</title>`);
+        expect(html).toContain(`<h1>${NOT_FOUND_HEADING}</h1>`);
+        expect(html).toContain('<a class="auth-page-link" href="/">Open the live map</a>');
+        expect(html.indexOf('<section class="place-section">lines</section>')).toBeGreaterThan(html.indexOf('href="/"'));
+    });
+
+    it("loads the map's stylesheet and its own script, but not the map", () => {
+        expect(html).toContain('<link rel="stylesheet" crossorigin href="/assets/index-abc.css" />');
+        expect(html).toContain('<script type="module" crossorigin src="/assets/not-found-xyz.js"></script>');
+        expect(html.match(/<script type="module"/g)).toHaveLength(1);
+        expect(html).not.toContain('gsi/client');
+    });
+
+    it('keeps itself out of search results, and claims no address', () => {
+        expect(html).toContain('<meta name="robots" content="noindex" />');
+        expect(html).not.toContain('rel="canonical"');
+        expect(html).not.toContain('og:');
+    });
+
+    it('carries the list of pages for its script, unable to close its own script', () => {
+        const json = /<script type="application\/json" id="page-paths">(.*?)<\/script>/.exec(html)?.[1];
+        expect(json).toContain('\\u003c/script>');
+        expect(JSON.parse(json)).toEqual(pagePaths);
+    });
+});
+
+describe('notFoundAssets', () => {
+    const built = '<link rel="stylesheet" crossorigin href="/assets/index-CLd2GYMb.css">';
+
+    it("finds the map's stylesheet and the 404 page's script among the built files", () => {
+        expect(notFoundAssets(`<head>${built}</head>`, ['index-D0.js', 'not-found-Cx96_8jm.js', 'index-CLd2GYMb.css']))
+            .toEqual({ cssHref: '/assets/index-CLd2GYMb.css', scriptSrc: '/assets/not-found-Cx96_8jm.js' });
+    });
+
+    it('fails the build when either is missing or there is more than one', () => {
+        expect(() => notFoundAssets('<head></head>', ['not-found-a.js'])).toThrow('0 built stylesheets');
+        expect(() => notFoundAssets(built + built, ['not-found-a.js'])).toThrow('2 built stylesheets');
+        expect(() => notFoundAssets(built, ['index-a.js'])).toThrow('0 not-found scripts');
+        expect(() => notFoundAssets(built, ['not-found-a.js', 'not-found-b.js'])).toThrow('2 not-found scripts');
+    });
+});
+
 // public/ holds the downloaded data the build copies into dist/. It is
 // gitignored, so these run only where `npm run gtfs` has been.
 const readPublic = (path) => readFileSync(fileURLToPath(new URL(`../../public/${path}`, import.meta.url)), 'utf8');
@@ -115,6 +172,17 @@ describe.skipIf(!hasData)('buildPages, on the real data', () => {
         for (const id of lineIds) expect(homePanelHtml).toContain(`href="${linePath(id)}"`);
         expect(homePanelHtml).toContain('search-home--landing');
         expect(homePanelHtml).not.toMatch(/class="[^"]*\bhidden\b/);
+    });
+
+    it('gives the 404 page every station by its id, and every line', () => {
+        const { stationPages, linePages, pagePaths, notFoundLinesHtml } = buildPages(readPublic);
+        const stations = Object.entries(pagePaths.stations);
+        expect(stations).toHaveLength(stationPages.length);
+        expect(new Set(stations.map(([, path]) => path))).toEqual(new Set(stationPages.map(p => p.path)));
+        for (const [id, path] of stations) expect(parseStationPath(path), path).toBe(id);
+        expect(pagePaths.lines).toEqual(linePages.map(p => p.path));
+        for (const path of pagePaths.lines) expect(notFoundLinesHtml).toContain(`href="${path}"`);
+        expect(notFoundLinesHtml).not.toContain('search-home');
     });
 });
 

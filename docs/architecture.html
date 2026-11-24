@@ -332,10 +332,12 @@ table.grid tr.click:hover td { background: var(--sunk); }
       }
     ],
     "rewrites": [
-      "/(.*) → /index.html"
+      "/verify → /index.html",
+      "/reset-password → /index.html"
     ],
     "headers": [
       "/(.*): Content-Security-Policy: default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; connect-src 'self' https://nyc-subway-api.fly.dev https://tiles.stadiamaps.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data: blob: https://tiles.stadiamaps.com; worker-src blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; X-Content-Type-Options: nosniff; Referrer-Policy: strict-origin-when-cross-origin",
+      "/(verify|reset-password): X-Robots-Tag: noindex",
       "/assets/(.*): Cache-Control: public, max-age=31536000, immutable"
     ]
   },
@@ -2401,6 +2403,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
       "core/trunks.js",
       "data/embedded.js",
       "main.js",
+      "not-found.js",
       "scene/entrances.js",
       "scene/hit-test.js",
       "scene/lines.js",
@@ -2761,7 +2764,7 @@ table.grid tr.click:hover td { background: var(--sunk); }
         "id": "vercel",
         "label": "Vercel",
         "kind": "hosting",
-        "detail": "Builds every push with vercel.json buildCommand, serves dist/ and the SPA rewrite. Production alias localexpress.nyc."
+        "detail": "Builds every push with vercel.json buildCommand and serves dist/: dist/404.html, with a 404, for any address with no file, and the app for /verify and /reset-password. Production alias localexpress.nyc."
       },
       {
         "id": "vercel-analytics",

@@ -3,8 +3,9 @@
 // Every Vercel deployment up to 2026-08-11 shipped without them. The app did
 // not crash — it silently fell back to an embedded 45-station dataset (out of
 // 496) and rendered a map that looked plausible but was ~9% of the network.
-// The SPA rewrite made the missing files return index.html with HTTP 200, so
-// nothing in the pipeline registered a failure.
+// The SPA rewrite of the time made the missing files return index.html with
+// HTTP 200, so nothing in the pipeline registered a failure. (They get a real
+// 404 since #119.)
 //
 // This turns that silent degradation into a failed build.
 
@@ -12,6 +13,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { SITE } from '../src/core/page-meta.js';
 import { HOME_HEADING } from '../src/core/place-card.js';
+import { NOT_FOUND_HEADING } from './build-seo-pages.mjs';
+import { parseStationPath } from '../src/core/slugs.js';
 
 const DIST = 'dist';
 const REQUIRED = ['stops.txt', 'routes.txt', 'shapes.txt', 'trips.txt'];
@@ -211,6 +214,47 @@ try {
     problems.push(`pre-built pages unreadable — did build-seo-pages.mjs run? (${err.message})`);
 }
 
+// The 404 page (#119): what Vercel serves for every address with no file.
+// Missing, Vercel shows its own error page, with no way back to the map; with
+// a short list of pages, old station links that used to open stop working.
+try {
+    const page = readFileSync(join(DIST, '404.html'), 'utf8');
+    const home = readFileSync(join(DIST, 'index.html'), 'utf8');
+    if (!page.includes(`<h1>${NOT_FOUND_HEADING}</h1>`)) problems.push(`dist/404.html has no "${NOT_FOUND_HEADING}" heading`);
+    if (!page.includes('<meta name="robots" content="noindex" />')) problems.push('dist/404.html is missing its noindex tag');
+    if (!page.includes('href="/"')) problems.push('dist/404.html has no link back to the map');
+
+    // Its stylesheet is the map's, and its one script is its own.
+    const css = /<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+\.css)"/.exec(page)?.[1];
+    if (!css || !home.includes(`href="${css}"`)) problems.push(`dist/404.html stylesheet ${css ?? 'missing'} isn't the map's`);
+    const scripts = [...page.matchAll(/<script type="module"[^>]* src="([^"]+)"/g)].map(m => m[1]);
+    if (scripts.length !== 1 || !/^\/assets\/not-found-[\w-]+\.js$/.test(scripts[0])) {
+        problems.push(`dist/404.html loads ${scripts.join(', ') || 'no script'}, expected its own not-found script only`);
+    }
+    for (const file of [css, scripts[0]].filter(Boolean)) {
+        try { statSync(join(DIST, file)); } catch { problems.push(`dist/404.html loads ${file}, which isn't in dist/`); }
+    }
+
+    // Every page it can send an old link on to, and nothing that isn't one.
+    const pages = JSON.parse(/<script type="application\/json" id="page-paths">([^<]*)<\/script>/.exec(page)?.[1] ?? 'null');
+    const stationDirs = new Set(listDirs(join(DIST, 'station')).map(slug => `/station/${slug}`));
+    const lineDirs = new Set(listDirs(join(DIST, 'line')).map(slug => `/line/${slug}`));
+    const stations = Object.entries(pages?.stations ?? {});
+    if (stations.length !== stationDirs.size) {
+        problems.push(`dist/404.html knows ${stations.length} station pages, dist/station/ has ${stationDirs.size}`);
+    }
+    const strays = stations.filter(([id, path]) => !stationDirs.has(path) || parseStationPath(path) !== id);
+    if (strays.length) problems.push(`dist/404.html sends station ${strays[0][0]} to ${strays[0][1]}, which isn't its page`);
+    const lines = pages?.lines ?? [];
+    if (lines.length !== lineDirs.size || lines.some(path => !lineDirs.has(path))) {
+        problems.push(`dist/404.html knows ${lines.length} line pages, dist/line/ has ${lineDirs.size}`);
+    }
+    const unlinked = [...lineDirs].filter(path => !page.includes(`href="${path}"`));
+    if (unlinked.length) problems.push(`dist/404.html doesn't link ${unlinked.length} line pages, e.g. ${unlinked[0]}`);
+} catch (err) {
+    problems.push(`dist/404.html unreadable — did build-seo-pages.mjs run? (${err.message})`);
+}
+
 if (problems.length) {
     console.error('\nBuild verification failed:\n');
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -218,7 +262,7 @@ if (problems.length) {
     process.exit(1);
 }
 
-console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present, pre-built pages, home panel and sitemap complete`);
+console.log(`✓ build verified — ${REQUIRED.length} GTFS files in ${DIST}/gtfs, station, entrance, platform, car-position and line-order data present, pre-built pages, home panel, 404 page and sitemap complete`);
 
 function canonicalOf(html) {
     return /<link rel="canonical" href="([^"]*)"/.exec(html)?.[1] ?? 'missing';

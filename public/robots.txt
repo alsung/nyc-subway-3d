@@ -1,10 +1,10 @@
 # Everything here is public and safe to index.
 #
-# This file exists because the SPA rewrite in vercel.json returns index.html for
-# any path that is not a real file — so without it, /robots.txt answered with
-# 1.4 KB of HTML and a 200, and crawlers were parsing markup as robots syntax.
-# The same catch-all once served the app shell for missing GTFS files, which is
-# how a broken data pipeline stayed invisible for weeks.
+# This file was added when vercel.json still sent every path with no file to
+# index.html, so /robots.txt answered with 1.4 KB of HTML and a 200, and
+# crawlers were parsing markup as robots syntax. The same catch-all served the
+# app shell for missing GTFS files, which is how a broken data pipeline stayed
+# invisible for weeks. Since #119 a path with no file gets a real 404.
 
 User-agent: *
 Allow: /

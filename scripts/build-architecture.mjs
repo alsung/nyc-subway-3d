@@ -484,7 +484,7 @@ const DECLARED = {
         { id: 'fly-db', label: 'nyc-subway-db', provider: 'Fly.io Postgres', detail: 'Fly Postgres app in ewr on a 1 GB volume, with volume snapshots kept 5 days. The API reaches it through the DATABASE_URL secret.' },
     ],
     services: [
-        { id: 'vercel', label: 'Vercel', kind: 'hosting', detail: 'Builds every push with vercel.json buildCommand, serves dist/ and the SPA rewrite. Production alias localexpress.nyc.' },
+        { id: 'vercel', label: 'Vercel', kind: 'hosting', detail: 'Builds every push with vercel.json buildCommand and serves dist/: dist/404.html, with a 404, for any address with no file, and the app for /verify and /reset-password. Production alias localexpress.nyc.' },
         { id: 'vercel-analytics', label: 'Vercel Web Analytics', kind: 'monitoring', detail: 'Page views from @vercel/analytics inject().' },
         { id: 'namecheap', label: 'Namecheap DNS', kind: 'dns', detail: 'Registrar and DNS for localexpress.nyc (expires 2027-09-02). The send. subdomain holds the Resend sending records.' },
         { id: 'fly-grafana', label: 'Fly managed Grafana', kind: 'monitoring', detail: 'Dashboard grafana/nyc-subway-api.json over the same Prometheus. No alerting; rules run in CI.' },

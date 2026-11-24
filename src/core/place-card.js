@@ -400,18 +400,36 @@ const NAMED_LINES = ['GS', 'FS', 'H', 'SI'];
 const SHORT_NAMES = { GS: '42 St', FS: 'Franklin Av', H: 'Rockaway Park', SI: 'Staten Island' };
 
 /**
- * The home panel's inside: the site's heading, what it does, and a link to
- * every line page, grouped the way the Lines filter groups them.
- *
- * Only lines with a page are linked (lineIds, the keys of line-order.json), so
- * a link here never lands on the app's catch-all. The named rows' visible text
- * is short; their accessible name is the route's full name ("42 St Shuttle"),
- * which contains it.
+ * The home panel's inside: the site's heading, what it does, and its Lines
+ * section.
  *
  * @param {object} routeMap
  * @param {string[]} lineIds
  */
 export function searchHomeHtml(routeMap, lineIds) {
+    return `<div class="place-head">`
+        + `<div class="place-heading"><h1 class="place-title" id="search-home-title">${escapeHtml(HOME_HEADING)}</h1></div>`
+        + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
+        + `</div>`
+        + `<div class="place-body">`
+        + `<p class="home-intro">${escapeHtml(HOME_INTRO)}</p>`
+        + homeLinesHtml(routeMap, lineIds)
+        + `</div>`;
+}
+
+/**
+ * A Lines section linking every line page, grouped the way the Lines filter
+ * groups them. The home panel and the 404 page both carry it (#119).
+ *
+ * Only lines with a page are linked (lineIds, the keys of line-order.json), so
+ * a link here never lands on the 404 page. The named rows' visible text is
+ * short; their accessible name is the route's full name ("42 St Shuttle"),
+ * which contains it.
+ *
+ * @param {object} routeMap
+ * @param {string[]} lineIds
+ */
+export function homeLinesHtml(routeMap, lineIds) {
     const hasPage = new Set(lineIds ?? []);
     const groups = trunksFor(routeMap)
         .map(trunk => bulletRoutes(trunk.routeIds).filter(id => hasPage.has(id) && !NAMED_LINES.includes(id)))
@@ -427,22 +445,12 @@ export function searchHomeHtml(routeMap, lineIds) {
         .join('');
 
     // No lines when line-order.json didn't load, and then no empty heading.
-    const lines = groupHtml || namedHtml
-        ? `<section class="place-section" aria-labelledby="home-lines-title">`
-            + `<h2 class="place-section-title" id="home-lines-title">Lines</h2>`
-            + (groupHtml ? `<nav class="home-lines" aria-label="Subway lines">${groupHtml}</nav>` : '')
-            + (namedHtml ? `<div class="home-named">${namedHtml}</div>` : '')
-            + `</section>`
-        : '';
-
-    return `<div class="place-head">`
-        + `<div class="place-heading"><h1 class="place-title" id="search-home-title">${escapeHtml(HOME_HEADING)}</h1></div>`
-        + `<button type="button" class="popup-close" aria-label="Close">✕</button>`
-        + `</div>`
-        + `<div class="place-body">`
-        + `<p class="home-intro">${escapeHtml(HOME_INTRO)}</p>`
-        + lines
-        + `</div>`;
+    if (!groupHtml && !namedHtml) return '';
+    return `<section class="place-section" aria-labelledby="home-lines-title">`
+        + `<h2 class="place-section-title" id="home-lines-title">Lines</h2>`
+        + (groupHtml ? `<nav class="home-lines" aria-label="Subway lines">${groupHtml}</nav>` : '')
+        + (namedHtml ? `<div class="home-named">${namedHtml}</div>` : '')
+        + `</section>`;
 }
 
 /**
