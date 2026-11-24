@@ -5,7 +5,7 @@ import {
     stationModel, stationPanelHtml, stationHeadingHtml, stationFactsHtml,
     lineModel, linePanelHtml, lineFactsHtml,
     stationPanelElementHtml, linePanelElementHtml,
-    searchHomeHtml, searchHomeElementHtml, HOME_HEADING, HOME_INTRO,
+    searchHomeHtml, searchHomeElementHtml, homeLinesHtml, HOME_HEADING, HOME_INTRO,
 } from '../../src/core/place-card.js';
 import { linePath } from '../../src/core/slugs.js';
 import { buildStationMeta } from '../../src/core/station-meta.js';
@@ -452,6 +452,20 @@ describe('searchHomeHtml', () => {
         expect(html).toContain('<div class="home-named"><a href="/line/');
         expect(html).toMatch(/<a href="[^"]+" aria-label="42 St Shuttle"><span class="alert-bullet"[^>]*aria-hidden="true">S<\/span>/);
         expect(groups.flat()).not.toContain('S');
+    });
+});
+
+describe('homeLinesHtml', () => {
+    it("is the home panel's Lines section, which the 404 page carries too", () => {
+        const lines = homeLinesHtml(routeMap, ['A']);
+        expect(lines).toMatch(/^<section class="place-section" aria-labelledby="home-lines-title">.*<\/section>$/);
+        expect(lines).toContain(`href="${linePath('A')}"`);
+        expect(searchHomeHtml(routeMap, ['A'])).toContain(`<p class="home-intro">${escapeHtml(HOME_INTRO)}</p>${lines}</div>`);
+    });
+
+    it('is empty when no line has a page', () => {
+        expect(homeLinesHtml(routeMap, [])).toBe('');
+        expect(homeLinesHtml(routeMap, undefined)).toBe('');
     });
 });
 

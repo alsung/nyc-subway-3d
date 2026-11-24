@@ -12,16 +12,19 @@
 //
 // Runs after `vite build` and before verify-build.mjs, from the data the build
 // just copied into dist/, so the pages describe exactly what ships. Vercel
-// serves a file in dist/ before applying the app's catch-all rewrite, so
-// /station/<slug> answers with dist/station/<slug>/index.html.
+// serves /station/<slug> from dist/station/<slug>/index.html, and any address
+// with no file from dist/404.html, with a 404 status (#119). This writes that
+// page too: a way back to the map, every line, and the list of real pages its
+// script uses to send an old or trimmed station link on to the right one.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { parseStops, parseRoutes, buildStationComplexes } from '../src/core/gtfs-parser.js';
 import { buildStationMeta, complexIdIndex } from '../src/core/station-meta.js';
 import { parseEntrances, indexByComplex } from '../src/core/entrances.js';
 import {
     escapeHtml, stationModel, lineModel, stationPanelElementHtml, linePanelElementHtml, searchHomeElementHtml,
+    homeLinesHtml,
 } from '../src/core/place-card.js';
 import {
     SITE, HOME, stationPageMeta, linePageMeta, stationJsonLd, lineJsonLd, sitemapXml,
@@ -91,6 +94,74 @@ export function renderHome(template, panelHtml) {
     return swapOnce(template, HOME_MARKER, panelHtml, 'search-home markers');
 }
 
+export const NOT_FOUND_TITLE = 'Page not found | Local Express';
+export const NOT_FOUND_HEADING = 'Page not found';
+
+/**
+ * The 404 page (#119), which Vercel serves for any address with no file.
+ *
+ * It uses the map's stylesheet, so it looks like the site and costs nothing
+ * more when the visitor goes on to the map, but not the map's script: a page
+ * that isn't there doesn't need to load the subway. It isn't built from
+ * index.html for the same reason, and has no canonical link or share card,
+ * since it is never the page anyone should land on. noindex covers /404.html
+ * itself, the one address that serves it with a 200.
+ *
+ * @param {{cssHref: string, scriptSrc: string, linesHtml: string,
+ *   pagePaths: {stations: Record<string, string>, lines: string[]}}} page
+ */
+export function renderNotFound({ cssHref, scriptSrc, linesHtml, pagePaths }) {
+    const attr = escapeHtml;
+    // As with the structured data above: "<" escaped so a path can't close
+    // the script element, and the browser doesn't run JSON, so script-src
+    // doesn't apply. src/not-found.js reads it.
+    const json = JSON.stringify(pagePaths).replace(/</g, '\\u003c');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml(NOT_FOUND_TITLE)}</title>
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0a0a1a" />
+    <link rel="stylesheet" crossorigin href="${attr(cssHref)}" />
+    <script type="application/json" id="page-paths">${json}</script>
+    <script type="module" crossorigin src="${attr(scriptSrc)}"></script>
+</head>
+<body>
+    <main class="auth-page not-found-page">
+        <div class="auth-page-card">
+            <h1>${escapeHtml(NOT_FOUND_HEADING)}</h1>
+            <p>There's nothing at this address. It may be a typo, or a link to a page that has moved.</p>
+            <a class="auth-page-link" href="/">Open the live map</a>
+            ${linesHtml}
+        </div>
+    </main>
+</body>
+</html>
+`;
+}
+
+/**
+ * The two files vite build made that the 404 page loads: the map's stylesheet,
+ * read from dist/index.html, and the page's own script, from dist/assets.
+ * Either missing, or more than one, fails the build.
+ *
+ * @param {string} template dist/index.html
+ * @param {string[]} assetFiles the names in dist/assets
+ */
+export function notFoundAssets(template, assetFiles) {
+    const styles = [...template.matchAll(/<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+\.css)">/g)];
+    if (styles.length !== 1) throw new Error(`index.html has ${styles.length} built stylesheets, expected exactly one`);
+    const scripts = assetFiles.filter(name => /^not-found-[\w-]+\.js$/.test(name));
+    if (scripts.length !== 1) throw new Error(`dist/assets has ${scripts.length} not-found scripts, expected exactly one`);
+    return { cssHref: styles[0][1], scriptSrc: `/assets/${scripts[0]}` };
+}
+
 /** Every station and line page, from the data in a build's output folder. */
 export function buildPages(read) {
     const { stations } = parseStops(read('gtfs/stops.txt'));
@@ -127,7 +198,14 @@ export function buildPages(read) {
     // Links every line that has a page, so a crawler on the home page reaches
     // all of them, and through their stop lists every station.
     const homePanelHtml = searchHomeElementHtml(routeMap, Object.keys(lineOrder), { landing: true });
-    return { stationPages, linePages, homePanelHtml };
+    // The 404 page's way on: the same Lines section, and every page by the
+    // complex id its address starts with, in the same order as the pages.
+    const notFoundLinesHtml = homeLinesHtml(routeMap, Object.keys(lineOrder));
+    const pagePaths = {
+        stations: Object.fromEntries([...complexById.keys()].map((id, i) => [id, stationPages[i].path])),
+        lines: linePages.map(p => p.path),
+    };
+    return { stationPages, linePages, homePanelHtml, notFoundLinesHtml, pagePaths };
 }
 
 /** Titles or paths that more than one page claims. */
@@ -147,7 +225,7 @@ function main() {
         }
     };
     const template = read('index.html');
-    const { stationPages, linePages, homePanelHtml } = buildPages(read);
+    const { stationPages, linePages, homePanelHtml, notFoundLinesHtml, pagePaths } = buildPages(read);
     const pages = [...stationPages, ...linePages];
 
     // Two pages with one title compete for the same searches; two with one
@@ -162,13 +240,15 @@ function main() {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, renderPage(template, page));
     }
+    const assets = notFoundAssets(template, readdirSync(join(DIST, 'assets')));
+    writeFileSync(join(DIST, '404.html'), renderNotFound({ ...assets, linesHtml: notFoundLinesHtml, pagePaths }));
     // Last, because every page above was built from this file as it came out of
     // vite build.
     writeFileSync(join(DIST, 'index.html'), renderHome(template, homePanelHtml));
     writeFileSync(join(DIST, 'sitemap.xml'), sitemapXml([HOME.path, ...pages.map(p => p.path)]));
 
-    console.log(`✓ pre-built ${stationPages.length} station pages, ${linePages.length} line pages and the home panel, `
-        + `and a sitemap of ${pages.length + 1} URLs`);
+    console.log(`✓ pre-built ${stationPages.length} station pages, ${linePages.length} line pages, the home panel `
+        + `and the 404 page, and a sitemap of ${pages.length + 1} URLs`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
